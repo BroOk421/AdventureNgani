@@ -164,6 +164,11 @@ const assets = {
 
   // --- house (assets/items/house/) ---
   house1: new Image(),
+  // Interior scene art (assets/interior/asesprite/interior.ase, exported
+  // to .png alongside it) — the one interior room layout that currently
+  // exists, entered by walking onto house2's/house3's front-door tile.
+  // See js/interior.js.
+  interiorHouse: new Image(),
 
   // --- weather FX particles (assets/particles/), see js/weatherfx.js ---
   rain: new Image(),
@@ -201,7 +206,145 @@ const assets = {
   // chopping trees, see itemDefs `resource.dropItem`, inventory.js ---
   woodLog: new Image(),
   woodPlank: new Image(),
-  woodStick: new Image()
+  woodStick: new Image(),
+// ==== added by tools/add_remaining_items.py — new items pass ====
+  bushBigGreen: new Image(),
+  bushBigLightGreen: new Image(),
+  bushBigRed: new Image(),
+  bushBigYellow: new Image(),
+  bushMediumGreen: new Image(),
+  bushMediumLightGreen: new Image(),
+  bushMediumRed: new Image(),
+  bushMediumYellow: new Image(),
+  bushSmallGreen: new Image(),
+  bushSmallLightGreen: new Image(),
+  bushSmallRed: new Image(),
+  bushSmallYellow: new Image(),
+  bushXSGreen: new Image(),
+  bushXSLightGreen: new Image(),
+  bushXSRed: new Image(),
+  bushXSYellow: new Image(),
+  bushFlowerA: new Image(),
+  bushFlowerB: new Image(),
+  bushFlowerC: new Image(),
+  bushFlowerD: new Image(),
+  bushMushroom1: new Image(),
+  bushMushroom2: new Image(),
+  leavesFloor: new Image(),
+  treeMediumGreen: new Image(),
+  treeMediumLightGreen: new Image(),
+  treeMediumRed: new Image(),
+  treeMediumYellow: new Image(),
+  treeMediumGreenTrunk: new Image(),
+  treeMediumRedYellowTrunk: new Image(),
+  house2: new Image(),
+  house3: new Image(),
+  floorBrown: new Image(),
+  floorDarkGreen: new Image(),
+  floorGreen: new Image(),
+  interiorWall: new Image(),
+  ceilingTile: new Image(),
+  windowPlain1: new Image(),
+  windowPlain2: new Image(),
+  windowLight1: new Image(),
+  windowLight2: new Image(),
+  windowLight3: new Image(),
+  doorPlain1: new Image(),
+  doorPlain2: new Image(),
+  doorPlain3: new Image(),
+  chimneyRedDoor: new Image(),
+  wallPoster: new Image(),
+  pictureFrame: new Image(),
+  boardA: new Image(),
+  boardB: new Image(),
+  wallFurniture1: new Image(),
+  wallFurniture2: new Image(),
+  wallFurniture3: new Image(),
+  wallFurniture4: new Image(),
+  wallFurniture5: new Image(),
+  wallFurniture6: new Image(),
+  wallFurniture7: new Image(),
+  cookerExtension1: new Image(),
+  cookerExtension2: new Image(),
+  tableFurniture1: new Image(),
+  tableFurniture2: new Image(),
+  tableFurniture3: new Image(),
+  tableFurniture4: new Image(),
+  mugFull: new Image(),
+  mugEmpty: new Image(),
+  plateEmpty: new Image(),
+  plateFood: new Image(),
+  meatItem: new Image(),
+  chairFront: new Image(),
+  chairRight: new Image(),
+  cabinetBaseA: new Image(),
+  cabinetBaseB: new Image(),
+  cabinetBaseC: new Image(),
+  cabinetBaseD: new Image(),
+  basket1: new Image(),
+  basket2: new Image(),
+  bedBig: new Image(),
+  bedSmall: new Image(),
+  tableBig: new Image(),
+  tableBig1: new Image(),
+  tableBig2: new Image(),
+  tableCircle: new Image(),
+  tableKitchen: new Image(),
+  tableSmall: new Image(),
+  cookerStove1: new Image(),
+  cookerStove2: new Image(),
+  cookerStove3: new Image(),
+  couch: new Image(),
+  drawerFurniture: new Image(),
+  broom: new Image(),
+  barrelInterior: new Image(),
+  crateInterior: new Image(),
+  chimneyPlain: new Image(),
+  chimneyRed: new Image(),
+  benchHorizontal: new Image(),
+  benchVertical: new Image(),
+  chairOutdoorFront: new Image(),
+  chairOutdoorSide: new Image(),
+  fence: new Image(),
+  floorMat: new Image(),
+  longTableHorizontal: new Image(),
+  longTableVertical: new Image(),
+  portBridge: new Image(),
+  portBridgeDecor: new Image(),
+  portBridgeFront1: new Image(),
+  portBridgeFront2: new Image(),
+  portBridgeFront3: new Image(),
+  portBridgeFront4: new Image(),
+  portBridgeWall1: new Image(),
+  portBridgeWall2: new Image(),
+  postPlain: new Image(),
+  postLight: new Image(),
+  postHandleLight: new Image(),
+  tableOutdoorSmall: new Image(),
+  vegOnion: new Image(),
+  vegOnionBox: new Image(),
+  vegPetchay: new Image(),
+  vegPetchayBox: new Image(),
+  vegCabbage: new Image(),
+  vegCabbageBox: new Image(),
+  vegBrocolli: new Image(),
+  vegBrocolliBox: new Image(),
+  vegBrocolliFlower: new Image(),
+  vegBrocolliFlowerBox: new Image(),
+  vegCarrots: new Image(),
+  vegCarrotBox: new Image(),
+  vegDragonfruit: new Image(),
+  vegDragonfruitBox: new Image(),
+  vegCrate: new Image(),
+  vegCrateOpen: new Image(),
+  dirtRake: new Image(),
+  dirtWet: new Image(),
+  plantDrawer: new Image(),
+  plotSocketOpen: new Image(),
+  plotSocketClosed: new Image(),
+  waterCrateHorizontal: new Image(),
+  waterCrateVertical: new Image(),
+
 };
 
 assets.dirt1.src = "assets/items/tile/dirt1.png";
@@ -437,3 +580,142 @@ Object.values(assets).forEach((img) => {
   };
   img.onerror = () => console.error("Failed to load asset:", img.src);
 });
+
+// ==== added by tools/add_remaining_items.py — new items pass ====
+assets.bushBigGreen.src = "assets/bushes/biggreenbush.png";
+assets.bushBigLightGreen.src = "assets/bushes/biglightgreenbush.png";
+assets.bushBigRed.src = "assets/bushes/bigredbush.png";
+assets.bushBigYellow.src = "assets/bushes/bigyellowbush.png";
+assets.bushMediumGreen.src = "assets/bushes/mediumgreenbush.png";
+assets.bushMediumLightGreen.src = "assets/bushes/mediumlightgreenbush.png";
+assets.bushMediumRed.src = "assets/bushes/mediumredbush.png";
+assets.bushMediumYellow.src = "assets/bushes/mediumyellowbush.png";
+assets.bushSmallGreen.src = "assets/bushes/smallgreenbush.png";
+assets.bushSmallLightGreen.src = "assets/bushes/smalllightgreenbush.png";
+assets.bushSmallRed.src = "assets/bushes/smallredbush.png";
+assets.bushSmallYellow.src = "assets/bushes/smallyellowbush.png";
+assets.bushXSGreen.src = "assets/bushes/xsgreenbush.png";
+assets.bushXSLightGreen.src = "assets/bushes/xslightgreenbush.png";
+assets.bushXSRed.src = "assets/bushes/xsredbush.png";
+assets.bushXSYellow.src = "assets/bushes/xsyellowbush.png";
+assets.bushFlowerA.src = "assets/bushes/flower.png";
+assets.bushFlowerB.src = "assets/bushes/flower2.png";
+assets.bushFlowerC.src = "assets/bushes/flower3.png";
+assets.bushFlowerD.src = "assets/bushes/flower4.png";
+assets.bushMushroom1.src = "assets/bushes/mushroom.png";
+assets.bushMushroom2.src = "assets/bushes/mushroom2.png";
+assets.leavesFloor.src = "assets/bushes/leaves_floor.png";
+assets.treeMediumGreen.src = "assets/items/trees/green/mediumgreentree.png";
+assets.treeMediumLightGreen.src = "assets/items/trees/lightgreen/mediumlightgreentree.png";
+assets.treeMediumRed.src = "assets/items/trees/red/mediumredtree.png";
+assets.treeMediumYellow.src = "assets/items/trees/yellow/mediumyellowtree.png";
+assets.treeMediumGreenTrunk.src = "assets/items/trees/trunks/mediumgreentrunk.png";
+assets.treeMediumRedYellowTrunk.src = "assets/items/trees/trunks/mediumredyellowtrunk.png";
+assets.house2.src = "assets/items/house/house2.png";
+assets.house3.src = "assets/items/house/house3.png";
+assets.interiorHouse.src = "assets/interior/asesprite/interior.png";
+assets.floorBrown.src = "assets/interior/floorbrown.png";
+assets.floorDarkGreen.src = "assets/interior/floordarkgreen.png";
+assets.floorGreen.src = "assets/interior/floorgreen.png";
+assets.interiorWall.src = "assets/interior/interior_wall.png";
+assets.ceilingTile.src = "assets/interior/ceiling.png";
+assets.windowPlain1.src = "assets/interior/window.png";
+assets.windowPlain2.src = "assets/interior/window2.png";
+assets.windowLight1.src = "assets/interior/window_light.png";
+assets.windowLight2.src = "assets/interior/window_light2.png";
+assets.windowLight3.src = "assets/interior/window_light3.png";
+assets.doorPlain1.src = "assets/interior/door.png";
+assets.doorPlain2.src = "assets/interior/door2.png";
+assets.doorPlain3.src = "assets/interior/door3.png";
+assets.chimneyRedDoor.src = "assets/interior/chimnyreddoor.png";
+assets.wallPoster.src = "assets/interior/wall_poster.png";
+assets.pictureFrame.src = "assets/interior/pictureframe.png";
+assets.boardA.src = "assets/interior/board.png";
+assets.boardB.src = "assets/interior/board2.png";
+assets.wallFurniture1.src = "assets/interior/wall_furniture.png";
+assets.wallFurniture2.src = "assets/interior/wall_furniture2.png";
+assets.wallFurniture3.src = "assets/interior/wall_furniture3.png";
+assets.wallFurniture4.src = "assets/interior/wall_furniture4.png";
+assets.wallFurniture5.src = "assets/interior/wall_furniture5.png";
+assets.wallFurniture6.src = "assets/interior/wall_furniture6.png";
+assets.wallFurniture7.src = "assets/interior/wall_furniture7.png";
+assets.cookerExtension1.src = "assets/interior/cooker_extension.png";
+assets.cookerExtension2.src = "assets/interior/cooker2_extension.png";
+assets.tableFurniture1.src = "assets/interior/table_furniture.png";
+assets.tableFurniture2.src = "assets/interior/table_furniture2.png";
+assets.tableFurniture3.src = "assets/interior/table_furniture3.png";
+assets.tableFurniture4.src = "assets/interior/table_furniture4.png";
+assets.mugFull.src = "assets/interior/mug_drink.png";
+assets.mugEmpty.src = "assets/interior/mug_empty.png";
+assets.plateEmpty.src = "assets/interior/plate_empty.png";
+assets.plateFood.src = "assets/interior/plate_food.png";
+assets.meatItem.src = "assets/interior/meat.png";
+assets.chairFront.src = "assets/interior/frontchair.png";
+assets.chairRight.src = "assets/interior/rightchair.png";
+assets.cabinetBaseA.src = "assets/interior/base.png";
+assets.cabinetBaseB.src = "assets/interior/base2.png";
+assets.cabinetBaseC.src = "assets/interior/base3.png";
+assets.cabinetBaseD.src = "assets/interior/base5.png";
+assets.basket1.src = "assets/interior/basket.png";
+assets.basket2.src = "assets/interior/basket2.png";
+assets.bedBig.src = "assets/interior/bigbed.png";
+assets.bedSmall.src = "assets/interior/smallbed.png";
+assets.tableBig.src = "assets/interior/bigtable.png";
+assets.tableBig1.src = "assets/interior/bigtable1.png";
+assets.tableBig2.src = "assets/interior/bigtable2.png";
+assets.tableCircle.src = "assets/interior/circletable.png";
+assets.tableKitchen.src = "assets/interior/kitchen_table.png";
+assets.tableSmall.src = "assets/interior/smalltable.png";
+assets.cookerStove1.src = "assets/interior/cooker.png";
+assets.cookerStove2.src = "assets/interior/cooker2.png";
+assets.cookerStove3.src = "assets/interior/cooker3.png";
+assets.couch.src = "assets/interior/couch.png";
+assets.drawerFurniture.src = "assets/interior/drawer.png";
+assets.broom.src = "assets/interior/walis.png";
+assets.barrelInterior.src = "assets/interior/barrel.png";
+assets.crateInterior.src = "assets/interior/box.png";
+assets.chimneyPlain.src = "assets/interior/chimny.png";
+assets.chimneyRed.src = "assets/interior/chimnyred.png";
+assets.benchHorizontal.src = "assets/outdoor/benchh.png";
+assets.benchVertical.src = "assets/outdoor/benchv.png";
+assets.chairOutdoorFront.src = "assets/outdoor/chairfront.png";
+assets.chairOutdoorSide.src = "assets/outdoor/chairside.png";
+assets.fence.src = "assets/outdoor/fence.png";
+assets.floorMat.src = "assets/outdoor/floormat.png";
+assets.longTableHorizontal.src = "assets/outdoor/longtableh.png";
+assets.longTableVertical.src = "assets/outdoor/longtablev.png";
+assets.portBridge.src = "assets/outdoor/port_bridge.png";
+assets.portBridgeDecor.src = "assets/outdoor/port_bridge_decor.png";
+assets.portBridgeFront1.src = "assets/outdoor/port_bridge_front.png";
+assets.portBridgeFront2.src = "assets/outdoor/port_bridge_front2.png";
+assets.portBridgeFront3.src = "assets/outdoor/port_bridge_front3.png";
+assets.portBridgeFront4.src = "assets/outdoor/port_bridge_front4.png";
+assets.portBridgeWall1.src = "assets/outdoor/port_bridge_wall.png";
+assets.portBridgeWall2.src = "assets/outdoor/port_bridge_wall2.png";
+assets.postPlain.src = "assets/outdoor/post.png";
+assets.postLight.src = "assets/outdoor/postlight.png";
+assets.postHandleLight.src = "assets/outdoor/posthandlelight.png";
+assets.tableOutdoorSmall.src = "assets/outdoor/table.png";
+assets.vegOnion.src = "assets/items/vegetables/onion/onion_mature.png";
+assets.vegOnionBox.src = "assets/items/vegetables/onion/onionbox.png";
+assets.vegPetchay.src = "assets/items/vegetables/petchay/petchay_mature.png";
+assets.vegPetchayBox.src = "assets/items/vegetables/petchay/petchaybox.png";
+assets.vegCabbage.src = "assets/items/vegetables/cabbage/cabbage_mature.png";
+assets.vegCabbageBox.src = "assets/items/vegetables/cabbage/cabbagebox.png";
+assets.vegBrocolli.src = "assets/items/vegetables/brocolli/brocolli_mature.png";
+assets.vegBrocolliBox.src = "assets/items/vegetables/brocolli/brocollibox.png";
+assets.vegBrocolliFlower.src = "assets/items/vegetables/brocolli_flower/brocolli_flower_mature.png";
+assets.vegBrocolliFlowerBox.src = "assets/items/vegetables/brocolli_flower/brocolli_flowerbox.png";
+assets.vegCarrots.src = "assets/items/vegetables/carrots/carrots_mature.png";
+assets.vegCarrotBox.src = "assets/items/vegetables/carrots/carrotbox.png";
+assets.vegDragonfruit.src = "assets/items/vegetables/dragonfruit/dragonfruit_mature.png";
+assets.vegDragonfruitBox.src = "assets/items/vegetables/dragonfruit/dragonfruitbox.png";
+assets.vegCrate.src = "assets/items/vegetables/box.png";
+assets.vegCrateOpen.src = "assets/items/vegetables/boxopen.png";
+assets.dirtRake.src = "assets/items/vegetables/dirtrake.png";
+assets.dirtWet.src = "assets/items/vegetables/dirtwet.png";
+assets.plantDrawer.src = "assets/items/vegetables/plantdrawer.png";
+assets.plotSocketOpen.src = "assets/items/vegetables/socketopen.png";
+assets.plotSocketClosed.src = "assets/items/vegetables/socketclose.png";
+assets.waterCrateHorizontal.src = "assets/items/vegetables/waterboxh.png";
+assets.waterCrateVertical.src = "assets/items/vegetables/waterboxv.png";

@@ -123,6 +123,12 @@ function drawHeldItemAboveHead(px, py, size, scale) {
   ctx.drawImage(icon, px - iconSize / 2, headY - iconSize - gapAboveHead, iconSize, iconSize);
 }
 
+function currentPlayerSheet() {
+  const animKey = player.action || player.anim; // any active one-shot action (collect/crush/slice/...) overrides idle/walk/run
+  const carryVisual = player.mode === "carrying" || !!heldItem;
+  return spriteForFacing(animKey, player.facing, carryVisual ? "carrying" : "normal");
+}
+
 function drawPlayer(px, py, scale) {
   // while the collect action plays, use its sheet; otherwise the normal
   // idle/walk/run (or carry* equivalent) sheet.
@@ -132,10 +138,10 @@ function drawPlayer(px, py, scale) {
   // E collect/put-down demo toggle) OR `heldItem` is set (an item picked up
   // from the hotbar/inventory for placement, see js/inventory.js). Without
   // this OR, holding an item to place never switched idle/walk/run to the
-  // Carry_* sheets — only the separate E-toggle did.
-  const animKey = player.action || player.anim; // any active one-shot action (collect/crush/slice/...) overrides idle/walk/run
-  const carryVisual = player.mode === "carrying" || !!heldItem;
-  const sheet = spriteForFacing(animKey, player.facing, carryVisual ? "carrying" : "normal");
+  // Carry_* sheets — only the separate E-toggle did. (Picked in
+  // currentPlayerSheet() above, shared with the object-fade test so the
+  // fade always checks the exact frame being drawn.)
+  const sheet = currentPlayerSheet();
   const sx = player.frame * FRAME_SIZE;
   const size = DRAW_SIZE * scale;
   // Anchor the shadow at the real feet-pixel position within the sprite
@@ -240,28 +246,201 @@ function drawGroundItemAt(type, col, row) {
   ctx.drawImage(icon, screenX, screenY, w, h);
 }
 
-// Whether drawing an object at world-space bounds
-// (objMinX/objMaxX/objMinY/objMaxY) should fade, because the player is
-// BOTH currently drawn behind it (playerSortY < objSortY — see the
-// Y-sort in renderWorldObjectsSorted()) AND visually overlapping its
-// sprite on screen — i.e. the object would otherwise fully hide the
-// character standing "inside" it. The player's own bounds use their
-// actual visible extent (head-top to feet, SPRITE_HEAD_FRACTION/
-// SPRITE_FEET_FRACTION of DRAW_SIZE — the sprite frame has transparent
-// padding above/below that, so the full DRAW_SIZE box would over-trigger
-// this) and a narrower width than the full frame for the same reason.
-const OBJECT_FADE_PLAYER_HALF_WIDTH = DRAW_SIZE * 0.35;
+// =================================================================
+// OBJECT FADE (see-through trees/stones/house) — pixel-vs-pixel.
+//
+// Per request: a tree/stone fades ONLY once the character actually
+// reaches its real leaves/trunk/rock pixels (standing in its transparent
+// deadspace, or just beside it, must NOT fade it), and the house fades
+// ONLY when the character is actually BEHIND it — never for standing
+// beside its walls.
+//
+// Why the earlier versions still faded "from the side": the character
+// was treated as a box DRAW_SIZE * 0.35 = 16.8 world px to each side of
+// its center (~34 px wide), but the character's real visible body is only
+// ~14 px wide (sprite px 23..41 of the 64px frame, drawn at 48/64 scale).
+// That fat box reached 10 px past the character's arm on either side, so
+// it touched a trunk/root/branch/house wall while the character was
+// visibly still standing next to it with clear grass in between.
+//
+// Now BOTH sides are tested with their real pixels: the character's
+// CURRENT animation frame (CHARACTER_ALPHA_MASKS) against the object's art
+// (OBJECT_ALPHA_MASKS), both precomputed in js/objectAlphaMasks.js
+// (generator: tools/generate_alpha_masks.py) — no canvas getImageData,
+// so it also works when the game is opened via file://.
+// =================================================================
+const OBJECT_MASK_CACHE = new Map();    // itemDefs type -> decoded mask | null
+const CHARACTER_MASK_CACHE = new Map(); // sprite sheet Image -> decoded mask | null
 
-function isPlayerBehindAndOverlapping(objMinX, objMaxX, objMinY, objMaxY, objSortY) {
+function decodeMaskBytes(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function getObjectMask(type) {
+  if (OBJECT_MASK_CACHE.has(type)) return OBJECT_MASK_CACHE.get(type);
+  const entry = typeof OBJECT_ALPHA_MASKS !== "undefined" ? OBJECT_ALPHA_MASKS[type] : null;
+  const decoded = entry
+    ? { w: entry.w, h: entry.h, rowBytes: (entry.w + 7) >> 3, bytes: decodeMaskBytes(entry.b64) }
+    : null;
+  OBJECT_MASK_CACHE.set(type, decoded);
+  return decoded;
+}
+
+// Is icon-space pixel (px, py) of this object opaque? Outside the icon =
+// transparent. No mask for this type at all = treated as solid (so a
+// newly-added item without a mask yet still fades, bounding-box style).
+function isObjectPixelOpaque(mask, px, py) {
+  if (!mask) return true;
+  if (px < 0 || py < 0 || px >= mask.w || py >= mask.h) return false;
+  return (mask.bytes[py * mask.rowBytes + (px >> 3)] & (0x80 >> (px & 7))) !== 0;
+}
+
+// Looks up a character sheet's mask by its path under assets/sprites/
+// (how CHARACTER_ALPHA_MASKS is keyed) — works for both file:// and
+// http(s) URLs since only the tail of the path is compared.
+function getCharacterMask(sheet) {
+  if (!sheet) return null;
+  if (CHARACTER_MASK_CACHE.has(sheet)) return CHARACTER_MASK_CACHE.get(sheet);
+  let decoded = null;
+  if (typeof CHARACTER_ALPHA_MASKS !== "undefined" && sheet.src) {
+    const url = decodeURIComponent(sheet.src).replace(/\\/g, "/");
+    const marker = "assets/sprites/";
+    const i = url.lastIndexOf(marker);
+    const entry = i >= 0 ? CHARACTER_ALPHA_MASKS[url.slice(i + marker.length).split("?")[0]] : null;
+    if (entry) {
+      const rowBytes = (entry.w + 7) >> 3;
+      const frameBytes = rowBytes * entry.h;
+      const bytes = decodeMaskBytes(entry.b64);
+      // Union (OR) of every frame in the sheet — the whole space the
+      // character occupies over the loop. Used for idle/walk/run so the
+      // fade doesn't flicker on/off every animation frame while standing
+      // right at a leaf/trunk edge (the idle arm sway alone moves ~1px).
+      const union = new Uint8Array(frameBytes);
+      for (let f = 0; f < entry.frames; f++) {
+        for (let i = 0; i < frameBytes; i++) union[i] |= bytes[f * frameBytes + i];
+      }
+      decoded = { ...entry, rowBytes, frameBytes, bytes, union };
+    }
+  }
+  CHARACTER_MASK_CACHE.set(sheet, decoded);
+  return decoded;
+}
+
+// Fallback body, used only if a sheet somehow has no mask: the measured
+// idle/walk/run union bbox (sprite px within the 64x64 frame).
+const PLAYER_BODY_FALLBACK = { x: 23, y: 17, w: 19, h: 31 };
+
+// The feet — used for the house's "only when BEHIND it" rule. Measured
+// from the idle/walk/run frames: both feet sit on sprite rows 44..47,
+// columns 26..37.
+const PLAYER_FEET_SPRITE = { x0: 26, x1: 38, y0: 44, y1: 48 };
+
+// Everything needed to map the character's CURRENT frame into world
+// space this frame — same sheet/frame/mirroring drawPlayer() draws with.
+function getPlayerOcclusionBody() {
+  const sheet = currentPlayerSheet();
+  const mask = getCharacterMask(sheet);
+  const box = mask || PLAYER_BODY_FALLBACK;
+  const scale = DRAW_SIZE / FRAME_SIZE; // world px per sprite px
+  const frameLeft = player.x - DRAW_SIZE / 2;
+  const frameTop = player.y - DRAW_SIZE / 2;
+  const mirror = player.facing === "left"; // drawPlayer() flips the side sheet for left
+  // sprite-x -> world-x, accounting for the mirror
+  const spriteToWorldX = (sx) => (mirror ? player.x + (FRAME_SIZE / 2 - sx) * scale : frameLeft + sx * scale);
+  const xa = spriteToWorldX(box.x), xb = spriteToWorldX(box.x + box.w);
+  // One-shot actions (chop/crush/collect...) test the exact current frame
+  // (an axe swing's union would be huge); looping idle/walk/run test the
+  // sheet's union silhouette so the result is stable across frames.
+  const useExactFrame = !!player.action;
+  return {
+    mask,
+    bits: mask ? (useExactFrame ? mask.bytes : mask.union) : null,
+    bitsOffset: mask && useExactFrame ? Math.min(player.frame, mask.frames - 1) * mask.frameBytes : 0,
+    scale, frameLeft, frameTop, mirror, spriteToWorldX,
+    minX: Math.min(xa, xb), maxX: Math.max(xa, xb),
+    minY: frameTop + box.y * scale, maxY: frameTop + (box.y + box.h) * scale,
+  };
+}
+
+function isCharacterPixelOpaque(body, lx, ly) {
+  const m = body.mask;
+  if (!m) return true; // fallback box — treat the whole box as body
+  return (body.bits[body.bitsOffset + ly * m.rowBytes + (lx >> 3)] & (0x80 >> (lx & 7))) !== 0;
+}
+
+// Does ANY opaque pixel of the character's current frame land on an
+// opaque pixel of the object? Walks the character's (small, cropped)
+// frame pixel by pixel, maps each one's center into world space, then
+// into the object's icon space (1 icon px = 1 world px).
+function characterTouchesObjectPixels(body, objMask, objMinX, objMinY) {
+  const w = body.mask ? body.mask.w : PLAYER_BODY_FALLBACK.w;
+  const h = body.mask ? body.mask.h : PLAYER_BODY_FALLBACK.h;
+  const ox = body.mask ? body.mask.x : PLAYER_BODY_FALLBACK.x;
+  const oy = body.mask ? body.mask.y : PLAYER_BODY_FALLBACK.y;
+  for (let ly = 0; ly < h; ly++) {
+    const wy = body.frameTop + (oy + ly + 0.5) * body.scale;
+    const py = Math.floor(wy - objMinY);
+    if (py < 0 || py >= (objMask ? objMask.h : Infinity)) continue;
+    for (let lx = 0; lx < w; lx++) {
+      if (!isCharacterPixelOpaque(body, lx, ly)) continue;
+      const wx = body.spriteToWorldX(ox + lx + 0.5);
+      if (isObjectPixelOpaque(objMask, Math.floor(wx - objMinX), py)) return true;
+    }
+  }
+  return false;
+}
+
+// House rule: the character counts as BEHIND the house only if their
+// FEET are hidden behind the house's own pixels (roof/back wall). Standing
+// beside a wall — even with the head poking in front of the roof's
+// overhang — leaves the feet on open grass, so it doesn't count.
+// Ignored margin at the left/right edges of a `fadeOnlyWhenBehind`
+// object's mask when testing whether the feet are "behind" it — per
+// request ("5px na lang sa left at right na collisions para di na mag
+// opacity kapag nagpunta sa left at right"): a wide roof genuinely does
+// extend further sideways than the walls beneath it, so a marginal graze
+// right at that outer edge was pixel-accurate but still read as "just
+// walking past the side", not really behind the building — excluding a
+// 5px sliver on each side means the feet have to be meaningfully under
+// the roof, not just clipping its very tip, before it fades.
+const FADE_EDGE_INSET_PX = 5;
+
+function characterFeetBehindObject(body, objMask, objMinX, objMinY) {
+  const f = PLAYER_FEET_SPRITE;
+  const insetMin = objMask ? FADE_EDGE_INSET_PX : 0;
+  const insetMax = objMask ? objMask.w - FADE_EDGE_INSET_PX : Infinity;
+  for (let sy = f.y0; sy < f.y1; sy++) {
+    const py = Math.floor(body.frameTop + (sy + 0.5) * body.scale - objMinY);
+    for (let sx = f.x0; sx < f.x1; sx++) {
+      const px = Math.floor(body.spriteToWorldX(sx + 0.5) - objMinX);
+      if (px < insetMin || px >= insetMax) continue; // within the excluded edge margin — doesn't count as "behind"
+      if (isObjectPixelOpaque(objMask, px, py)) return true;
+    }
+  }
+  return false;
+}
+
+// Should this object draw faded this frame?
+//  1. the character must be drawn BEHIND it in the Y-sort (otherwise the
+//     character is already on top and nothing needs fading);
+//  2. their bounding boxes must overlap at all (cheap early-out);
+//  3. `fadeOnlyWhenBehind` items (the house): the feet must be hidden
+//     behind the object's pixels — see characterFeetBehindObject();
+//  4. the character's real pixels must touch the object's real pixels.
+function shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, objSortY) {
   const playerSortY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
-  if (playerSortY >= objSortY) return false; // player already draws in FRONT — nothing to fade
+  if (playerSortY >= objSortY) return false;
 
-  const playerTop = player.y - DRAW_SIZE / 2 + DRAW_SIZE * SPRITE_HEAD_FRACTION;
-  const playerBottom = player.y - DRAW_SIZE / 2 + DRAW_SIZE * SPRITE_FEET_FRACTION;
-  const playerMinX = player.x - OBJECT_FADE_PLAYER_HALF_WIDTH;
-  const playerMaxX = player.x + OBJECT_FADE_PLAYER_HALF_WIDTH;
+  const body = getPlayerOcclusionBody();
+  if (body.maxX <= objMinX || body.minX >= objMaxX || body.maxY <= objMinY || body.minY >= objMaxY) return false;
 
-  return playerMaxX > objMinX && playerMinX < objMaxX && playerBottom > objMinY && playerTop < objMaxY;
+  const objMask = getObjectMask(type);
+  if (itemDefs[type].fadeOnlyWhenBehind && !characterFeetBehindObject(body, objMask, objMinX, objMinY)) return false;
+
+  return characterTouchesObjectPixels(body, objMask, objMinX, objMinY);
 }
 
 // Draws one objectLayer item (a tree, a stone, the house) for the
@@ -270,7 +449,10 @@ function isPlayerBehindAndOverlapping(objMinX, objMaxX, objMinY, objMaxY, objSor
 // (OBJECT_FADE_ALPHA) when the player is currently standing behind it in
 // a way that would otherwise hide them completely, per request ("kapag
 // dumaan sa likod... dapat nag-oopacity yung trees, stone, house...
-// para makita yung character").
+// para makita yung character"). The fade itself is pixel-accurate (see
+// shouldFadeForOcclusion above) — standing in a tree's transparent
+// deadspace (empty canopy padding, gaps between branches) does NOT fade
+// the character; only actually being covered by a leaf/trunk pixel does.
 const OBJECT_FADE_ALPHA = 0.45;
 
 function drawObjectLayerItem(type, col, row) {
@@ -285,7 +467,7 @@ function drawObjectLayerItem(type, col, row) {
   const objMinY = tileBottomY - icon.height;
   const objMaxY = tileBottomY;
 
-  const shouldFade = isPlayerBehindAndOverlapping(objMinX, objMaxX, objMinY, objMaxY, tileBottomY);
+  const shouldFade = shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, tileBottomY);
 
   const screenX = (tileCenterX - camX) * zoom - w / 2;
   const screenY = (tileBottomY - camY) * zoom - h;
@@ -518,6 +700,20 @@ function drawPlacementRange(camX, camY) {
   const holdingType = heldItem ? heldItem.type : player.grabbedType;
   if (!holdingType) return;
 
+  // Multi-tile buildings with a construction timer (the house skins) get
+  // their own preview instead of the generic per-tile range grid below —
+  // per request ("kapag naka hold na is lumitaw yung mismong tiles kung
+  // ilan yung 16x16 tile na naconsume"): the WHOLE footprint the art will
+  // actually cover, not just the one tile under the cursor. Only
+  // `heldItem` ever reaches this (the house is never E-grabbable — see
+  // tryGrabOrPlaceInFront(), inventory.js), so `player.grabbedType` can't
+  // hold one here.
+  const holdingDef = itemDefs[holdingType];
+  if (holdingDef.multiTileFootprint && holdingDef.buildSeconds) {
+    drawHouseFootprintPreview(camX, camY, holdingType);
+    return;
+  }
+
   const p = getPlayerTile();
   const size = TILE * zoom;
   const layer = layerForType(holdingType); // highlight reflects the layer THIS item would land on
@@ -554,7 +750,182 @@ function drawPlacementRange(camX, camY) {
   }
 }
 
+// Preview for a multi-tile building (house skins) while it's held: the
+// candidate anchor tile is wherever the mouse currently is
+// (lastMouseClientX/Y, inventory.js — updated on move/click), same as
+// the instant-placement items above use for their own preview. Outlines
+// EVERY tile getMultiTileFootprintTiles() says the art will cover (not
+// just the ones that end up colliding — the whole "how many 16x16 tiles
+// does this consume" picture), individually AND with one thicker
+// rectangle around the whole footprint so the shape reads clearly at a
+// glance. White/valid or red/blocked exactly matches what
+// canPlaceHouseFootprint() (inventory.js) would decide on an actual
+// click, so the preview never lies about whether a click here will work.
+function drawHouseFootprintPreview(camX, camY, type) {
+  const { col, row } = screenToTile(lastMouseClientX, lastMouseClientY);
+  const tiles = getMultiTileFootprintTiles(type, col, row);
+  const valid = canPlaceHouseFootprint(type, col, row);
+  const color = valid ? "rgba(255,255,255,0.55)" : "rgba(220,40,40,0.9)";
+  const size = TILE * zoom;
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  tiles.forEach((t) => {
+    if (t.col < 0 || t.row < 0 || t.col >= COLS || t.row >= ROWS) return;
+    const screenX = Math.round((t.col * TILE - camX) * zoom);
+    const screenY = Math.round((t.row * TILE - camY) * zoom);
+    ctx.strokeRect(screenX + 0.5, screenY + 0.5, size - 1, size - 1);
+  });
+
+  const r = getMultiTileFootprintRect(type, col, row);
+  const rx = Math.round((r.leftCol * TILE - camX) * zoom);
+  const ry = Math.round((r.topRow * TILE - camY) * zoom);
+  const rw = (r.rightCol - r.leftCol + 1) * size;
+  const rh = (r.bottomRow - r.topRow + 1) * size;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(rx + 1, ry + 1, rw - 2, rh - 2);
+}
+
+// Draws every in-progress house build (js/inventory.js's
+// pendingConstructions, started by placeHeldItemAt(), finished by
+// updateConstructions()) — a low-opacity "blueprint" ghost of the actual
+// art, plus a green countdown progress bar centered on the footprint.
+// Per request: "mag countdown 10 sec tapos may progress bar na green
+// tapos sa gitna nun is nandun yung countdown tyaka lang matatayo yung
+// bahay". Nothing here is collidable yet — the ghost is purely visual,
+// same as drawFloatingPickups()/drawThrownTosses() below it.
+// Draws every in-progress house build (js/inventory.js's
+// pendingConstructions, started by placeHeldItemAt(), finished by
+// updateConstructions()) — a low-opacity "blueprint" ghost of the actual
+// art, plus a green countdown progress bar. Per follow-up request, the
+// bar sits centered ON the house itself (not floating above it, where it
+// could read as disconnected or drift off-screen for a tall building)
+// and is small — about 2 tiles wide — rather than stretched across the
+// whole footprint.
+const CONSTRUCTION_BAR_WORLD_WIDTH = TILE * 2;  // ~2 tiles, per request
+const CONSTRUCTION_BAR_WORLD_HEIGHT = TILE * 0.6;
+
+function drawPendingConstructions(camX, camY) {
+  if (pendingConstructions.size === 0) return;
+  const now = Date.now();
+
+  pendingConstructions.forEach((info) => {
+    const icon = itemDefs[info.type].icon;
+    const w = icon.width * zoom;
+    const h = icon.height * zoom;
+    const tileCenterX = (info.col + 0.5) * TILE;
+    const tileBottomY = (info.row + 1) * TILE;
+    const screenX = (tileCenterX - camX) * zoom - w / 2;
+    const screenY = (tileBottomY - camY) * zoom - h;
+
+    ctx.globalAlpha = 0.4;
+    ctx.drawImage(icon, screenX, screenY, w, h);
+    ctx.globalAlpha = 1;
+
+    const total = Math.max(1, info.finishAt - info.startAt);
+    const progress = Math.min(1, Math.max(0, (now - info.startAt) / total));
+    const remainingSec = Math.max(0, Math.ceil((info.finishAt - now) / 1000));
+
+    // Centered on the middle of the footprint rectangle — lands roughly
+    // in the middle of the house's own art, so it reads as "on" the
+    // building rather than floating above it (per request: "dapat nasa
+    // gitna ng bahay para kita").
+    const r = getMultiTileFootprintRect(info.type, info.col, info.row);
+    const centerWorldX = ((r.leftCol + r.rightCol + 1) / 2) * TILE;
+    const centerWorldY = ((r.topRow + r.bottomRow + 1) / 2) * TILE;
+    const barW = CONSTRUCTION_BAR_WORLD_WIDTH * zoom;
+    const barH = CONSTRUCTION_BAR_WORLD_HEIGHT * zoom;
+    const barX = (centerWorldX - camX) * zoom - barW / 2;
+    const barY = (centerWorldY - camY) * zoom - barH / 2;
+
+    ctx.fillStyle = "rgba(20,20,20,0.65)";
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = "#3ecf4a"; // green, per request
+    ctx.fillRect(barX, barY, barW * progress, barH);
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX + 0.5, barY + 0.5, barW - 1, barH - 1);
+
+    // Countdown number, centered on the bar (per request: "sa gitna nun
+    // is nandun yung countdown").
+    ctx.fillStyle = "#fff";
+    ctx.font = `${Math.max(9, Math.round(barH * 0.85))}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(remainingSec), barX + barW / 2, barY + barH / 2 + 1);
+  });
+}
+
+// Draws the interior scene (js/interior.js) — a fixed-size room image
+// fit-to-screen (letterboxed, centered) rather than a scrolling camera
+// over a big tile map, since a room this small doesn't need one. The
+// player is drawn at their room-space x/y mapped through the same
+// fit scale, reusing drawPlayer() exactly as the outdoor path does (it
+// only needs a final screen x/y and a size multiplier, both supplied
+// here). No Y-sorting against furniture yet — see js/interior.js's
+// header comment on why that's an acceptable first pass.
+// Draws the interior scene (js/interior.js) using the SAME camera
+// convention the outdoor world does (per request: "dapat same lang sa
+// outside na camera") — a scrolling camera at the normal `zoom` level
+// that follows the player and clamps to the room's own bounds, instead
+// of the earlier fit-the-whole-room-on-screen approach. `room.image` is
+// windowed/scaled exactly the way the outdoor pass draws `worldCanvas`
+// (camera.js's render()) — just a single static image here instead of a
+// pre-rendered map canvas, same drawImage(source, sx, sy, sw, sh, dx,
+// dy, dw, dh) call shape either way. No Y-sorting against furniture
+// yet — see js/interior.js's header comment on why that's an acceptable
+// first pass.
+function renderInteriorScene() {
+  const vw = view.width, vh = view.height;
+  const room = INTERIOR_ROOMS[player.activeRoomId];
+  if (!room) return; // shouldn't happen — interior.js never leaves scene "inside" pointed at a missing room
+
+  // Same viewWorldW/H + clamp-to-bounds shape as the outdoor render()
+  // below, just against this room's width/height instead of MAP_W/MAP_H
+  // — local variables, not the outdoor camX/camY, so re-entering the
+  // world next frame isn't affected by wherever the room camera ended up.
+  const viewWorldW = vw / zoom;
+  const viewWorldH = vh / zoom;
+  const roomCamX = clamp(player.x - viewWorldW / 2, 0, Math.max(0, room.width - viewWorldW));
+  const roomCamY = clamp(player.y - viewWorldH / 2, 0, Math.max(0, room.height - viewWorldH));
+
+  ctx.clearRect(0, 0, vw, vh);
+  ctx.fillStyle = "#0a0a0a";
+  ctx.fillRect(0, 0, vw, vh);
+  ctx.drawImage(room.image, roomCamX, roomCamY, viewWorldW, viewWorldH, 0, 0, vw, vh);
+
+  const px = (player.x - roomCamX) * zoom;
+  const py = (player.y - roomCamY) * zoom;
+  drawPlayer(px, py, zoom);
+
+  // Small "how to leave" hint — the exit mat isn't otherwise marked as
+  // interactive, so this keeps it discoverable. Pinned to the bottom of
+  // the screen (not the room image's edge, since that scrolls now).
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.font = "13px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText("Walk onto the doormat to go back outside", vw / 2, vh - 14);
+}
+
+// Solid black, fading in/out (js/interior.js's `sceneFade`) over the
+// entrance/exit of a house's interior — drawn last, over the world or
+// the room alike, so the scene switch underneath is never visible
+// mid-transition.
+function drawSceneFadeOverlay() {
+  const alpha = getSceneFadeAlpha();
+  if (alpha <= 0) return;
+  ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+  ctx.fillRect(0, 0, view.width, view.height);
+}
+
 function render() {
+  if (player.scene === "inside") {
+    renderInteriorScene();
+    drawSceneFadeOverlay();
+    return;
+  }
+
   const vw = view.width,
     vh = view.height;
 
@@ -591,6 +962,8 @@ function render() {
   drawPlayerStandingDecor(); // the ONE decor tile (if any) the player is standing on — always fully behind them (see js/camera.js)
   renderWorldObjectsSorted(); // stones/trees/house + every OTHER decor tile + player, depth-sorted by Y (see above)
 
+  drawPendingConstructions(camX, camY); // house builds in progress — ghost preview + green countdown bar
+
   // "In front" fog patches — drawn over the player.
   drawFogLayer(camX, camY, true);
 
@@ -617,4 +990,6 @@ function render() {
   drawSunRays(camX, camY);
 
   drawMinimap(); // top-right overview — a separate <canvas> (index.html), not part of the main view/sky tint above (js/hud.js)
+
+  drawSceneFadeOverlay(); // interior enter/exit fade-to-black (js/interior.js) — drawn last, over absolutely everything
 }

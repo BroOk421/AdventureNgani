@@ -10,7 +10,8 @@
 
    What's saved: terrainLayer + groundLayer + decorLayer + objectLayer
    (placed items, see the four-layer split in js/inventory.js), pendingRespawns (broken
-   stones waiting to come back, js/resources.js), inventory counts,
+   stones waiting to come back, js/resources.js), pendingConstructions
+   (house builds in progress, js/inventory.js), inventory counts,
    hotbar assignments, selectedHotbarIndex, equippedWeapon, grabbedType
    (the E-key grabbed world object, js/inventory.js's
    tryGrabOrPlaceInFront() — saved, unlike heldItem below, because it's
@@ -60,6 +61,7 @@ function buildSaveData() {
     decorLayer: Array.from(decorLayer.entries()),
     objectLayer: Array.from(objectLayer.entries()),
     pendingRespawns: Array.from(pendingRespawns.entries()), // [[ "col,row", {type, respawnAt} ], ...]
+    pendingConstructions: Array.from(pendingConstructions.entries()), // [[ "col,row", {type, col, row, startAt, finishAt} ], ...]
     itemCounts,
     hotbarTypes,
     selectedHotbarIndex: selectedHotbarIndex,
@@ -75,7 +77,18 @@ function buildSaveData() {
     food: player.food,
     exp: player.exp,
     playTimeSeconds: player.playTimeSeconds, // accumulated across sessions — the HUD's "Duration" readout
-    player: { x: player.x, y: player.y }
+    // While inside an interior scene (js/interior.js), player.x/y are in
+    // that room's own small coordinate space, not the outdoor map —
+    // saving those directly would spawn the player near the outdoor
+    // map's top-left corner on reload (scene always resets to
+    // "outside" below, since a room can be re-entered any time by
+    // walking back up to the same door). Save `outsideReturn` (where
+    // they were standing right before they went in) instead whenever
+    // that's the case, so a reload while indoors still comes back
+    // outside in the right spot.
+    player: player.scene === "inside" && player.outsideReturn
+      ? { x: player.outsideReturn.x, y: player.outsideReturn.y }
+      : { x: player.x, y: player.y }
   };
 }
 
@@ -131,6 +144,18 @@ function applySaveData(data) {
   if (Array.isArray(data.pendingRespawns)) {
     data.pendingRespawns.forEach(([key, info]) => {
       if (info && itemDefs[info.type]) pendingRespawns.set(key, info); // skip a stale/removed type
+    });
+  }
+
+  // In-progress house builds (js/inventory.js's pendingConstructions) —
+  // restored as-is; one whose finishAt already passed just gets caught by
+  // the next updateConstructions() call right after loading, same as if
+  // the tab had stayed open the whole time (updateConstructions()'s own
+  // "don't trap the player" check applies then too).
+  pendingConstructions.clear();
+  if (Array.isArray(data.pendingConstructions)) {
+    data.pendingConstructions.forEach(([key, info]) => {
+      if (info && itemDefs[info.type]) pendingConstructions.set(key, info);
     });
   }
 
@@ -210,6 +235,14 @@ function applySaveData(data) {
     player.x = data.player.x;
     player.y = data.player.y;
   }
+  // Always resume outside (see buildSaveData()'s matching comment above)
+  // — a room is only ever a door-tile away, so there's nothing lost by
+  // not resuming indoors, and it sidesteps ever restoring `scene:
+  // "inside"` without a matching valid `activeInteriorType`/room.
+  player.scene = "outside";
+  player.activeInteriorType = null;
+  player.activeRoomId = null;
+  player.outsideReturn = null;
 
   renderHotbar();
   renderInventory();

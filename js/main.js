@@ -24,6 +24,7 @@ function loop(now) {
   last = now;
   updateDayNight(); // wall-clock based — doesn't need dt, see js/daynight.js
   updateResources(); // wall-clock based too — restores respawned stones (js/resources.js)
+  updateConstructions(); // wall-clock based too — finishes timed house builds (js/inventory.js)
   updateFloatingPickups(dt); // throw/bounce/rest/vacuum physics for resource-drop popups (js/resources.js)
   updateThrownTosses(); // clears out finished T-key throw arcs (js/resources.js)
   updateWildgrassSway(dt); // grass-bending sim as the player walks through it (js/wildgrass.js)
@@ -31,6 +32,7 @@ function loop(now) {
   updatePlayerStats(dt); // food depletion + playtime accumulation (js/hud.js)
   updateWeather(); // re-rolls Sunny/Rainy/Snow once per in-game day, weighted by season (js/calendar.js)
   updateWeatherFX(dt); // rain/snow/cloud/fog particles + god rays, gated/nudged by that weather (js/weatherfx.js)
+  updateSceneFade(); // js/interior.js — advances the enter/exit fade-to-black, before movement reads its frozen state
   updatePlayer(dt);
   updateHeldItemPlacement(); // keeps placing while the mouse is held (js/inventory.js)
   render();

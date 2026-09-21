@@ -19,6 +19,11 @@ const player = {
   harvestTarget: null,  // { col, row, type } while action is an attack — which tile the hit resolves against (if any)
   equippedWeapon: null, // null | an itemDefs type with equipSlot === "weapon" (see equipWeapon(), inventory.js)
   grabbedType: null, // null | an itemDefs type — the world object (wild grass/flower/stone/tree) currently held via the E-key grab/place mechanic (tryGrabOrPlaceInFront(), inventory.js). Distinct from `heldItem` (the inventory-based hold-to-place system) — this one is pulled directly OUT of the world, not out of a slot, so unlike heldItem it IS saved (save.js) — losing track of it on reload would silently delete whatever was grabbed, since it's already removed from the world the moment it's picked up.
+  // --- interior scenes (js/interior.js) ---
+  scene: "outside", // "outside" | "inside" — which coordinate space x/y are currently in
+  activeInteriorType: null, // itemDefs type (e.g. "house2") of the interior currently inside, or null while outside
+  activeRoomId: null, // INTERIOR_ROOMS key (e.g. "sharedHouse") the above type's `interior.roomId` resolved to — what rendering/collision actually look the room up by
+  outsideReturn: null, // { x, y } saved the moment they entered — restored on exit so they come back exactly where they left off
   gold: 100, // currency, spent at the NPC shop (js/npc.js) — starts with a small amount so there's something to shop with right away
   frame: 0,
   frameTimer: 0,
@@ -123,6 +128,21 @@ function isTileBlocked(col, row) {
 }
 
 function updatePlayer(dt) {
+  // Frozen for the entire fade-out -> switch -> fade-in sequence
+  // (js/interior.js) — nothing should move, and neither
+  // checkInteriorEntry() nor the exit-zone check should be able to
+  // retrigger, while the screen is transitioning.
+  if (typeof sceneFade !== "undefined" && sceneFade) return;
+
+  // Interior scenes (js/interior.js) are a completely separate movement/
+  // collision space — branch off immediately, before any of the outdoor
+  // collect/throw/harvest/movement logic below (none of which means
+  // anything indoors: no world objects in there to grab or harvest).
+  if (player.scene === "inside") {
+    updatePlayerInsideInterior(dt);
+    return;
+  }
+
   // --- one-shot action animations: lock movement until they finish ---
   if (player.action) {
     const fps = ANIM_FPS[player.action];
@@ -274,6 +294,16 @@ function updatePlayer(dt) {
     } else {
       player.facing = vy > 0 ? "down" : "up";
     }
+
+    // Stepping onto a house's front-door tile (js/interior.js) takes
+    // over from here — only checked while actually moving, since the
+    // door tile can only be reached by walking onto it. If this just
+    // switched `player.scene` to "inside", bail out immediately rather
+    // than falling through to the animation-frame update below, which
+    // would otherwise clobber the fresh idle state enterInterior() just
+    // set using this frame's now-stale OUTDOOR `nextAnim`.
+    checkInteriorEntry();
+    if (player.scene === "inside") return;
   }
 
   // reset the frame counter whenever the animation state changes, so we

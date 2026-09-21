@@ -2531,6 +2531,440 @@ not part of the running game.
       movement flag; worst case after a reload is just reaching empty
       again before it can re-arm, no real downside to that.
 
+79. **See-through trees/stones/house now pixel-vs-pixel; house only
+    fades when the character is BEHIND it.** Per request ("kapag nasa
+    gilid lang nag-oopacity pa rin... dead space di dapat mag-opacity...
+    yung house dapat likod lang"). Two real causes, both fixed:
+    - The character was modelled as a box `DRAW_SIZE * 0.35` = 16.8 world
+      px to each side of center (~34px wide) — its real body is only ~14px
+      wide (sprite px 23..41 of 64, at 48/64 scale). That fat box touched
+      trunks/roots/branches/house walls while there was clearly grass
+      between them on screen. Now the character's REAL silhouette
+      (`CHARACTER_ALPHA_MASKS`, every frame of every sheet) is tested
+      against the object's REAL silhouette (`OBJECT_ALPHA_MASKS`) — fade
+      only if an opaque character pixel lands on an opaque object pixel.
+      Looping idle/walk/run use the sheet's union silhouette (no per-frame
+      flicker at an edge); one-shot actions use the exact frame.
+    - The first attempt read the tree alpha with canvas `getImageData`,
+      which throws "tainted canvas" under file:// and silently fell back
+      to the bounding box. Masks are now precomputed into
+      `js/objectAlphaMasks.js` by `tools/generate_alpha_masks.py` (re-run
+      it if any tree/stone/house/character PNG changes, or add new
+      objectLayer items to its `OBJECT_ICONS`).
+    - `fadeOnlyWhenBehind: true` (house1): additionally requires the
+      character's FEET (sprite rows 44..47, cols 26..37) to be hidden
+      behind the house's own pixels — so standing beside a wall never
+      fades it, even if the head overlaps the roof overhang.
+    Verified in headless Chromium via file:// against real positions
+    (beside trunk w/ gap, touching trunk, canopy deadspace, behind
+    leaves, beside/behind house, stones, bare tree, walking).
+
+80. **136 previously-unused art assets wired into the inventory; the 14
+    wood weapons pulled out of it for now.** Per request ("lagay mo na
+    rin yung iba pang mga pixel na wala pa sa inventory except sa mga
+    weapon alisin mo muna sa inventory").
+    - Added via `tools/add_remaining_items.py` (re-run it if more art
+      gets dropped into these same folders later — it's idempotent):
+      bushes/flowers/mushrooms (22), extra medium tree + trunk variants
+      (6, "tree"-prefixed so they auto-join the existing Trees group),
+      two alternate house skins `house2`/`house3` (same collides/
+      multiTileFootprint/fadeOnlyWhenBehind treatment as house1),
+      interior furniture (~55: beds, tables, chairs, stoves, couch,
+      drawers, doors/windows/floors/walls...), outdoor furniture (~20:
+      benches, fence, port bridge pieces, lamp posts...), and
+      vegetables/farming items (~22: onion/petchay/cabbage/broccoli/
+      carrots/dragonfruit + their crates, dirt rake, planting sockets,
+      water crates).
+    - The 7 vegetable sprites (onion.png, petchay.png, cabbage.png,
+      brocolli.png, brocolli_flower.png, carrots.png, dragonfruit.png)
+      turned out to be multi-stage GROWTH STRIPS, not single icons (found
+      by scanning each for fully-transparent gap columns) — the last
+      (mature/harvestable) stage was cropped out into `*_mature.png`
+      next to the source file and that's what's actually registered.
+    - 5 files were left out on purpose — not single icons: `backchair.png`
+      and `base4.png` (608x384, a whole uncropped contact sheet, not
+      that one chair/cabinet), `interior/asesprite/bigbed-sheet.png`
+      (1380x54 raw multi-frame strip — `bigbed.png` is the real icon),
+      `port_bridge_wall_strock.png` (800x864 texture sheet), and
+      `vegetables/wet.png` (two glued-together variants, unclear split).
+      The entire `assets/particles/` tree was left alone too — it's
+      exact duplicate art of assets/bushes, assets/interior (as
+      "inside"), assets/outdoor (as "outside"), assets/items/vegetables,
+      assets/items/house and assets/items/trees; wiring both up would've
+      just double-added the same pictures under two different ids.
+    - New non-flat items got no `collides`/`fixedFootprint` (except the
+      new trees and the 2 houses, which match their existing siblings) —
+      that's a per-item design decision nobody's made yet, not an
+      oversight; add it later the same way house1/the stones do.
+    - Every new non-flat item also got an entry in
+      `tools/generate_alpha_masks.py`'s `OBJECT_ICONS` and a regenerated
+      `js/objectAlphaMasks.js`, so entry 79's pixel-accurate fade covers
+      them too, not just the original trees/stones/house.
+    - Weapons: removed the 14 `equipSlot: "weapon"` entries
+      (woodSword/Dagger/DaggerSmall/Rapier/Javelin/Axe/Sickle/Pickaxe/
+      Mattock/Hammer/HookStaff/ClubWrapped/Tongs/Bow) from `itemDefs`.
+      Left their `assets.js` Image() + `.src` lines alone (harmless
+      either way) and left `NPC_SHOP_STOCK` in npc.js untouched too —
+      `renderNpcShopGrid()` already skips a stock row when
+      `itemDefs[type]` is missing, so the shop just quietly drops those
+      5 rows instead of breaking. Re-adding the itemDefs entries later
+      (nothing else needs to change) brings them straight back everywhere.
+    - Verified in headless Chromium via file://: all 211 itemDefs load
+      with a real (non-broken) icon, the inventory auto-fills all 211
+      slots, zero weapons remain, zero console/page errors, and a sample
+      of the new items (bushes, medium trees, house2/house3, bed, stove,
+      couch, crates, crops) were placed and screenshotted to confirm
+      they draw correctly and Y-sort correctly.
+
+81. **House placement is now a timed construction, not instant — plus a
+    full footprint preview while holding one.** Per request: "kapag naka
+    hold na is lumitaw yung mismong tiles kung ilan yung 16x16 tile na
+    naconsume... dapat mag countdown 10 sec tapos may progress bar na
+    green tapos sa gitna nun is nandun yung countdown tyaka lang
+    matatayo yung bahay at magkaroon ng collisions... pero dapat kapag
+    laging sa top is may 2 allowance na row ng tiles ng walang
+    collisions same sa naunang bahay". Applies to all 3 house skins
+    (house1/house2/house3) via a new itemDefs flag, `buildSeconds: 10`
+    — any future `multiTileFootprint` item picks up the same behavior
+    automatically just by setting that flag, nothing else to wire up.
+    - **Preview while holding** (camera.js's drawHouseFootprintPreview(),
+      replacing the generic per-tile range grid for these items only):
+      outlines EVERY 16x16 tile the art will actually cover — derived
+      from the same pixel math getObjectFootprintBlockedTiles() already
+      used (now split out into a reusable getMultiTileFootprintRect()/
+      getMultiTileFootprintTiles(), inventory.js) — plus one thicker
+      rectangle around the whole shape. White = valid, red = blocked,
+      always tracking the mouse (screenToTile(lastMouseClientX/Y)).
+    - **Starting a build** (placeHeldItemAt(), inventory.js): instead of
+      writing straight into objectLayer, it now checks
+      canPlaceHouseFootprint() (in range, whole footprint clear of other
+      objects AND other in-progress builds, not about to trap the player
+      under a soon-to-collide tile) and, if clear, adds an entry to a new
+      `pendingConstructions` Map (col,row -> {type, startAt, finishAt})
+      — no art, no collision, nothing in objectLayer yet.
+    - **While building** (camera.js's drawPendingConstructions(), called
+      every render() frame): a 40%-opacity "blueprint" ghost of the real
+      icon, plus a green progress bar centered above the footprint with
+      the countdown (whole seconds remaining) centered on the bar itself.
+    - **Finishing** (updateConstructions(), inventory.js — wall-clock
+      based like resources.js's respawns, called from main.js's loop):
+      once `finishAt` passes, it's written into objectLayer for real —
+      from that point on it's indistinguishable from the old instant-
+      place path, same `getObjectFootprintBlockedTiles()`/
+      `footprintExcludeBackRows: 2` collision as before, unchanged. If
+      the player is currently standing on a tile that's about to start
+      colliding, finishing is deferred (checked every frame) until they
+      step off it, rather than ever trapping them — same self-trap
+      philosophy placeHeldItemAt()'s own-tile check already used
+      elsewhere in this file.
+    - Saved (js/save.js), same treatment as pendingRespawns, so a build
+      in progress survives a reload instead of losing progress or
+      finishing silently in the background.
+    - Fixed a small pre-existing gap while in this area: the E-key grab
+      mechanic (tryGrabOrPlaceInFront()) only ever special-cased
+      `type === "house1"` as ungrabbable, so house2/house3 (added in
+      entry 80) were accidentally still E-grabbable. Now checks
+      `itemDefs[type].multiTileFootprint` generically.
+    - Verified in headless Chromium via file://: previewed a hold
+      (correct 9x8-tile white outline for house1), clicked to place
+      (confirmed NOT instantly in objectLayer, one pendingConstructions
+      entry created), screenshotted the ghost + bar at 0s/4s/10s
+      (progress bar filling, countdown 10 -> 6 -> done, house appears
+      exactly once finished), confirmed 54 tiles end up blocked
+      (matching the pre-existing footprintExcludeBackRows: 2 math,
+      unchanged), confirmed overlapping a second construction attempt is
+      rejected, confirmed building is blocked where an existing object
+      already sits, confirmed house2/house3 are no longer E-grabbable,
+      confirmed ordinary single-tile items (stones/trees/ground tiles)
+      still place instantly with zero regression, and confirmed a
+      construction's progress survives a save/applySaveData() roundtrip.
+
+82. **House footprint tightened to the real art size; house2/house3 get
+    7 free rows at the back (not 2); build progress bar moved onto the
+    house and shrunk.** Follow-up per request, after watching a
+    recording: "medyo malaki... yung collisions sa left at right dapat
+    accurate sa tiles... top collisions sa house2 at house3 imbis na 2
+    rows gawin mo ng 7 rows... progress bar... dapat nasa gitna ng bahay
+    para kita tapos medyo liitan mo, 2 tiles lang ang laki".
+    - **Root cause of the oversized left/right collision**
+      (getMultiTileFootprintRect(), inventory.js): it derived the
+      footprint by flooring/ceiling the art's CONTINUOUS edges to
+      whatever whole tiles they touched at all, which over-counts by 1-2
+      tiles whenever the width isn't a clean multiple of TILE — e.g.
+      house2/house3 are 182px = 11.375 tiles wide, but touch-flooring/
+      ceiling their edges spanned 13 discrete tile columns (confirmed by
+      hand: leftEdge≈74.8, rightEdge≈86.2 around a sample anchor, giving
+      floor..ceil-1 = 13 columns for an 11.375-wide shape). Fixed by
+      rounding the width/height to the NEAREST whole tile count first
+      (Math.round), then centering that many tiles as evenly as possible
+      around the placement anchor, rather than expanding to catch every
+      partially-touched column. Result: house1 9→8 tiles wide (height
+      unchanged, already exact), house2/house3 13→11 tiles wide, 12→11
+      rows tall — confirmed in headless Chromium. This is the shared
+      function both the collision (getObjectFootprintBlockedTiles()) and
+      the hold-preview highlight (camera.js) read from, so both got
+      tighter together, automatically, no separate fix needed.
+    - **house2/house3 `footprintExcludeBackRows` raised from 2 to 7**
+      (house1 untouched, wasn't part of the request and its roof is much
+      shorter) — with the new 11-row-tall rounded footprint, that leaves
+      exactly the bottom 4 rows colliding, which lines up with where
+      these two skins' actual solid walls/foundation sit (confirmed by
+      sampling the PNGs' alpha row by row: the wide sloped roof occupies
+      roughly the top 7 rows, walls + foundation the bottom 4) — the
+      player can now walk under/behind the tall roof overhang instead of
+      hitting a wall floating in what looks like open air.
+    - **Progress bar repositioned + shrunk**
+      (drawPendingConstructions(), camera.js): was a full-footprint-width
+      bar floating above the whole building (could drift off-screen for
+      a tall one, and read as disconnected from what it's building).
+      Now a fixed ~2-tile-wide bar (`CONSTRUCTION_BAR_WORLD_WIDTH`)
+      centered on the middle of the footprint rectangle — sits directly
+      on the house's own art, per request.
+    - Verified in headless Chromium via file://: house1/house2/house3
+      footprint dimensions and blocked-row counts match the numbers
+      above exactly, the hold-preview grid for house2 is visibly 11x11
+      instead of 13x12, the progress bar renders centered on the ghost
+      house at the smaller fixed size, and every earlier regression test
+      (instant placement for stones/trees/ground tiles, overlap
+      rejection, blocked-by-existing-object, house2/house3 not
+      E-grabbable, save/load roundtrip for an in-progress build) still
+      passes unchanged.
+
+83. **House interiors: walking onto house2's/house3's front door now
+    enters a separate interior room scene, instead of that tile just
+    being part of the wall.** Per request: "san ko pwede palitan... may
+    ginawa akong pang interior na room... interior.ase... try mo apply
+    yun para makapasok sa loob ng house2 at house3".
+    - The person's own Aseprite file (`assets/interior/asesprite/
+      interior.ase`, 10 layers: floor/matt/wall/door/lower/objects/
+      upper/ceiling/shadow/windows) had never been exported to a plain
+      image, so nothing could load it — .ase is Aseprite's own binary
+      format, not a browser-readable one. Read and composited by hand
+      (parsed the chunk format directly — layer + cel chunks, zlib-
+      decompressed the RGBA pixel data, alpha-composited every visible
+      layer in order) into `assets/interior/asesprite/interior.png`
+      (410x500), which is what actually gets loaded in-game
+      (`assets.interiorHouse`).
+    - New `js/interior.js`: `INTERIOR_ROOMS` (currently one entry,
+      `"sharedHouse"` — the single room layout that exists in the file,
+      a cozy bedroom/lounge connected through an archway to a larger
+      dining hall; both house2 and house3 point at it for now, since
+      there's only one design to draw from — see the itemDefs comment
+      for how a second, different layout would be wired to just one of
+      them once it exists). A room is its own small fixed-size
+      coordinate space, unrelated to the outdoor MAP_W/MAP_H tile grid.
+    - New itemDefs field `interior: { roomId, doorOffset }` on house2/
+      house3: the ONE footprint tile at (placedCol+doorOffset.col,
+      placedRow+doorOffset.row) — normally solid wall — is carved out of
+      getObjectFootprintBlockedTiles()'s result as a walkable door.
+      Stepping onto it (checkInteriorEntry(), called from the outdoor
+      branch of updatePlayer() only) enters that room.
+    - Entering saves exactly where the player was standing outside
+      (`player.outsideReturn`) and switches `player.scene` to "inside";
+      `updatePlayer()` (player.js) branches to a separate, much simpler
+      `updatePlayerInsideInterior()` (js/interior.js) while indoors — a
+      flat rectangle clamp to the room's own width/height, no run/
+      stamina, no world-object interactions (E/F/T/R do nothing in
+      there), and a check every frame for stepping onto the `exitZone`
+      rectangle (the doormat drawn at the bottom of the art — found by
+      scanning the exported PNG for its pixel bounds) that restores
+      `outsideReturn` and flips back to "outside".
+    - Rendering branches too: `camera.js`'s `render()` calls a new
+      `renderInteriorScene()` instead of the normal world/camera pass
+      while inside — the room image fit-to-screen (letterboxed,
+      centered, no scrolling camera needed for something this small) with
+      the player sprite drawn on top via the same `drawPlayer()` the
+      outdoor path uses, plus a small "walk onto the doormat" hint. No
+      Y-sorting against furniture yet (walking through a table is
+      possible) — noted as a follow-up, not attempted here.
+    - Guarded against the coordinate-space mix-up this invites: entering
+      clears any `heldItem` (no placement grid indoors), `placeHeldItemAt()`
+      now no-ops unless `scene === "outside"` (screenToTile() reads the
+      OUTDOOR camX/camY, meaningless for the interior's fit-scale
+      mapping), and `save.js` persists the OUTDOOR `outsideReturn`
+      position (never the room-space x/y) whenever `scene === "inside"`
+      at save time, plus always resets `scene`/`activeInteriorType`/
+      `activeRoomId` to "outside"/null/null on load — so a reload while
+      indoors comes back outside in the right spot rather than spawning
+      near the map's top-left corner interpreting room coordinates as
+      world ones.
+    - Caught and fixed one real bug before shipping this: `player.
+      activeInteriorType` (a house TYPE, e.g. "house2") was being used
+      directly as the `INTERIOR_ROOMS` lookup key, which is keyed by
+      ROOM id ("sharedHouse") instead — every real-game-loop frame after
+      entering immediately failed that lookup and silently exited right
+      back out. Fixed by tracking both: `activeInteriorType` (which
+      house) and a separate `activeRoomId` (which room layout to
+      render/collide against), only the latter used for the
+      `INTERIOR_ROOMS` lookup. Caught via a headless-Chromium run that
+      simulated real frames (not just calling functions directly), which
+      is exactly the class of bug that only shows up once the real
+      per-frame loop runs, not from a single direct function call.
+    - Also fixed a second, related bug the same way: the movement clamp
+      keeps the player's tracked CENTER at least `DRAW_SIZE/2` (24px)
+      from any room edge, capping reachable Y at `height - 24` = 476 for
+      this room — but the first `exitZone` was placed starting at
+      Y 478 (matching the doormat's literal pixel position), which is
+      past that cap and so was never actually reachable by walking.
+      Moved the zone's start to Y 460 (and the spawn point safely above
+      it, so entering doesn't immediately re-trigger exiting) — both
+      confirmed reachable in a full simulated walk-in/walk-out pass.
+    - Verified in headless Chromium via file://, simulating real
+      per-frame updates (not shortcuts): walking onto house2's door tile
+      enters the room in ~8 simulated frames, walking down from the
+      spawn point back onto the exit zone leaves in ~11 frames and
+      restores the exact outdoor position, house3's door works the same
+      way, house1 (no `interior` field) is completely unaffected (still
+      the same 48 blocked tiles as before), the interior image loads at
+      its real 410x500 size, a save/applySaveData() roundtrip taken
+      while indoors correctly restores outdoors, and every earlier
+      regression test (instant placement, footprint math, overlap/
+      existing-object rejection, E-grab exclusion, construction save/
+      load) still passes unchanged.
+
+84. **Interior camera switched to match the outdoor one exactly.** Per
+    request ("yung sa camera ng interior dapat same lang sa outside na
+    camera"). The first pass fit the whole 410x500 room on screen at
+    once (letterboxed, shrunk to fit) — readable as an overview, but
+    nothing like the outdoor game's zoomed-in, player-following camera.
+    `renderInteriorScene()` (camera.js) now uses the exact same shape as
+    the outdoor `render()`: `viewWorldW/H = view size / zoom`, camera
+    clamped to `[0, room.width/height - viewWorldW/H]` (local
+    `roomCamX/roomCamY`, not the outdoor `camX/camY` — re-entering the
+    world next frame isn't affected by wherever the room camera ended
+    up), room image drawn windowed through that rect exactly like the
+    outdoor pass windows `worldCanvas`, player drawn via the same
+    `drawPlayer()` at the same `zoom` scale outdoor uses. Confirmed in
+    headless Chromium: same zoomed-in scale as outdoors at spawn, and
+    camera correctly clamps/letterboxes at the room's edges (walked to
+    the top-left corner) the same way the outdoor camera does at the
+    map's edges — plus the full enter/exit simulation and every earlier
+    regression test still pass unchanged.
+
+85. **house2.png cropped to an exact 11-tile width.** Per request ("look
+    the width tile of house2 is not perfect for 11 tiles fix it") — it
+    was 182px (11.375 tiles), so even with the rounded-footprint math
+    (entry 82) there was a real, if small, ~3px roof-eave overhang past
+    the notional 11-tile collision box on each side. Checked the outer 3
+    columns on each edge for real content before touching anything (48
+    opaque px per column — the sloped roof eave, not just antialiasing
+    fringe) and cropped exactly 3px off each side (182 -> 176 = 11.0
+    tiles exactly, height untouched — only width was reported off).
+    Side-by-side pixel comparison before/after shows no visible loss —
+    windows, door, and walls are all well clear of the trimmed columns.
+    Regenerated `js/objectAlphaMasks.js` (`tools/generate_alpha_masks.py`)
+    afterward so the fade feature's alpha mask matches the new pixel
+    dimensions. `footprintWidthTiles: 9` (entry 82's follow-up, a
+    deliberately even-tighter override) is untouched by this — it still
+    wins over the now-exact 11-tile natural size, since that override
+    was about pulling collision in tighter than the art's own bounds,
+    a separate concern from the art's own width being a clean multiple
+    of 16. house3.png (182px wide, same situation) was left alone since
+    only house2 was named — same fix applies the same way if wanted.
+    Verified in headless Chromium: `assets.house2` now reports natural
+    width 176, the UN-overridden footprint math now gives exactly 11
+    with no rounding involved, the override still reports 9 when
+    present, and every earlier regression + interior-scene test still
+    passes unchanged.
+
+86. **Entry 85's house2.png crop reverted — back to the original 182px
+    art.** Per request ("wag mo crop pangit haha balik mo na lang sa
+    dati"). Restored from `assets/particles/house/house2.png` — an
+    untouched duplicate of the original that happened to still exist
+    (see entry 80's note on `assets/particles/` being leftover duplicate
+    art) — rather than reconstructing it, so this is the exact original
+    file, not a re-approximation. Regenerated `js/objectAlphaMasks.js`
+    again to match. The small rounding overhang entry 85 described is
+    back too — a real but minor trade-off, and apparently the less bad
+    one of the two. `footprintWidthTiles: 9` (entry 82) still applies on
+    top either way, untouched by any of this.
+
+87. **`footprintWidthTiles: 9` override removed from house2.** Per
+    request ("ginawa ko ng 11tiles yung width ibalik mo na sa dati na
+    kapag 11 is yung may collisions") — the person made their own art 11
+    tiles wide, so entry 82's tightening override (9, narrower than the
+    art's own rounded 11) is no longer wanted; the NATURAL rounded
+    footprint (Math.round(icon.width / TILE), currently 11 either way —
+    182px rounds to 11 same as an exact 176px would) is what should
+    collide again. Confirmed in headless Chromium: `itemDefs.house2.
+    footprintWidthTiles` is now `undefined` and the computed footprint
+    is 11 tiles wide.
+
+88. **`footprintWidthTiles: 11` added back to house2 — explicit this
+    time, not left to auto-rounding.** Per request, after a screenshot
+    showed the player still able to walk into part of the building
+    ("napapasok pa rin yung tile e dagdagan mo ng footprintwidthtiles:
+    11"). Entry 87 removed the override on the assumption the auto-
+    rounded value (Math.round(icon.width / TILE)) already equals 11, so
+    an explicit override was redundant — true for the 182px art in this
+    copy, but the person is editing their OWN local copy of house2.png
+    (per entry 87), and if that file's real pixel width doesn't round to
+    exactly 11 (e.g. off by a few px from an inexact crop), the
+    footprint silently ends up a tile narrower, leaving a walkable gap
+    down one side. Setting `footprintWidthTiles: 11` explicitly pins the
+    collision width regardless of the art's exact pixel size, removing
+    that dependency entirely — the safer choice whenever the exact
+    footprint matters more than letting it auto-derive. Confirmed in
+    headless Chromium: footprint is 11 tiles wide, both edge columns
+    collide, the interior door tile at dead-center is still open (entry
+    83 — unaffected by this), and every other regression test still
+    passes.
+
+89. **Fade-to-black transition entering/leaving an interior; 5px edge
+    margin excluded from the house fade so grazing the very left/right
+    tip of the roof doesn't fade the whole building.** Per request:
+    "5px na lang e sa left at right na collisions para di na mag opacity
+    kapag nagpunta sa left at right tapos kapag pumasok sa loob may fade
+    to black tapos pa fade in sa room".
+    - `FADE_EDGE_INSET_PX = 5` (camera.js): `characterFeetBehindObject()`
+      — the `fadeOnlyWhenBehind` check houses use — now ignores object
+      pixels within 5px of the object mask's left/right edge when
+      testing whether the feet are covered. The wide roof genuinely
+      extends further sideways than the walls beneath it, so a pixel-
+      accurate but marginal graze right at that outer tip was making the
+      WHOLE house fade (ctx.globalAlpha applies to the entire drawImage
+      call, not just the touched region) even though the character read
+      as just walking past the side, not behind the building. Only
+      affects `fadeOnlyWhenBehind` items (houses); trees/stones
+      (`characterTouchesObjectPixels`, the general path) are untouched.
+    - New shared fade-to-black transition (js/interior.js): `sceneFade`
+      state machine — `beginSceneFade(onMidpoint)` starts a fade-out,
+      runs `onMidpoint` (the actual `enterInterior()`/`exitInterior()`
+      scene switch) once the screen is fully black, then fades back in.
+      `checkInteriorEntry()` and the exit-zone check now go through this
+      instead of switching instantly. `updateSceneFade()` (main.js's
+      loop, before `updatePlayer()`) advances it every frame; `render()`
+      (camera.js) draws the black overlay (`drawSceneFadeOverlay()`)
+      last, over whichever scene just rendered, so the switch underneath
+      is never visible mid-fade. `updatePlayer()` freezes entirely
+      (movement AND the entry/exit triggers) for the whole ~0.7s
+      sequence, so nothing can retrigger or drift mid-transition.
+    - This timer is wall-clock (`Date.now()`) based, same as
+      `pendingRespawns`/`pendingConstructions` elsewhere in this project
+      — intentional (keeps advancing even if the tab loses focus), but
+      worth remembering if testing by calling `updatePlayer()` in a tight
+      synthetic loop rather than through the real per-frame loop: nothing
+      advances the fade without real wall-clock time actually passing
+      (`updateSceneFade()` has to run on real frames — a synchronous test
+      loop calling `updatePlayer()` hundreds of times back-to-back
+      finishes in a few milliseconds of real time, nowhere near
+      `SCENE_FADE_MS`, so it just sits frozen at phase "out" the whole
+      time). Not a bug — confirmed by testing both ways: a synthetic
+      tight loop only advances real elapsed time near zero, while a real-
+      time test (`page.wait_for_timeout`, i.e. how the actual browser
+      runs it) completes the full enter -> fade -> spawn -> exit -> fade
+      -> restore cycle correctly.
+    - Verified in headless Chromium: fade alpha climbs 0->1 while frozen
+      outside, scene switches to "inside" and position jumps to the
+      room's spawn point at the exact midpoint (alpha back near 1 just
+      after the switch), alpha falls back to 0 and movement resumes
+      indoors; screenshots confirm a fully readable near-black frame
+      mid-fade and a clean, overlay-free frame once settled. `house2`
+      still fades correctly when genuinely behind its center. Every
+      earlier regression test (placement, footprint math, E-grab
+      exclusion, construction save/load, interior save/load) still
+      passes.
+
 ## Known trade-offs / things worth knowing if you keep tweaking
 
 - **Item action menu doesn't clamp to the screen edge.** `openItemActionMenu()`
