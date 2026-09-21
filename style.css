@@ -1,0 +1,847 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+#view {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  image-rendering: pixelated;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* ---------------- unified top-left HUD stack ---------------- */
+/* One flex column holds everything now (index.html) — health/stamina/
+   food/exp bars, day/weather, duration/position, clock/gold, and the
+   (conditional) equipped-weapon row — instead of each piece having its
+   own position:fixed + hardcoded top offset. Grouped into bordered
+   `.hud-section` boxes (per request, "lagyan mo ng separation ng
+   division o section") so each logical group reads as its own card
+   rather than one long undifferentiated list, and sized down overall
+   (smaller font/padding/bar-height than the first version) per request
+   ("medyo liitan lang yung design"). */
+
+#left-hud {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 168px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.hud-section {
+  background: rgba(20, 15, 10, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  padding: 5px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Sections that just show two short readouts side by side (Day+Weather,
+   Duration+Col/Row, Clock+Gold) instead of stacking them. */
+.hud-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  color: #f3e9dc;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+#clock-hud,
+#gold-hud {
+  color: #f3e9dc;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+#equipped-weapon-hud {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: #f3e9dc;
+  font-size: 11px;
+}
+
+#equipped-weapon-hud.hidden {
+  display: none;
+}
+
+#equipped-weapon-hud img {
+  width: 20px;
+  height: 20px;
+  image-rendering: pixelated;
+}
+
+#equipped-weapon-hud button {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #f3e9dc;
+  border-radius: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+#equipped-weapon-hud button:hover {
+  border-color: #e0a63c;
+}
+
+/* ---------------- stat bars (health/stamina/food/exp — top of #left-hud) ---------------- */
+
+.stat-bar {
+  position: relative;
+  width: 100%;
+  height: 15px;
+  background: rgba(20, 15, 10, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.stat-bar-fill {
+  position: absolute;
+  inset: 0;
+  width: 100%; /* overwritten inline per-frame (js/hud.js) with the actual current/max percentage */
+  transition: width 0.15s ease;
+}
+
+.health-fill { background: linear-gradient(180deg, #e35d5d, #b23a3a); }
+.stamina-fill { background: linear-gradient(180deg, #f0d060, #c9a233); }
+.food-fill { background: linear-gradient(180deg, #d99a4e, #a8672a); }
+.exp-fill { background: linear-gradient(180deg, #7fb0e8, #4a7bc0); }
+
+.stat-bar-label {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); /* readable over either the empty background or the fill color */
+  gap: 3px;
+}
+
+/* ---------------- minimap (top-right) ---------------- */
+
+#minimap {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 30;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  background: #14100a;
+  pointer-events: none;
+}
+
+/* ---------------- held-item HUD (shown while holding, above the hotbar) ---------------- */
+
+#held-item-hud {
+  position: fixed;
+  left: 50%;
+  bottom: 82px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(20, 15, 10, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 6px 10px;
+  z-index: 20;
+  color: #f3e9dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+}
+
+#held-item-hud.hidden {
+  display: none;
+}
+
+#held-item-hud img {
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+}
+
+#held-item-hud button {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #f3e9dc;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+#held-item-hud button:hover {
+  border-color: #e0a63c;
+}
+
+/* ---------------- hotbar (always visible, bottom of screen) ---------------- */
+
+#hotbar {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  z-index: 10;
+}
+
+.hotbar-slot {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  background: rgba(20, 15, 10, 0.65);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hotbar-slot.selected {
+  border-color: #e0a63c;
+}
+
+.hotbar-slot.held {
+  border-color: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
+}
+
+.hotbar-slot img {
+  width: 30px;
+  height: 30px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.slot-number {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: monospace;
+  pointer-events: none;
+}
+
+.slot-count {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  font-size: 11px;
+  color: #fff;
+  font-family: monospace;
+  text-shadow: 1px 1px 1px #000;
+  pointer-events: none;
+}
+
+/* ---------------- inventory panel (toggled with B) ---------------- */
+
+#inventory-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+#inventory-overlay.hidden {
+  display: none;
+}
+
+#inventory-panel {
+  background: rgba(25, 18, 12, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 16px;
+  /* The panel itself just needs to fit its content (title + the
+     fixed-height grid below) — #inventory-grid's own max-height is what
+     actually caps the visible rows, so this is a generous ceiling for
+     small screens, not the thing doing the 9-row limiting. */
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#inventory-title {
+  color: #f3e9dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  margin-bottom: 10px;
+  text-align: center;
+  flex-shrink: 0; /* keep the title fully visible; only the grid below scrolls */
+}
+
+#inventory-title .hint {
+  color: #b8a893;
+  font-size: 12px;
+}
+
+#inventory-grid {
+  display: grid;
+  gap: 6px;
+  /* Shows exactly 9 rows at a time (9 cols already = INVENTORY_COLS, so
+     this makes the visible area a true 9x9), and scrolls internally for
+     any row beyond that — per request ("gawin 9x9 lang kita, scroll na
+     yung ibang item pababa"). 9 slots (44px, .inv-slot) + 8 gaps (6px,
+     the `gap` above) between them: 9*44 + 8*6 = 444px. If either number
+     changes, this needs to be recomputed to match. */
+  max-height: 444px;
+  overflow-y: auto;
+  padding-right: 4px; /* keeps the scrollbar from sitting flush against the last column */
+  /* Gold-styled scrollbar, per request ("lagyan mo ng style yung scroll
+     medyo parang ginto") — Firefox's 2-value shorthand... */
+  scrollbar-width: thin;
+  scrollbar-color: #d4af37 rgba(0, 0, 0, 0.35);
+}
+
+/* ...and the WebKit/Chromium/Edge equivalent, which needs the full
+   pseudo-element set instead of a shorthand. A soft gold gradient on the
+   thumb (not a flat fill) so it reads as a metallic bar rather than a
+   plain colored rectangle. */
+#inventory-grid::-webkit-scrollbar {
+  width: 10px;
+}
+
+#inventory-grid::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+}
+
+#inventory-grid::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #f5d67c, #d4af37 45%, #a97e1f);
+  border: 1px solid rgba(80, 58, 10, 0.6);
+  border-radius: 6px;
+}
+
+#inventory-grid::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #ffe38f, #e0b93f 45%, #b98c25);
+}
+
+.inv-slot {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  background: rgba(20, 15, 10, 0.65);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.inv-slot.held {
+  border-color: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
+}
+
+.inv-slot img {
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+/* ---------------- tile-group slot (consolidated grass/dirt/water/port) ---------------- */
+/* One .inv-slot stands in for a whole family of near-identical tiles —
+   see the "tile groups" block above itemDefs, js/inventory.js. Instead
+   of the single centered 28px icon a normal slot shows, this packs up
+   to 9 much smaller member icons side by side so the slot still reads
+   as "a bunch of similar tiles", not one specific tile. */
+.inv-group-preview {
+  display: grid;
+  gap: 1px;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-items: center;
+}
+
+.inv-group-preview img {
+  width: 10px;
+  height: 10px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+/* Small "+N" badge, bottom-right, for families with more than the 9
+   member icons the preview grid above already shows (Port's 23) —
+   reuses .slot-count's corner position/look rather than duplicating it. */
+.inv-group-more {
+  position: absolute;
+  bottom: 1px;
+  right: 3px;
+  font-size: 9px;
+  color: #f3e9dc;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 3px;
+  padding: 0 2px;
+  pointer-events: none;
+}
+
+/* ---------------- tile variant picker (popup from a tile-group slot) ---------------- */
+
+#tile-variant-picker {
+  position: fixed;
+  background: rgba(25, 18, 12, 0.97);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 10px;
+  z-index: 40;
+  max-width: 220px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+#tile-variant-picker.hidden {
+  display: none;
+}
+
+.tile-variant-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+
+.tile-variant-item {
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tile-variant-item:hover {
+  border-color: #e0a63c;
+}
+
+.tile-variant-item img {
+  width: 22px;
+  height: 22px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+/* ---------------- top toolbar (save / export / import) ---------------- */
+
+#top-toolbar {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  z-index: 30;
+}
+
+#top-toolbar button {
+  background: rgba(20, 15, 10, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #f3e9dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#top-toolbar button:hover {
+  border-color: #e0a63c;
+}
+
+/* ---------------- equipment screen (character + equip slots, G key) ---------------- */
+
+#equipment-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+#equipment-overlay.hidden {
+  display: none;
+}
+
+#equipment-panel {
+  background: rgba(25, 18, 12, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 20px 28px;
+}
+
+#equipment-title {
+  color: #f3e9dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+#equipment-title .hint {
+  color: #b8a893;
+  font-size: 12px;
+}
+
+#equipment-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+}
+
+#equipment-character-canvas {
+  image-rendering: pixelated;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.equipment-slot {
+  width: 64px;
+  height: 64px;
+  background: rgba(20, 15, 10, 0.65);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.equipment-slot:hover {
+  border-color: #e0a63c;
+}
+
+.equipment-slot-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 20px;
+}
+
+.equipment-slot-icon img {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.equipment-slot-label {
+  color: #b8a893;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+/* ---------------- equipment weapon picker (popup list from the slot) ---------------- */
+
+#equipment-weapon-picker {
+  position: fixed;
+  background: rgba(25, 18, 12, 0.97);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+  z-index: 40;
+  min-width: 170px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+#equipment-weapon-picker.hidden {
+  display: none;
+}
+
+.equipment-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f3e9dc;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  text-align: left;
+}
+
+.equipment-picker-item:hover {
+  border-color: #e0a63c;
+}
+
+.equipment-picker-item img {
+  width: 22px;
+  height: 22px;
+  image-rendering: pixelated;
+  flex-shrink: 0;
+}
+
+.equipment-picker-unequip {
+  width: 100%;
+  background: rgba(220, 60, 60, 0.15);
+  border: 1px solid rgba(220, 60, 60, 0.4);
+  color: #f3e9dc;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+}
+
+.equipment-picker-unequip:hover {
+  border-color: #e0a63c;
+}
+
+/* ---------------- item action menu (Hold / assign to 1-7) ---------------- */
+
+#item-action-menu {
+  position: fixed;
+  background: rgba(25, 18, 12, 0.97);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 10px;
+  z-index: 40;
+  min-width: 150px;
+}
+
+#item-action-menu.hidden {
+  display: none;
+}
+
+.action-menu-label {
+  color: #f3e9dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.action-menu-hold {
+  width: 100%;
+  background: #e0a63c;
+  border: none;
+  color: #1b1410;
+  font-weight: 600;
+  padding: 6px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.action-menu-hotkeys {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.action-menu-hotkeys button {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #f3e9dc;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.action-menu-hotkeys button:hover {
+  border-color: #4ade80;
+}
+
+/* ---------------- save toast ---------------- */
+
+#save-toast {
+  position: fixed;
+  top: 56px;
+  right: 12px;
+  background: rgba(20, 15, 10, 0.9);
+  border: 1px solid rgba(74, 222, 128, 0.6);
+  color: #f3e9dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  z-index: 50;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+#save-toast.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ---------------- NPC shop (left-click the shopkeeper, js/npc.js) ---------------- */
+
+#npc-shop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+#npc-shop-overlay.hidden {
+  display: none;
+}
+
+#npc-shop-panel {
+  background: rgba(25, 18, 12, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 16px;
+  width: 340px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#npc-shop-title {
+  color: #f3e9dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+#npc-shop-title .hint {
+  color: #b8a893;
+  font-size: 12px;
+}
+
+#npc-shop-gold {
+  color: #e0c56c;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  text-align: center;
+  margin-bottom: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+#npc-shop-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  /* Same gold-styled scrollbar the inventory grid uses (style.css,
+     #inventory-grid), for consistency between the two scrollable lists. */
+  scrollbar-width: thin;
+  scrollbar-color: #d4af37 rgba(0, 0, 0, 0.35);
+  padding-right: 4px;
+}
+
+#npc-shop-grid::-webkit-scrollbar {
+  width: 10px;
+}
+
+#npc-shop-grid::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+}
+
+#npc-shop-grid::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #f5d67c, #d4af37 45%, #a97e1f);
+  border: 1px solid rgba(80, 58, 10, 0.6);
+  border-radius: 6px;
+}
+
+.npc-shop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(20, 15, 10, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.npc-shop-icon {
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+  flex-shrink: 0;
+}
+
+.npc-shop-name {
+  flex: 1;
+  color: #f3e9dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+}
+
+.npc-shop-price {
+  color: #e0c56c;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.npc-shop-buy {
+  background: #e0a63c;
+  border: none;
+  color: #1b1410;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.npc-shop-buy:hover:not(:disabled) {
+  background: #f0b64c;
+}
+
+.npc-shop-buy:disabled {
+  background: rgba(255, 255, 255, 0.15);
+  color: rgba(243, 233, 220, 0.4);
+  cursor: not-allowed;
+}
+

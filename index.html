@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RPG Prototype</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <!-- Unified top-left HUD stack (js/hud.js mostly, plus the pre-existing
+       clock/gold/equipped-weapon pieces folded in here structurally — a
+       single flex column instead of each having its own position:fixed
+       top offset, so adding new rows never means re-numbering everyone
+       else's pixel position). Grouped into distinct bordered
+       `.hud-section` boxes per request ("lagyan mo ng separation ng
+       division o section") — top to bottom: stat bars; Day/date +
+       Season/Weather (calendar, js/calendar.js); Duration + Col/Row;
+       the clock + Gold; the (conditional) equipped weapon. -->
+  <div id="left-hud">
+    <div class="hud-section">
+      <div class="stat-bar" id="health-bar">
+        <div class="stat-bar-fill health-fill" id="health-bar-fill"></div>
+        <span class="stat-bar-label">❤️ <span id="health-bar-text">100/100</span></span>
+      </div>
+      <div class="stat-bar" id="stamina-bar">
+        <div class="stat-bar-fill stamina-fill" id="stamina-bar-fill"></div>
+        <span class="stat-bar-label">⚡ <span id="stamina-bar-text">100/100</span></span>
+      </div>
+      <div class="stat-bar" id="food-bar">
+        <div class="stat-bar-fill food-fill" id="food-bar-fill"></div>
+        <span class="stat-bar-label">🍖 <span id="food-bar-text">100/100</span></span>
+      </div>
+      <div class="stat-bar" id="exp-bar">
+        <div class="stat-bar-fill exp-fill" id="exp-bar-fill"></div>
+        <span class="stat-bar-label">⭐ <span id="exp-bar-text">0/100</span></span>
+      </div>
+    </div>
+
+    <!-- Day/date + Season + Weather, their own section — weather used to
+         be a separate top-center HUD, then a purely cosmetic Clear/Cloudy/
+         Rainy/Windy rotation next to Day; both the calendar date and the
+         real Sunny/Rainy/Snow weather (js/calendar.js) now live here,
+         stacked as two rows within the one bordered section. -->
+    <div class="hud-section">
+      <div class="hud-row">
+        <span>Day <span id="day-hud-number">1</span></span>
+        <span id="calendar-hud-date">Jan 1</span>
+      </div>
+      <div class="hud-row">
+        <span id="season-hud-text">🌸 Spring</span>
+        <span id="weather-hud-text">☀️ Sunny</span>
+      </div>
+    </div>
+
+    <div class="hud-section hud-row">
+      <span>⏱️ <span id="duration-hud-text">00:00:00</span></span>
+      <span>Col: <span id="position-hud-col">0</span> Row: <span id="position-hud-row">0</span></span>
+    </div>
+
+    <div class="hud-section hud-row">
+      <span id="clock-hud">06:00 ☀️</span>
+      <span id="gold-hud">💰 <span id="gold-hud-amount">0</span></span>
+    </div>
+
+    <!-- shown only while a weapon is equipped — persistent status (not
+         momentary like held-item-hud), so it doesn't hide once the
+         inventory/action menu closes -->
+    <div id="equipped-weapon-hud" class="hud-section hidden">
+      <img id="equipped-weapon-hud-icon" alt="">
+      <span id="equipped-weapon-hud-name"></span>
+      <button id="equipped-weapon-hud-unequip">Unequip</button>
+    </div>
+  </div>
+
+  <!-- minimap, top-right — a scaled-down whole-map overview (js/hud.js),
+       with dots for the player and the NPC and an outline of the
+       camera's current viewport -->
+  <canvas id="minimap" width="110" height="110"></canvas>
+
+  <!-- top toolbar: manual save + export/import (for moving a save to another PC) -->
+  <div id="top-toolbar">
+    <button id="btn-save" title="Save now">💾 Save</button>
+    <button id="btn-export" title="Export save to a file">⬇ Export</button>
+    <button id="btn-import" title="Import save from a file">⬆ Import</button>
+    <input type="file" id="import-file-input" accept="application/json" style="display:none">
+  </div>
+
+  <!-- shown only while holding an item (from the hotbar/inventory) —
+       lets you see what you're holding and cancel it without hunting for Esc -->
+  <div id="held-item-hud" class="hidden">
+    <img id="held-item-hud-icon" alt="">
+    <span id="held-item-hud-name"></span>
+    <button id="held-item-hud-unhold">Unhold</button>
+  </div>
+
+  <!-- always-visible hotbar (slots 1-7), bottom of screen -->
+  <div id="hotbar"></div>
+
+  <!-- full inventory panel, toggled with B -->
+  <div id="inventory-overlay" class="hidden">
+    <div id="inventory-panel">
+      <div id="inventory-title">Inventory <span class="hint">(B to close)</span></div>
+      <div id="inventory-grid"></div>
+    </div>
+  </div>
+
+  <!-- equipment screen, toggled with G — character preview (Idle_Down,
+       first frame) with equip slot(s) beside it, per the reference image -->
+  <div id="equipment-overlay" class="hidden">
+    <div id="equipment-panel">
+      <div id="equipment-title">Equipment <span class="hint">(G to close)</span></div>
+      <div id="equipment-body">
+        <canvas id="equipment-character-canvas" width="128" height="128"></canvas>
+        <div class="equipment-slot" id="equipment-slot-weapon" title="Weapon">
+          <div class="equipment-slot-icon" id="equipment-slot-weapon-icon">+</div>
+          <div class="equipment-slot-label">Weapon</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- popup list shown when clicking the weapon slot: every owned weapon
+       (+ Unequip, when one's already equipped) -->
+  <div id="equipment-weapon-picker" class="hidden"></div>
+
+  <!-- popup menu shown when clicking an inventory item: Hold, or assign to 1-7 -->
+  <div id="item-action-menu" class="hidden"></div>
+
+  <!-- popup shown when clicking a consolidated tile-group slot (grass/
+       dirt/water/port families, js/inventory.js's tileGroups) — lists
+       every variant at normal size; picking one opens item-action-menu
+       above, same as clicking any other single item would. -->
+  <div id="tile-variant-picker" class="hidden"></div>
+
+  <!-- NPC shop, opened by left-clicking the NPC in the world (js/npc.js) —
+       a simple buy list; closing it is click-outside or Esc, same as the
+       other popups in this project. -->
+  <div id="npc-shop-overlay" class="hidden">
+    <div id="npc-shop-panel">
+      <div id="npc-shop-title">Traveling Merchant <span class="hint">(click outside to close)</span></div>
+      <div id="npc-shop-gold">Your gold: <span id="npc-shop-gold-amount">0</span> 💰</div>
+      <div id="npc-shop-grid"></div>
+    </div>
+  </div>
+
+  <!-- Load order matters: each file depends on the ones before it -->
+  <script src="js/config.js"></script>
+  <script src="js/daynight.js"></script>
+  <script src="js/calendar.js"></script>
+  <script src="js/assets.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/inventory.js"></script>
+  <script src="js/resources.js"></script>
+  <script src="js/wildgrass.js"></script>
+  <script src="js/save.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/npc.js"></script>
+  <script src="js/hud.js"></script>
+  <script src="js/camera.js"></script>
+  <script src="js/weatherfx.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
