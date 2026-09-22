@@ -70,6 +70,12 @@ function buildSilhouette(sheet, sx, alpha) {
 }
 
 function drawShadow(px, feetY, size, sheet, sx) {
+  // Per request: no shadow while indoors — the sun-position-driven shape/
+  // fade below only makes sense outside; a room's own light doesn't cast
+  // the same kind of shadow, so just skip it entirely in there rather
+  // than let the outdoor day/night clock (which keeps ticking indoors
+  // too) draw one anyway.
+  if (player.scene === "inside") return;
   // Shape/visibility driven by the in-game clock (js/daynight.js): invisible
   // at night, fading in through sunrise, rotating from a long shadow
   // pointing down-LEFT at sunrise, through a short compact one at noon, to
@@ -268,7 +274,16 @@ function drawGroundItemAt(type, col, row) {
   const tileBottomY = (row + 1) * TILE;
   const screenX = (tileCenterX - camX) * zoom - w / 2;
   const screenY = (tileBottomY - camY) * zoom - h;
+  // `fadeWithDaylight` (the Lit Windows — per request, "kapag gabi na di
+  // na makikita, lilitaw lang kapag umaga, nag fade opacity depende sa
+  // light"): rather than a hard on/off switch, reuse the exact same 0
+  // (full night) .. 1 (full day) getDayFactor() the shadow and sky tint
+  // already ease through TWILIGHT_HOURS with, so it fades in/out right
+  // alongside sunrise/sunset instead of popping.
+  const fade = itemDefs[type].fadeWithDaylight;
+  if (fade) ctx.globalAlpha = getDayFactor();
   ctx.drawImage(icon, screenX, screenY, w, h);
+  if (fade) ctx.globalAlpha = 1;
 }
 
 // =================================================================
@@ -449,18 +464,38 @@ function characterFeetBehindObject(body, objMask, objMinX, objMinY) {
 }
 
 // Should this object draw faded this frame?
+//  0. `noOcclusionFade` items (Mushroom, Flowering Bush — per request,
+//     "alisin mo na lang yung opacity"): never fade, full stop. These
+//     have no precomputed alpha mask (getObjectMask() below returns
+//     null for them), and isObjectPixelOpaque() treats a maskless item
+//     as solid across its WHOLE bounding box — for a short, mostly-empty
+//     sprite like a mushroom or a flower, that reads as the character
+//     fading while nowhere near its actual (small) visible pixels, which
+//     looks wrong rather than helpful.
 //  1. the character must be drawn BEHIND it in the Y-sort (otherwise the
 //     character is already on top and nothing needs fading);
 //  2. their bounding boxes must overlap at all (cheap early-out);
+//  2b. `fadeBoundingBoxOnly` (Big/Medium Stone — per request, "lagyan mo
+//     ng opacity": the normal pixel-perfect check below (step 4) barely
+//     ever actually fired for these — a stone's silhouette is small and
+//     mostly solid, so requiring the character's own opaque pixels to
+//     land on one of the stone's was a narrow enough window that in
+//     normal play it essentially never visibly triggered. Stopping here
+//     instead — sorted behind AND bounding boxes overlapping is already
+//     true by this point — is coarser but actually visible.
 //  3. `fadeOnlyWhenBehind` items (the house): the feet must be hidden
 //     behind the object's pixels — see characterFeetBehindObject();
 //  4. the character's real pixels must touch the object's real pixels.
 function shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, objSortY) {
+  if (itemDefs[type].noOcclusionFade) return false;
+
   const playerSortY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
   if (playerSortY >= objSortY) return false;
 
   const body = getPlayerOcclusionBody();
   if (body.maxX <= objMinX || body.minX >= objMaxX || body.maxY <= objMinY || body.minY >= objMaxY) return false;
+
+  if (itemDefs[type].fadeBoundingBoxOnly) return true;
 
   const objMask = getObjectMask(type);
   if (itemDefs[type].fadeOnlyWhenBehind && !characterFeetBehindObject(body, objMask, objMinX, objMinY)) return false;
@@ -691,7 +726,14 @@ function renderWorldObjectsSorted() {
     // each other.
     if (player.sleeping && key === tileKey(player.sleepBedCol, player.sleepBedRow)) return;
     const [col, row] = key.split(",").map(Number);
-    drawables.push({ sortY: (row + 1) * TILE, draw: () => drawObjectLayerItem(type, col, row) });
+    // `alwaysBehindPlayer` (Flowering Bush, Mushroom (B) — per request,
+    // "naka behind lang sa character"): skip the normal Y-sort entirely
+    // and always draw before the player, regardless of relative
+    // position — a flat -Infinity sort key beats every real sortY (which
+    // is always a finite world-px row), so this item can never land
+    // ahead of the player in the draw order.
+    const sortY = itemDefs[type].alwaysBehindPlayer ? -Infinity : (row + 1) * TILE;
+    drawables.push({ sortY, draw: () => drawObjectLayerItem(type, col, row) });
   });
 
   const playerTile = getPlayerTile();
@@ -1020,7 +1062,15 @@ function renderInteriorScene() {
     const tileBottomY = (row + 1) * TILE;
     const screenX = (tileCenterX - camX) * zoom - w / 2;
     const screenY = (tileBottomY - camY) * zoom - h;
+    // `fadeWithDaylight` (Lit Windows) — same outdoor-clock-driven fade
+    // drawGroundItemAt() (above) applies, so a Lit Window placed as
+    // indoor wall decor still dims out at night just like one placed
+    // outside, on the same shared day/night clock (js/daynight.js) that
+    // keeps ticking while indoors too.
+    const fade = itemDefs[type].fadeWithDaylight;
+    if (fade) ctx.globalAlpha = getDayFactor();
     ctx.drawImage(icon, screenX, screenY, w, h);
+    if (fade) ctx.globalAlpha = 1;
   }
 
   if (player.sleeping) {
@@ -1055,9 +1105,151 @@ function drawSceneFadeOverlay() {
   ctx.fillRect(0, 0, view.width, view.height);
 }
 
+// Screen-edge vignette blur — per request ("medyo blurry sa taas left
+// right at bottom ng screen parang sa Stardew Valley"): the outer rim of
+// the viewport (all four edges/corners) reads slightly soft-focus while
+// the middle — where the player and the action actually are — stays
+// perfectly sharp, same "focus falls off toward the frame" look Stardew
+// Valley's own camera has.
+//
+// Built from the frame that's ALREADY been drawn to the main canvas this
+// frame: a blurred copy of it (ctx.filter = "blur()", the same filter
+// property drawShadow() above already relies on) gets masked with a
+// radial gradient — transparent through the whole center, opaque only
+// out past `VIGNETTE_INNER_FRACTION` of the way to the corner — so only
+// the edges actually show the blurred copy peeking through; compositing
+// that on top of the untouched sharp frame is what gives the smooth
+// sharp-to-soft falloff, rather than blurring the whole screen (which
+// would blur the character too) or hard-cutting a blurred border (which
+// would show a visible seam).
+//
+// Both buffers are only rebuilt when the canvas itself actually resizes
+// (resizeCanvas(), main.js) — same viewport size every other frame in
+// between, so there's nothing new to compute.
+let vignetteBlurCanvas = null;
+let vignetteBlurCtx = null;
+let vignetteMaskCanvas = null;
+let vignetteBuiltForW = 0;
+let vignetteBuiltForH = 0;
+
+const VIGNETTE_BLUR_PX = 14; // how soft the edge itself looks — strong enough to actually read as "blurred", not just faintly softened
+const VIGNETTE_BAND_FRACTION = 0.26; // how far in from EACH edge (as a fraction of that edge's own screen dimension) the blur reaches before fading to nothing
+
+function ensureVignetteBuffers(vw, vh) {
+  if (vignetteBuiltForW === vw && vignetteBuiltForH === vh && vignetteBlurCanvas) return;
+
+  vignetteBlurCanvas = document.createElement("canvas");
+  vignetteBlurCanvas.width = vw;
+  vignetteBlurCanvas.height = vh;
+  vignetteBlurCtx = vignetteBlurCanvas.getContext("2d");
+
+  // Built from FOUR separate edge bands (top/bottom/left/right), each its
+  // own linear gradient running perpendicular to that edge — full
+  // strength flush against the edge, fading to nothing over
+  // VIGNETTE_BAND_FRACTION of the screen's own width/height — rather
+  // than one radial gradient from the center. A radial gradient reaches
+  // full strength fastest at the CORNERS (furthest from center) and
+  // barely touches the middle of each edge at all; per request ("taas
+  // left right at bottom ng screen"), all four edges need to read as
+  // blurred along their whole length, corners included, not just the
+  // corners themselves. `globalCompositeOperation = "lighten"` combines
+  // the four bands by taking the per-pixel MAX rather than summing them,
+  // so a corner (covered by two overlapping bands) reads exactly as
+  // strong as a flat edge — never double-darkened.
+  vignetteMaskCanvas = document.createElement("canvas");
+  vignetteMaskCanvas.width = vw;
+  vignetteMaskCanvas.height = vh;
+  const maskCtx = vignetteMaskCanvas.getContext("2d");
+  maskCtx.clearRect(0, 0, vw, vh);
+  maskCtx.globalCompositeOperation = "lighten";
+
+  const bandW = vw * VIGNETTE_BAND_FRACTION;
+  const bandH = vh * VIGNETTE_BAND_FRACTION;
+
+  // Left edge: opaque at x=0, fading out by x=bandW.
+  let g = maskCtx.createLinearGradient(0, 0, bandW, 0);
+  g.addColorStop(0, "rgba(0,0,0,1)");
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  maskCtx.fillStyle = g;
+  maskCtx.fillRect(0, 0, bandW, vh);
+
+  // Right edge: mirror of the above.
+  g = maskCtx.createLinearGradient(vw, 0, vw - bandW, 0);
+  g.addColorStop(0, "rgba(0,0,0,1)");
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  maskCtx.fillStyle = g;
+  maskCtx.fillRect(vw - bandW, 0, bandW, vh);
+
+  // Top edge.
+  g = maskCtx.createLinearGradient(0, 0, 0, bandH);
+  g.addColorStop(0, "rgba(0,0,0,1)");
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  maskCtx.fillStyle = g;
+  maskCtx.fillRect(0, 0, vw, bandH);
+
+  // Bottom edge.
+  g = maskCtx.createLinearGradient(0, vh, 0, vh - bandH);
+  g.addColorStop(0, "rgba(0,0,0,1)");
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  maskCtx.fillStyle = g;
+  maskCtx.fillRect(0, vh - bandH, vw, bandH);
+
+  maskCtx.globalCompositeOperation = "source-over";
+
+  vignetteBuiltForW = vw;
+  vignetteBuiltForH = vh;
+}
+
+function drawVignetteBlur() {
+  // Per request ("kapag gabi kahit wala na, tuwing sunny day lang"):
+  // only shows on a clear, fully-daylit sky — not at night (getDayFactor()
+  // 0 through twilight) and not on a Rainy/Snow day either, since a
+  // blurred rim reads as a bright, in-focus-center camera effect that
+  // doesn't fit an already-dim or overcast scene the way it does a sunny
+  // one.
+  if (getDayFactor() < 1 || getCurrentWeather().name !== "Sunny") return;
+
+  const vw = view.width;
+  const vh = view.height;
+  ensureVignetteBuffers(vw, vh);
+
+  vignetteBlurCtx.clearRect(0, 0, vw, vh);
+  vignetteBlurCtx.filter = `blur(${VIGNETTE_BLUR_PX}px)`;
+  vignetteBlurCtx.drawImage(view, 0, 0); // a blurred copy of the frame just drawn to the main canvas
+  vignetteBlurCtx.filter = "none";
+
+  // Punch the center out of that blurred copy, leaving only the edges.
+  vignetteBlurCtx.globalCompositeOperation = "destination-in";
+  vignetteBlurCtx.drawImage(vignetteMaskCanvas, 0, 0);
+  vignetteBlurCtx.globalCompositeOperation = "source-over";
+
+  ctx.drawImage(vignetteBlurCanvas, 0, 0); // composite the edge-only blur back onto the sharp frame
+}
+
+// A distinct blue night tint — per request ("kapag gabi... kaya ba ng
+// parang may pagka blue yung paligid?"). The existing day/night sky
+// overlay (getSkyOverlayColor(), js/daynight.js) already darkens toward
+// a navy color at night, but at its actual alpha that reads mostly as
+// "dim", the blue in it barely registering. This is a SEPARATE, gentler
+// wash — low alpha, clearly blue rather than just dark — layered on top
+// of that overlay (not replacing it) so night specifically picks up an
+// obvious cool/moonlit cast rather than just losing brightness.
+const NIGHT_BLUE_TINT = "rgba(40,70,160,0.16)";
+
+function drawNightBlueTint() {
+  const nightFactor = 1 - getDayFactor(); // 0 in full day, 1 in full night, easing through twilight same as everything else
+  if (nightFactor <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = nightFactor;
+  ctx.fillStyle = NIGHT_BLUE_TINT;
+  ctx.fillRect(0, 0, view.width, view.height);
+  ctx.restore();
+}
+
 function render() {
   if (player.scene === "inside") {
     renderInteriorScene();
+    // No vignette blur indoors — per request, it's an outside-only effect.
     drawSceneFadeOverlay();
     return;
   }
@@ -1127,5 +1319,7 @@ function render() {
 
   drawMinimap(); // top-right overview — a separate <canvas> (index.html), not part of the main view/sky tint above (js/hud.js)
 
+  drawNightBlueTint(); // extra blue cast at night, on top of the sky tint above — see above
+  drawVignetteBlur(); // soft edge blur, all four sides, sunny daytime only — see above
   drawSceneFadeOverlay(); // interior enter/exit fade-to-black (js/interior.js) — drawn last, over absolutely everything
 }

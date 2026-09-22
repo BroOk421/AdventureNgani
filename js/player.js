@@ -23,6 +23,7 @@ const player = {
   sleeping: false,       // true for the whole 20-frame sleep animation, freezing movement (same idea as sceneFade) until it hands off to the fade+wake-up
   sleepFrame: 0,
   sleepFrameTimer: 0,
+  sleepFadeStarted: false, // true once the frame reaches SLEEP_FADE_START_FRAME and beginSceneFade() has fired (js/resources.js's updateSleeping()) — frozen on that frame, still drawn as "lying in bed" through the whole fade-out/black/fade-in, not switched back to the normal standing sprite until the fade fully finishes
   sleepBedCol: 0, sleepBedRow: 0, // the specific placed bed's own anchor tile (findNearbyBigBed(), js/resources.js) — used to draw the sleep animation AT the bed instead of at the player, and to hide that one bed's normal art while it plays (see camera.js)
   // --- interior scenes (js/interior.js) ---
   scene: "outside", // "outside" | "inside" — which coordinate space x/y are currently in

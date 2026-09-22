@@ -89,7 +89,7 @@ const FRAME_COUNTS = {
   crush: 8, slice: 8,
   death: 8, fishing: 8, hit: 4, pierce: 8, watering: 8,
   carryIdle: 4, carryWalk: 6, carryRun: 6,
-  sleep: 20, // Big Bed sleep animation (assets/interior/asesprite/bigbed-sheet.png), see js/resources.js
+  sleep: 30, // Big Bed sleep animation (assets/interior/asesprite/bigbed-sheet.png), see js/resources.js — 1380px / 30 frames = 46px each (NOT 20/69px: that cut across real frame boundaries, showing a sliver of the next frame's bedpost/head on the right edge every tick — a visible "double bed" jump instead of a smooth transition)
 };
 const ANIM_FPS = {
   idle: 4, walk: 8, run: 12,

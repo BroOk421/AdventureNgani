@@ -337,14 +337,17 @@ function updateThrownTosses() {
    js/daynight.js) while the screen is black, and fades back in. */
 
 // Finds a placed Big Bed the player can currently interact with — the
-// one they're FACING if outside (bedBig collides there — itemDefs), or
-// the one directly underfoot if inside (indoor decor stays walkable
-// regardless of `collides` — placeInteriorDecorAt()'s header comment,
-// interior.js). Uses findFootprintCoveringTile() (inventory.js) so ANY
-// of the bed's 3x3 tiles counts, not just its single anchor tile.
-// Returns { col, row } — the bed's own anchor tile, the same key it's
-// stored under (needed later to hide its normal art while sleeping,
-// and to draw the sleep animation in the right spot) — or null.
+// one they're FACING, whether outside (bedBig collides there — itemDefs)
+// or inside (the Big Bed is now a deliberate EXCEPTION to "indoor decor
+// is purely visual": it collides indoors too — isInteriorTileBlocked(),
+// interior.js — so, same as outside, the player's feet can never
+// actually be standing ON it; facing it is the only way to reach it
+// either place). Uses findFootprintCoveringTile() (inventory.js, which
+// works against any "col,row"->type Map, room.decor included) so ANY of
+// the bed's 3x3 tiles counts, not just its single anchor tile. Returns
+// { col, row } — the bed's own anchor tile, the same key it's stored
+// under (needed later to hide its normal art while sleeping, and to
+// draw the sleep animation in the right spot) — or null.
 function findNearbyBigBed() {
   if (player.scene === "outside") {
     const front = getTileInFrontOfPlayer();
@@ -356,8 +359,19 @@ function findNearbyBigBed() {
   }
   const room = INTERIOR_ROOMS[player.activeRoomId];
   if (!room) return null;
+  // The tile directly in front, same "always exactly 1 tile away" rule
+  // getTileInFrontOfPlayer() (inventory.js) uses outdoors, just off the
+  // room-local feet tile (interiorFeetTileAt()) instead of the outdoor
+  // one — not that function itself, since it reads the outdoor
+  // camX/camY-based grid, not room-local coordinates.
   const p = interiorFeetTileAt(player.x, player.y);
-  if (room.decor.get(tileKey(p.col, p.row)) === "bedBig") return { col: p.col, row: p.row };
+  const front = { col: p.col, row: p.row };
+  if (player.facing === "up") front.row -= 1;
+  else if (player.facing === "down") front.row += 1;
+  else if (player.facing === "left") front.col -= 1;
+  else if (player.facing === "right") front.col += 1;
+  const hit = findFootprintCoveringTile(room.decor, front.col, front.row);
+  if (hit && hit.type === "bedBig") return { col: hit.anchorCol, row: hit.anchorRow };
   return null;
 }
 
@@ -367,7 +381,11 @@ function findNearbyBigBed() {
 // held/grabbed (sleeping with your hands full doesn't make sense), and
 // no other transition is already in progress. NOT wired to "E" — per
 // request, that key stays the normal grab/hold action everywhere,
-// including at a bed.
+// including at a bed. Per request ("mag sleep muna tyaka mag fade"):
+// the sleep animation itself starts and plays immediately, fully
+// visible — no fade-out beforehand. The fade only happens at the far
+// end, once all FRAME_COUNTS.sleep frames have finished playing
+// (updateSleeping(), below) — same as it always did.
 function trySleepInBed() {
   if (isDaytime()) return false;
   if (sceneFade) return false;
@@ -379,6 +397,7 @@ function trySleepInBed() {
   player.sleeping = true;
   player.sleepFrame = 0;
   player.sleepFrameTimer = 0;
+  player.sleepFadeStarted = false;
   player.sleepBedCol = bed.col;
   player.sleepBedRow = bed.row;
   return true;
@@ -401,7 +420,8 @@ function isPointOnBigBed(x, y) {
   }
   const room = INTERIOR_ROOMS[player.activeRoomId];
   if (!room) return false;
-  return room.decor.get(tileKey(col, row)) === "bedBig";
+  const hit = findFootprintCoveringTile(room.decor, col, row);
+  return !!hit && hit.type === "bedBig";
 }
 
 // Left-click anywhere on a placed Big Bed's 3x3 footprint at night
@@ -424,19 +444,42 @@ function setupBedClickHandler() {
 
 // Called every frame from updatePlayer() (player.js) instead of the
 // normal movement update while `player.sleeping` — advances the sleep
-// animation, and once all FRAME_COUNTS.sleep frames have played, hands
-// off to the same fade-to-black/fade-in sequence every interior door
-// uses, with the clock jump as the "onMidpoint" (invisible to the
-// player, same as a scene switch happening at the blackout point).
+// animation up through SLEEP_FADE_START_FRAME, then hands off to the
+// same fade-to-black/fade-in sequence every interior door uses, with the
+// clock jump as the "onMidpoint" (invisible to the player, same as a
+// scene switch happening at the blackout point).
+//
+// Per request ("kapag nasa 23 frame na mag fade na... smooth na pag 6am
+// is naka baba na siya sa bed"): the fade starts at frame 23, not after
+// the full FRAME_COUNTS.sleep (30) — by frame 23 the character already
+// reads as settled/lying down in the sheet's own animation, so waiting
+// through the remaining ~7 idle-ish frames before cutting to black just
+// added a pause with nothing new to see. And unlike before, `sleeping`
+// stays true (frame FROZEN at 23, still drawn as lying in bed — see
+// drawSleepingBed(), camera.js) all the way through both halves of the
+// fade, not just up to the moment it starts: only once the fade has
+// FULLY finished (sceneFade back to null — updateSceneFade(),
+// interior.js) does this hand back to the normal standing sprite, at the
+// new (6am) position/time. Previously `sleeping` flipped false the
+// instant the fade was triggered, while the screen was still fully
+// visible — so what was on screen through the entire fade-out was
+// actually the normal standing character, not the bed at all.
+const SLEEP_FADE_START_FRAME = 23;
+
 function updateSleeping(dt) {
+  if (player.sleepFadeStarted) {
+    if (!sceneFade) player.sleeping = false; // the whole fade is done — hand back to the normal sprite
+    return;
+  }
+
   const fps = ANIM_FPS.sleep;
-  const frameCount = FRAME_COUNTS.sleep;
   player.sleepFrameTimer += dt;
   if (player.sleepFrameTimer >= 1 / fps) {
     player.sleepFrameTimer = 0;
     player.sleepFrame++;
-    if (player.sleepFrame >= frameCount) {
-      player.sleeping = false;
+    if (player.sleepFrame >= SLEEP_FADE_START_FRAME) {
+      player.sleepFrame = SLEEP_FADE_START_FRAME; // freeze here for the whole fade
+      player.sleepFadeStarted = true;
       beginSceneFade(() => {
         skipToNextSunrise();
       });

@@ -342,6 +342,21 @@ function isInteriorTileBlocked(room, col, row) {
     if (col < placedCol - halfCols || col >= placedCol - halfCols + cols) continue; // outside the door's column band
     return true;
   }
+  // The Big Bed (and any other `collides` + `fixedFootprint` decor item)
+  // is a deliberate EXCEPTION to "indoor decor is purely visual" above —
+  // per request, it should block movement across its own real 3x3
+  // footprint indoors too, same as it already does outdoors
+  // (isTileBlocked(), js/player.js), not just sit there walkable like
+  // ordinary furniture. Reuses the same footprint math outdoor collision
+  // uses (getObjectFootprintBlockedTiles(), js/inventory.js) so the two
+  // never drift apart.
+  for (const [key, type] of room.decor) {
+    const def = itemDefs[type];
+    if (!def.collides || !def.fixedFootprint) continue;
+    const [placedCol, placedRow] = key.split(",").map(Number);
+    const tiles = getObjectFootprintBlockedTiles(type, placedCol, placedRow);
+    if (tiles.some((t) => t.col === col && t.row === row)) return true;
+  }
   return false;
 }
 

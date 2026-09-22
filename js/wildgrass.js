@@ -53,8 +53,13 @@ function updateWildgrassSway(dt) {
   const playerKey = tileKey(playerTile.col, playerTile.row);
 
   // Only the player's own tile can get a nonzero target, so we only need
-  // to look up itemDefs/facing once, not per grass tile.
-  const playerOnGrass = decorLayer.has(playerKey);
+  // to look up itemDefs/facing once, not per grass tile. `noSway` items
+  // sharing this same decorLayer (XXS Stone, Pebbles 1-5 — per request,
+  // "dapat mas angat sila ng layer sa grass" — placed here just so they
+  // can sit on top of a Ground tile instead of fighting it for the same
+  // groundLayer slot, itemDefs) never count as "on grass" for this: real
+  // pebbles don't bend in the wind the way wild grass/flowers do.
+  const playerOnGrass = decorLayer.has(playerKey) && !itemDefs[decorLayer.get(playerKey)].noSway;
   let target = 0;
   if (playerOnGrass) {
     if (player.facing === "left") target = -1;

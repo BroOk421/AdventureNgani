@@ -142,6 +142,73 @@ function getMultiTileFootprintTiles(type, placedCol, placedRow) {
 //     anyway — a fixed, hand-tuned, independently-sided count matches
 //     what it actually looks like instead of the literal source art
 //     bounds.
+// Per-tile opacity check for `multiTileFootprint` items — per request
+// ("di accurate yung collisions"), a plain rectangular tile-footprint
+// blocks every tile in its bounding box even where the art itself is
+// fully transparent there (e.g. the Fence's open corner gaps: its 80x80
+// art is a 5x5-tile bounding box, but a big chunk of the middle is
+// genuinely empty — two fence pieces meant to be placed apart and
+// connected by nothing). Samples the icon's actual pixel alpha for each
+// tile cell of the footprint rect (via an offscreen canvas) so only
+// cells with real, visible pixels end up blocked — same "don't count
+// empty deadspace" idea the object-fade system already uses for
+// occlusion (getObjectMask(), camera.js), just applied to collision
+// instead of visual fade. Computed once per type and cached, since an
+// item's own art never changes at runtime.
+const FOOTPRINT_OPACITY_CACHE = new Map(); // type -> Set of "i,j" (footprint-local tile indices, 0-indexed from the top-left) that have real pixels
+
+function computeFootprintOpacityGrid(type) {
+  if (FOOTPRINT_OPACITY_CACHE.has(type)) return FOOTPRINT_OPACITY_CACHE.get(type);
+  const def = itemDefs[type];
+  const icon = def.icon;
+  const widthTiles = def.footprintWidthTiles || Math.round(icon.width / TILE);
+  const heightTiles = def.footprintHeightTiles || Math.round(icon.height / TILE);
+  // The icon's own left/top edge relative to the footprint grid's
+  // left/top edge, in icon-space px — same centering
+  // getMultiTileFootprintRect()/drawObjectLayerItem() (camera.js) both
+  // already use. Independent of where the item is actually placed
+  // (placedCol/placedRow cancel out of the math), so this is safe to
+  // compute once per type and cache alongside the pixel data.
+  const offsetX = 0.5 * TILE + Math.floor((widthTiles - 1) / 2) * TILE - icon.width / 2;
+  const offsetY = TILE * heightTiles - icon.height;
+
+  const solid = new Set();
+  try {
+    const c = document.createElement("canvas");
+    c.width = icon.width;
+    c.height = icon.height;
+    const cx = c.getContext("2d");
+    cx.drawImage(icon, 0, 0);
+    const data = cx.getImageData(0, 0, icon.width, icon.height).data;
+    for (let j = 0; j < heightTiles; j++) {
+      const py0 = Math.max(0, Math.floor(j * TILE - offsetY));
+      const py1 = Math.min(icon.height, Math.ceil((j + 1) * TILE - offsetY));
+      for (let i = 0; i < widthTiles; i++) {
+        const px0 = Math.max(0, Math.floor(i * TILE - offsetX));
+        const px1 = Math.min(icon.width, Math.ceil((i + 1) * TILE - offsetX));
+        let opaque = false;
+        for (let y = py0; y < py1 && !opaque; y++) {
+          for (let x = px0; x < px1; x++) {
+            if (data[(y * icon.width + x) * 4 + 3] > 0) {
+              opaque = true;
+              break;
+            }
+          }
+        }
+        if (opaque) solid.add(i + "," + j);
+      }
+    }
+  } catch (e) {
+    // Canvas pixel read failed (e.g. opened via file:// without a local
+    // server, which taints the canvas) — fall back to the old behavior,
+    // the whole rectangle solid, rather than breaking collision entirely.
+    for (let j = 0; j < heightTiles; j++)
+      for (let i = 0; i < widthTiles; i++) solid.add(i + "," + j);
+  }
+  FOOTPRINT_OPACITY_CACHE.set(type, solid);
+  return solid;
+}
+
 // Called from isTileBlocked() (js/player.js) for every colliding object,
 // so a candidate move tile can be checked against footprints anchored at
 // a different tile than the one being tested.
@@ -205,12 +272,16 @@ function getObjectFootprintBlockedTiles(type, placedCol, placedRow) {
   // onto, in js/interior.js.
   const doorCol = def.interior ? placedCol + def.interior.doorOffset.col : null;
   const doorRow = def.interior ? placedRow + def.interior.doorOffset.row : null;
+  const opacityGrid = computeFootprintOpacityGrid(type);
 
   const blocked = [];
   for (let row = r.topRow; row <= r.bottomRow; row++) {
-    if (row - r.topRow < excludeBackRows) continue; // back rows (roof/far side) stay walkable
+    const j = row - r.topRow;
+    if (j < excludeBackRows) continue; // back rows (roof/far side) stay walkable
     for (let col = r.leftCol; col <= r.rightCol; col++) {
+      const i = col - r.leftCol;
       if (col === doorCol && row === doorRow) continue; // the door — walkable
+      if (!opacityGrid.has(i + "," + j)) continue; // the art itself is empty here — per request, don't block deadspace
       blocked.push({ col, row });
     }
   }
@@ -780,6 +851,7 @@ const itemDefs = {
     collides: true,
     unlimited: true,
     fixedFootprint: { leftTiles: 1, rightTiles: 1, heightTiles: 1 },
+    fadeBoundingBoxOnly: true,
     resource: {
       hitsToBreak: 3,
       breakAnim: "crush",
@@ -794,6 +866,7 @@ const itemDefs = {
     icon: assets.stoneMedium,
     collides: true,
     unlimited: true,
+    fadeBoundingBoxOnly: true,
     resource: {
       hitsToBreak: 3,
       breakAnim: "crush",
@@ -808,6 +881,7 @@ const itemDefs = {
     icon: assets.stoneSmall,
     collides: true,
     unlimited: true,
+    noOcclusionFade: true,
     resource: {
       hitsToBreak: 3,
       breakAnim: "crush",
@@ -824,6 +898,7 @@ const itemDefs = {
     icon: assets.stoneXS,
     collides: true,
     unlimited: true,
+    noOcclusionFade: true,
   },
   // XXS Stone and the Pebbles below: no collision, and `flat: true` so
   // they sit in groundLayer like the ground tileset — always drawn
@@ -837,6 +912,9 @@ const itemDefs = {
     icon: assets.stoneXXS,
     unlimited: true,
     flat: true,
+    layer: "decor",
+    noSway: true,
+    noOcclusionFade: true,
   },
   stoneDecor1: {
     id: "stoneDecor1",
@@ -844,6 +922,9 @@ const itemDefs = {
     icon: assets.stoneDecor1,
     unlimited: true,
     flat: true,
+    layer: "decor",
+    noSway: true,
+    noOcclusionFade: true,
   },
   stoneDecor2: {
     id: "stoneDecor2",
@@ -851,6 +932,9 @@ const itemDefs = {
     icon: assets.stoneDecor2,
     unlimited: true,
     flat: true,
+    layer: "decor",
+    noSway: true,
+    noOcclusionFade: true,
   },
   stoneDecor3: {
     id: "stoneDecor3",
@@ -858,6 +942,9 @@ const itemDefs = {
     icon: assets.stoneDecor3,
     unlimited: true,
     flat: true,
+    layer: "decor",
+    noSway: true,
+    noOcclusionFade: true,
   },
   stoneDecor4: {
     id: "stoneDecor4",
@@ -865,6 +952,9 @@ const itemDefs = {
     icon: assets.stoneDecor4,
     unlimited: true,
     flat: true,
+    layer: "decor",
+    noSway: true,
+    noOcclusionFade: true,
   },
   stoneDecor5: {
     id: "stoneDecor5",
@@ -872,6 +962,9 @@ const itemDefs = {
     icon: assets.stoneDecor5,
     unlimited: true,
     flat: true,
+    layer: "decor",
+    noSway: true,
+    noOcclusionFade: true,
   },
   // Dropped by harvesting a stone — a plain inventory resource, not
   // really meant to be placed as decor, but there's no separate
@@ -1230,36 +1323,47 @@ const itemDefs = {
     name: "Flowering Bush (A)",
     icon: assets.bushFlowerA,
     unlimited: true,
+    noOcclusionFade: true,
+    alwaysBehindPlayer: true,
   },
   bushFlowerB: {
     id: "bushFlowerB",
     name: "Flowering Bush (B)",
     icon: assets.bushFlowerB,
     unlimited: true,
+    noOcclusionFade: true,
+    alwaysBehindPlayer: true,
   },
   bushFlowerC: {
     id: "bushFlowerC",
     name: "Flowering Bush (C)",
     icon: assets.bushFlowerC,
     unlimited: true,
+    noOcclusionFade: true,
+    alwaysBehindPlayer: true,
   },
   bushFlowerD: {
     id: "bushFlowerD",
     name: "Flowering Bush (D)",
     icon: assets.bushFlowerD,
     unlimited: true,
+    noOcclusionFade: true,
+    alwaysBehindPlayer: true,
   },
   bushMushroom1: {
     id: "bushMushroom1",
     name: "Mushroom (A)",
     icon: assets.bushMushroom1,
     unlimited: true,
+    noOcclusionFade: true,
   },
   bushMushroom2: {
     id: "bushMushroom2",
     name: "Mushroom (B)",
     icon: assets.bushMushroom2,
     unlimited: true,
+    noOcclusionFade: true,
+    alwaysBehindPlayer: true,
   },
   leavesFloor: {
     id: "leavesFloor",
@@ -1420,6 +1524,7 @@ const itemDefs = {
     icon: assets.windowLight1,
     unlimited: true,
     flat: true,
+    fadeWithDaylight: true,
   },
   windowLight2: {
     id: "windowLight2",
@@ -1427,6 +1532,7 @@ const itemDefs = {
     icon: assets.windowLight2,
     unlimited: true,
     flat: true,
+    fadeWithDaylight: true,
   },
   windowLight3: {
     id: "windowLight3",
@@ -1434,6 +1540,7 @@ const itemDefs = {
     icon: assets.windowLight3,
     unlimited: true,
     flat: true,
+    fadeWithDaylight: true,
   },
   doorPlain1: {
     id: "doorPlain1",
@@ -1657,48 +1764,64 @@ const itemDefs = {
     name: "Chair (Front-facing)",
     icon: assets.chairFront,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   chairRight: {
     id: "chairRight",
     name: "Chair (Side-facing)",
     icon: assets.chairRight,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   cabinetBaseA: {
     id: "cabinetBaseA",
     name: "Cabinet Base (A)",
     icon: assets.cabinetBaseA,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   cabinetBaseB: {
     id: "cabinetBaseB",
     name: "Cabinet Base (B)",
     icon: assets.cabinetBaseB,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   cabinetBaseC: {
     id: "cabinetBaseC",
     name: "Cabinet Base (C)",
     icon: assets.cabinetBaseC,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   cabinetBaseD: {
     id: "cabinetBaseD",
     name: "Cabinet Base (D)",
     icon: assets.cabinetBaseD,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   basket1: {
     id: "basket1",
     name: "Basket (A)",
     icon: assets.basket1,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   basket2: {
     id: "basket2",
     name: "Basket (B)",
     icon: assets.basket2,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   bedBig: {
     id: "bedBig",
@@ -1734,117 +1857,155 @@ const itemDefs = {
     name: "Big Table (A)",
     icon: assets.tableBig,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   tableBig1: {
     id: "tableBig1",
     name: "Big Table (B)",
     icon: assets.tableBig1,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   tableBig2: {
     id: "tableBig2",
     name: "Big Table (C)",
     icon: assets.tableBig2,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   tableCircle: {
     id: "tableCircle",
     name: "Round Table",
     icon: assets.tableCircle,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   tableKitchen: {
     id: "tableKitchen",
     name: "Kitchen Table",
     icon: assets.tableKitchen,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   tableSmall: {
     id: "tableSmall",
     name: "Small Table",
     icon: assets.tableSmall,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   cookerStove1: {
     id: "cookerStove1",
     name: "Stove (A)",
     icon: assets.cookerStove1,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   cookerStove2: {
     id: "cookerStove2",
     name: "Stove (B)",
     icon: assets.cookerStove2,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   cookerStove3: {
     id: "cookerStove3",
     name: "Stove (C)",
     icon: assets.cookerStove3,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
-  couch: { id: "couch", name: "Couch", icon: assets.couch, unlimited: true },
+  couch: { id: "couch", name: "Couch", icon: assets.couch, unlimited: true, collides: true, multiTileFootprint: true },
   drawerFurniture: {
     id: "drawerFurniture",
     name: "Drawer",
     icon: assets.drawerFurniture,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   broom: {
     id: "broom",
     name: "Broom (Walis)",
     icon: assets.broom,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   barrelInterior: {
     id: "barrelInterior",
     name: "Barrel",
     icon: assets.barrelInterior,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   crateInterior: {
     id: "crateInterior",
     name: "Wooden Crate",
     icon: assets.crateInterior,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   chimneyPlain: {
     id: "chimneyPlain",
     name: "Chimney",
     icon: assets.chimneyPlain,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   chimneyRed: {
     id: "chimneyRed",
     name: "Chimney (Red)",
     icon: assets.chimneyRed,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   benchHorizontal: {
     id: "benchHorizontal",
     name: "Bench (Horizontal)",
     icon: assets.benchHorizontal,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   benchVertical: {
     id: "benchVertical",
     name: "Bench (Vertical)",
     icon: assets.benchVertical,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   chairOutdoorFront: {
     id: "chairOutdoorFront",
     name: "Outdoor Chair (Front)",
     icon: assets.chairOutdoorFront,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   chairOutdoorSide: {
     id: "chairOutdoorSide",
     name: "Outdoor Chair (Side)",
     icon: assets.chairOutdoorSide,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
-  fence: { id: "fence", name: "Fence", icon: assets.fence, unlimited: true },
+  fence: { id: "fence", name: "Fence", icon: assets.fence, unlimited: true, collides: true, multiTileFootprint: true },
   floorMat: {
     id: "floorMat",
     name: "Floor Mat",
@@ -1857,24 +2018,32 @@ const itemDefs = {
     name: "Long Table (Horizontal)",
     icon: assets.longTableHorizontal,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   longTableVertical: {
     id: "longTableVertical",
     name: "Long Table (Vertical)",
     icon: assets.longTableVertical,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   portBridge: {
     id: "portBridge",
     name: "Port Bridge",
     icon: assets.portBridge,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   portBridgeDecor: {
     id: "portBridgeDecor",
     name: "Port Bridge Decor",
     icon: assets.portBridgeDecor,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   portBridgeFront1: {
     id: "portBridgeFront1",
@@ -1923,12 +2092,16 @@ const itemDefs = {
     name: "Post",
     icon: assets.postPlain,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   postLight: {
     id: "postLight",
     name: "Lamp Post",
     icon: assets.postLight,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   postHandleLight: {
     id: "postHandleLight",
@@ -1956,6 +2129,8 @@ const itemDefs = {
     name: "Onion Crate",
     icon: assets.vegOnionBox,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   vegPetchay: {
     id: "vegPetchay",
@@ -1969,6 +2144,8 @@ const itemDefs = {
     name: "Petchay Crate",
     icon: assets.vegPetchayBox,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   vegCabbage: {
     id: "vegCabbage",
@@ -1982,6 +2159,8 @@ const itemDefs = {
     name: "Cabbage Crate",
     icon: assets.vegCabbageBox,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   vegBrocolli: {
     id: "vegBrocolli",
@@ -1995,6 +2174,8 @@ const itemDefs = {
     name: "Broccoli Crate",
     icon: assets.vegBrocolliBox,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   vegBrocolliFlower: {
     id: "vegBrocolliFlower",
@@ -2008,6 +2189,8 @@ const itemDefs = {
     name: "Broccoli Flower Crate",
     icon: assets.vegBrocolliFlowerBox,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   vegCarrots: {
     id: "vegCarrots",
@@ -2021,6 +2204,8 @@ const itemDefs = {
     name: "Carrot Crate",
     icon: assets.vegCarrotBox,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   vegDragonfruit: {
     id: "vegDragonfruit",
@@ -2034,18 +2219,24 @@ const itemDefs = {
     name: "Dragonfruit Crate",
     icon: assets.vegDragonfruitBox,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   vegCrate: {
     id: "vegCrate",
     name: "Crate (Closed)",
     icon: assets.vegCrate,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   vegCrateOpen: {
     id: "vegCrateOpen",
     name: "Crate (Open)",
     icon: assets.vegCrateOpen,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   dirtRake: {
     id: "dirtRake",
@@ -2066,6 +2257,8 @@ const itemDefs = {
     name: "Plant Drawer",
     icon: assets.plantDrawer,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   plotSocketOpen: {
     id: "plotSocketOpen",
@@ -2086,12 +2279,16 @@ const itemDefs = {
     name: "Water Crate (Horizontal)",
     icon: assets.waterCrateHorizontal,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
   waterCrateVertical: {
     id: "waterCrateVertical",
     name: "Water Crate (Vertical)",
     icon: assets.waterCrateVertical,
     unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
   },
 
   // --- dev / level-design tool: one 16x16-tile collision block, for
