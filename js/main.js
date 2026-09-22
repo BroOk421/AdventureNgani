@@ -48,6 +48,7 @@ function start() {
   loadGame(); // restore placed items / inventory / position from last time, if any
   setupPlacementClickHandler();
   setupNpcClickHandler(); // left-click-the-shopkeeper-to-shop (js/npc.js)
+  setupBedClickHandler(); // left-click a placed Big Bed at night to sleep (js/resources.js)
   renderGoldDisplays(); // shows the starting/restored gold total right away, not just after the first purchase
   updateStatsHUD(); // shows the starting/restored stat values right away too, same reasoning
   last = performance.now();

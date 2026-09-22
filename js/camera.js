@@ -129,6 +129,31 @@ function currentPlayerSheet() {
   return spriteForFacing(animKey, player.facing, carryVisual ? "carrying" : "normal");
 }
 
+// Drawn INSTEAD of the bed's normal art (see the objectLayer/room.decor
+// skip checks below) while `player.sleeping` (js/resources.js's
+// trySleepInBed()/updateSleeping()) — the Big Bed's own 20-frame sleep
+// sheet (assets.bedBigSleep), sliced to the current player.sleepFrame,
+// drawn at the SPECIFIC bed's own position (player.sleepBedCol/Row,
+// set once when the sequence starts) rather than the player's, since
+// outside they're not even standing on the same tile (bedBig collides
+// there, so sleeping is triggered by FACING it — findNearbyBigBed(),
+// resources.js). Same bottom-center anchor every other placed object
+// uses (drawObjectLayerItem() above / the indoor decor loop below).
+function drawSleepingBed() {
+  const icon = assets.bedBigSleep;
+  const frameCount = FRAME_COUNTS.sleep;
+  const frameW = icon.width / frameCount;
+  const frameH = icon.height;
+  const sx = player.sleepFrame * frameW;
+  const w = frameW * zoom;
+  const h = frameH * zoom;
+  const tileCenterX = (player.sleepBedCol + 0.5) * TILE;
+  const tileBottomY = (player.sleepBedRow + 1) * TILE;
+  const screenX = (tileCenterX - camX) * zoom - w / 2;
+  const screenY = (tileBottomY - camY) * zoom - h;
+  ctx.drawImage(icon, sx, 0, frameW, frameH, screenX, screenY, w, h);
+}
+
 function drawPlayer(px, py, scale) {
   // while the collect action plays, use its sheet; otherwise the normal
   // idle/walk/run (or carry* equivalent) sheet.
@@ -660,6 +685,11 @@ function renderWorldObjectsSorted() {
   const drawables = [];
 
   objectLayer.forEach((type, key) => {
+    // Hidden while its own sleep animation is playing (drawSleepingBed()
+    // below draws in its place instead) — per request, the two must
+    // never show at once, or it looks like two beds stacked on top of
+    // each other.
+    if (player.sleeping && key === tileKey(player.sleepBedCol, player.sleepBedRow)) return;
     const [col, row] = key.split(",").map(Number);
     drawables.push({ sortY: (row + 1) * TILE, draw: () => drawObjectLayerItem(type, col, row) });
   });
@@ -672,11 +702,18 @@ function renderWorldObjectsSorted() {
     drawables.push({ sortY: (row + 1) * TILE, draw: () => drawWildgrassWhole(type, col, row) });
   });
 
-  const playerFeetWorldY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
-  drawables.push({
-    sortY: playerFeetWorldY,
-    draw: () => drawPlayer((player.x - camX) * zoom, (player.y - camY) * zoom, zoom),
-  });
+  if (player.sleeping) {
+    // Drawn at the BED's own position, not the player's (they're not
+    // even standing on the same tile outside — see drawSleepingBed()'s
+    // comment above) — sorted by the bed's row like any other object.
+    drawables.push({ sortY: (player.sleepBedRow + 1) * TILE, draw: () => drawSleepingBed() });
+  } else {
+    const playerFeetWorldY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+    drawables.push({
+      sortY: playerFeetWorldY,
+      draw: () => drawPlayer((player.x - camX) * zoom, (player.y - camY) * zoom, zoom),
+    });
+  }
 
   // The NPC shopkeeper (js/npc.js) — same Y-sort treatment as the player,
   // so walking above/below it occludes correctly instead of it always
@@ -743,6 +780,60 @@ function drawPlacementRange(camX, camY) {
       // as a genuinely crisp 1px line instead of a blurry ~2px line (a
       // stroke centered on a whole-number coordinate straddles two rows/
       // columns of pixels and gets anti-aliased into a soft double line).
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(screenX + 0.5, screenY + 0.5, size - 1, size - 1);
+    }
+  }
+}
+
+// Interior counterpart to drawPlacementRange() above, for while `heldItem`
+// is held inside a room (js/interior.js) — same PLACEMENT_RANGE grid,
+// same white-valid/red-blocked coloring, just checked against the
+// room's OWN `collisions`/`decor` maps instead of an outdoor layer, and
+// bounded by the room's own width/height instead of COLS/ROWS. No E-key
+// `player.grabbedType` case here — that mechanic is outdoor-only.
+function drawInteriorPlacementRange(room, camX, camY) {
+  // Same "heldItem wins, else grabbedType" precedence the outdoor
+  // drawPlacementRange() uses — covers both the mouse-based hold-to-
+  // place flow AND the E-key grab/carry flow (tryGrabOrPlaceIndoorItemInFront(),
+  // interior.js), so carrying a Collision Block or a grabbed decor item
+  // around also shows this grid, not just holding one from the
+  // inventory panel.
+  const holdingType = heldItem ? heldItem.type : player.grabbedType;
+  if (!holdingType) return;
+  const def = itemDefs[holdingType];
+  if (def.multiTileFootprint) return; // never placeable indoors (placeInteriorDecorAt() refuses it) — nothing to preview
+
+  // `interiorOnly` (the Collision Block) targets `room.collisions`;
+  // every other item targets `room.decor` — same routing
+  // placeHeldItemAt() (inventory.js) uses to decide which of
+  // placeInteriorCollisionAt()/placeInteriorDecorAt() actually runs.
+  const isCollisionItem = !!def.interiorOnly;
+  const targetMap = isCollisionItem ? room.collisions : room.decor;
+
+  const p = interiorFeetTileAt(player.x, player.y);
+  const size = TILE * zoom;
+  const maxCol = Math.ceil(room.width / TILE) - 1;
+  const maxRow = Math.ceil(room.height / TILE) - 1;
+
+  for (let row = p.row - PLACEMENT_RANGE; row <= p.row + PLACEMENT_RANGE; row++) {
+    for (let col = p.col - PLACEMENT_RANGE; col <= p.col + PLACEMENT_RANGE; col++) {
+      if (col < 0 || row < 0 || col > maxCol || row > maxRow) continue; // nothing to highlight past the room's edge
+
+      const screenX = Math.round((col * TILE - camX) * zoom);
+      const screenY = Math.round((row * TILE - camY) * zoom);
+      const occupied = targetMap.has(tileKey(col, row));
+      // Same "would trap the player" rule placeInteriorCollisionAt()
+      // enforces for the Collision Block's own tile (it always
+      // collides, so it's refused there even though the tile itself
+      // isn't "occupied" yet) — decor never blocks movement, so this
+      // never applies to it.
+      const isOwnTileBlocked = isCollisionItem && col === p.col && row === p.row;
+      const color = (!occupied && !isOwnTileBlocked)
+        ? "rgba(255,255,255,0.55)"
+        : "rgba(220,40,40,0.9)";
+
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
       ctx.strokeRect(screenX + 0.5, screenY + 0.5, size - 1, size - 1);
@@ -881,22 +972,67 @@ function renderInteriorScene() {
   if (!room) return; // shouldn't happen — interior.js never leaves scene "inside" pointed at a missing room
 
   // Same viewWorldW/H + clamp-to-bounds shape as the outdoor render()
-  // below, just against this room's width/height instead of MAP_W/MAP_H
-  // — local variables, not the outdoor camX/camY, so re-entering the
-  // world next frame isn't affected by wherever the room camera ended up.
+  // below, just against this room's width/height instead of MAP_W/MAP_H.
   const viewWorldW = vw / zoom;
   const viewWorldH = vh / zoom;
-  const roomCamX = clamp(player.x - viewWorldW / 2, 0, Math.max(0, room.width - viewWorldW));
-  const roomCamY = clamp(player.y - viewWorldH / 2, 0, Math.max(0, room.height - viewWorldH));
+  // Assigned to the SAME module-level camX/camY the outdoor render()
+  // uses (declared near the top of this file), not local consts — this
+  // is what lets inventory.js's screenToTile()/screenToWorld() (used by
+  // the mouse-click placement handler) resolve a click correctly while
+  // inside too, for `interiorOnly` items like the Collision Block (see
+  // placeInteriorCollisionAt(), js/interior.js). Only one of this
+  // function or the outdoor render() runs per frame, so reusing the same
+  // pair of variables for "the room's scroll offset" vs. "the map's
+  // scroll offset" never conflicts.
+  camX = clamp(player.x - viewWorldW / 2, 0, Math.max(0, room.width - viewWorldW));
+  camY = clamp(player.y - viewWorldH / 2, 0, Math.max(0, room.height - viewWorldH));
 
   ctx.clearRect(0, 0, vw, vh);
   ctx.fillStyle = "#0a0a0a";
   ctx.fillRect(0, 0, vw, vh);
-  ctx.drawImage(room.image, roomCamX, roomCamY, viewWorldW, viewWorldH, 0, 0, vw, vh);
+  ctx.drawImage(room.image, camX, camY, viewWorldW, viewWorldH, 0, 0, vw, vh);
 
-  const px = (player.x - roomCamX) * zoom;
-  const py = (player.y - roomCamY) * zoom;
-  drawPlayer(px, py, zoom);
+  // Placed Collision Blocks (js/interior.js's `room.collisions`) are
+  // invisible once placed — per request ("wag mo na siyang lagyan ng
+  // box kapag na put na sa ground... gawin mong transparent lang parang
+  // wala lang pero meron collision"): the tile still blocks movement
+  // (isInteriorBodyBlockedAt(), interior.js), it just isn't drawn here
+  // anymore. The icon itself is untouched — still shows normally in the
+  // inventory/hotbar/held-item HUD (itemDefs' `icon: assets.
+  // collisionMarker`, inventory.js).
+
+  // Ordinary decor placed indoors (js/interior.js's `room.decor` — doors,
+  // picture frames, windows, furniture, anything placeInteriorDecorAt()
+  // accepted) — drawn the SAME bottom-center-anchored way
+  // drawGroundItemAt() draws an outdoor flat item, just against this
+  // room's camX/camY instead. Purely visual (see `room.decor`'s header
+  // comment, interior.js) — a Collision Block on the same tile is what
+  // actually blocks movement, not this.
+  for (const [key, type] of room.decor) {
+    // Hidden while its own sleep animation is playing — same reasoning
+    // as the outdoor objectLayer skip above.
+    if (player.sleeping && key === tileKey(player.sleepBedCol, player.sleepBedRow)) continue;
+    const [col, row] = key.split(",").map(Number);
+    const icon = itemDefs[type].icon;
+    const w = icon.width * zoom;
+    const h = icon.height * zoom;
+    const tileCenterX = (col + 0.5) * TILE;
+    const tileBottomY = (row + 1) * TILE;
+    const screenX = (tileCenterX - camX) * zoom - w / 2;
+    const screenY = (tileBottomY - camY) * zoom - h;
+    ctx.drawImage(icon, screenX, screenY, w, h);
+  }
+
+  if (player.sleeping) {
+    drawSleepingBed();
+  } else {
+    const px = (player.x - camX) * zoom;
+    const py = (player.y - camY) * zoom;
+    drawPlayer(px, py, zoom);
+  }
+
+  drawThrownTosses(); // T-key throw arc for a grabbed Collision Block (js/inventory.js's tryThrowGrabbedInteriorItem(), interior.js) — same visual as the outdoor throw
+  drawInteriorPlacementRange(room, camX, camY); // white/red tile-border grid while holding something, same idea as drawPlacementRange() outdoors
 
   // Small "how to leave" hint — the exit mat isn't otherwise marked as
   // interactive, so this keeps it discoverable. Pinned to the bottom of

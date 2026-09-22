@@ -26,6 +26,15 @@ const SPRITE_FEET_FRACTION = 0.62;
 // full (mostly-empty) bounding box.
 const SPRITE_HEAD_FRACTION = 0.28;
 
+// Half-width (WORLD px) of the character's body for collision against
+// pixel-accurate walls (house2/house3 — `wallColliderPx`, inventory.js).
+// Measured from every idle/walk/run/side frame: the visible body spans
+// sprite columns 24..40 of the 64px frame, i.e. 8 sprite px either side
+// of the frame center = 8 * (DRAW_SIZE / FRAME_SIZE) = 6 world px. With
+// this, the side of the body stops flush against the wall instead of the
+// single feet point doing so (which let half the body slide into it).
+const BODY_COLLISION_HALF_W = 6;
+
 // Nudge the shadow left/right relative to the character's feet.
 // In WORLD px (same units as DRAW_SIZE) — negative = shift left, positive = shift right.
 const SHADOW_OFFSET_X = 6;
@@ -79,14 +88,16 @@ const FRAME_COUNTS = {
   collect: 8,
   crush: 8, slice: 8,
   death: 8, fishing: 8, hit: 4, pierce: 8, watering: 8,
-  carryIdle: 4, carryWalk: 6, carryRun: 6
+  carryIdle: 4, carryWalk: 6, carryRun: 6,
+  sleep: 20, // Big Bed sleep animation (assets/interior/asesprite/bigbed-sheet.png), see js/resources.js
 };
 const ANIM_FPS = {
   idle: 4, walk: 8, run: 12,
   collect: 10,
   crush: 10, slice: 10,
   death: 6, fishing: 6, hit: 10, pierce: 10, watering: 8,
-  carryIdle: 4, carryWalk: 8, carryRun: 12
+  carryIdle: 4, carryWalk: 8, carryRun: 12,
+  sleep: 8,
 };
 
 const ZOOM_MIN = 4;
@@ -110,7 +121,7 @@ const FOOD_DRAIN_PER_GAME_HOUR = 100 / 24; // a full 100 food lasts exactly one 
 const INVENTORY_ROWS = 10;     // bumped from 8 as items grew past 72 — see #inventory-grid's scroll in style.css, which is what actually keeps the panel itself from growing endlessly
 const INVENTORY_COLS = 9;      // 10x9 = 90 slots total
 const HOTBAR_SIZE = 7;         // hotbar = the first 7 slots of inventory row 0
-const PLACEMENT_RANGE = 1;     // tiles around the player where items can be placed (Chebyshev distance)
+const PLACEMENT_RANGE = 3;     // tiles around the player where items can be placed (Chebyshev distance) — per request, +1 ring bigger than before
 const HARVEST_RANGE = 1;       // tiles around the player where F can hit a resource (stone/tree) — see js/resources.js
 
 // =====================================================================

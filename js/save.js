@@ -9,7 +9,9 @@
    itself never leaves the browser it was written in.
 
    What's saved: terrainLayer + groundLayer + decorLayer + objectLayer
-   (placed items, see the four-layer split in js/inventory.js), pendingRespawns (broken
+   (placed items, see the four-layer split in js/inventory.js), interiorCollisions
+   (Collision Blocks placed inside interior rooms, js/interior.js), interiorDecor
+   (ordinary items placed indoors, js/interior.js), pendingRespawns (broken
    stones waiting to come back, js/resources.js), pendingConstructions
    (house builds in progress, js/inventory.js), inventory counts,
    hotbar assignments, selectedHotbarIndex, equippedWeapon, grabbedType
@@ -62,6 +64,20 @@ function buildSaveData() {
     objectLayer: Array.from(objectLayer.entries()),
     pendingRespawns: Array.from(pendingRespawns.entries()), // [[ "col,row", {type, respawnAt} ], ...]
     pendingConstructions: Array.from(pendingConstructions.entries()), // [[ "col,row", {type, col, row, startAt, finishAt} ], ...]
+    // Every interior room's own Collision Block placements (js/interior.
+    // js's `INTERIOR_ROOMS[roomId].collisions`), keyed by roomId so each
+    // room layout keeps its own set — { roomId: [["col,row", type], ...] }.
+    interiorCollisions: Object.fromEntries(
+      Object.keys(INTERIOR_ROOMS).map((roomId) => [roomId, Array.from(INTERIOR_ROOMS[roomId].collisions.entries())])
+    ),
+    // Every interior room's ordinary placed decor (js/interior.js's
+    // `INTERIOR_ROOMS[roomId].decor` — doors, picture frames, windows,
+    // furniture placed indoors via placeInteriorDecorAt()), saved the
+    // same shape/reasoning as interiorCollisions above, just a separate
+    // map since the two are independent layers.
+    interiorDecor: Object.fromEntries(
+      Object.keys(INTERIOR_ROOMS).map((roomId) => [roomId, Array.from(INTERIOR_ROOMS[roomId].decor.entries())])
+    ),
     itemCounts,
     hotbarTypes,
     selectedHotbarIndex: selectedHotbarIndex,
@@ -156,6 +172,42 @@ function applySaveData(data) {
   if (Array.isArray(data.pendingConstructions)) {
     data.pendingConstructions.forEach(([key, info]) => {
       if (info && itemDefs[info.type]) pendingConstructions.set(key, info);
+    });
+  }
+
+  // Every interior room's Collision Block placements (js/interior.js) —
+  // restored per-room by roomId, same defensive "drop it if the type no
+  // longer exists" treatment as every other layer above. Always clears
+  // every known room first (even one with nothing saved for it), so an
+  // old save made before this feature existed just leaves every room
+  // with an empty map instead of crashing on a missing key.
+  Object.keys(INTERIOR_ROOMS).forEach((roomId) => {
+    INTERIOR_ROOMS[roomId].collisions.clear();
+  });
+  if (data.interiorCollisions && typeof data.interiorCollisions === "object") {
+    Object.entries(data.interiorCollisions).forEach(([roomId, entries]) => {
+      const room = INTERIOR_ROOMS[roomId];
+      if (!room || !Array.isArray(entries)) return;
+      entries.forEach(([key, type]) => {
+        if (itemDefs[type]) room.collisions.set(key, type);
+      });
+    });
+  }
+
+  // Same restore, same defensive treatment, for the interior `decor` map
+  // (ordinary items placed indoors — js/interior.js's
+  // placeInteriorDecorAt()) — independent of collisions above, so it
+  // gets its own clear + restore pass.
+  Object.keys(INTERIOR_ROOMS).forEach((roomId) => {
+    INTERIOR_ROOMS[roomId].decor.clear();
+  });
+  if (data.interiorDecor && typeof data.interiorDecor === "object") {
+    Object.entries(data.interiorDecor).forEach(([roomId, entries]) => {
+      const room = INTERIOR_ROOMS[roomId];
+      if (!room || !Array.isArray(entries)) return;
+      entries.forEach(([key, type]) => {
+        if (itemDefs[type]) room.decor.set(key, type);
+      });
     });
   }
 

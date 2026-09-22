@@ -315,3 +315,131 @@ function updateThrownTosses() {
   }
 }
 
+/* ---------------- sleeping in a Big Bed ----------------
+   Per request ("meron akong bigbed tapos may animation yun kapag gabi
+   na tapos mag animate sa 20 frame ng bigbed is dapat mag fade in
+   parang sa pinto pag magigising ng 6am", refined further: "kapag click
+   ko ng bed yung mismong kahit 3x3 na tiles nun ng bigbed functional...
+   kahit anung mapindot dun using left clicks is matutulog animate tapos
+   yung ERT yung press 'e' is naging sleep naman dapat left click lang
+   kapag press 'e' hold"): LEFT-CLICKING any of a placed Big Bed's 3x3
+   tiles at night — never "E", which stays the normal grab/hold action
+   here like any other object (tryGrabOrPlaceInFront()/
+   tryGrabOrPlaceIndoorItemInFront(), see updatePlayer(), player.js) —
+   plays through the bed's 20-frame sleep sheet (assets.bedBigSleep,
+   drawn at the BED's own position — see drawSleepingBed(), camera.js —
+   in place of both the player's sprite AND the bed's own normal art for
+   that one tile, so the two don't draw on top of each other), then
+   fades to black exactly like an interior door transition
+   (beginSceneFade(), js/interior.js — already scene-agnostic, works the
+   same whether the bed is outdoors or indoors), jumps the clock to the
+   next 06:00 (skipToNextSunrise(),
+   js/daynight.js) while the screen is black, and fades back in. */
+
+// Finds a placed Big Bed the player can currently interact with — the
+// one they're FACING if outside (bedBig collides there — itemDefs), or
+// the one directly underfoot if inside (indoor decor stays walkable
+// regardless of `collides` — placeInteriorDecorAt()'s header comment,
+// interior.js). Uses findFootprintCoveringTile() (inventory.js) so ANY
+// of the bed's 3x3 tiles counts, not just its single anchor tile.
+// Returns { col, row } — the bed's own anchor tile, the same key it's
+// stored under (needed later to hide its normal art while sleeping,
+// and to draw the sleep animation in the right spot) — or null.
+function findNearbyBigBed() {
+  if (player.scene === "outside") {
+    const front = getTileInFrontOfPlayer();
+    for (const layer of [decorLayer, objectLayer, groundLayer, terrainLayer]) {
+      const hit = findFootprintCoveringTile(layer, front.col, front.row);
+      if (hit && hit.type === "bedBig") return { col: hit.anchorCol, row: hit.anchorRow };
+    }
+    return null;
+  }
+  const room = INTERIOR_ROOMS[player.activeRoomId];
+  if (!room) return null;
+  const p = interiorFeetTileAt(player.x, player.y);
+  if (room.decor.get(tileKey(p.col, p.row)) === "bedBig") return { col: p.col, row: p.row };
+  return null;
+}
+
+// Called from setupBedClickHandler() below whenever a left-click lands
+// on a Big Bed — a no-op (returns false, changes nothing) unless it's
+// actually night, the player is at a Big Bed, nothing's currently
+// held/grabbed (sleeping with your hands full doesn't make sense), and
+// no other transition is already in progress. NOT wired to "E" — per
+// request, that key stays the normal grab/hold action everywhere,
+// including at a bed.
+function trySleepInBed() {
+  if (isDaytime()) return false;
+  if (sceneFade) return false;
+  if (player.sleeping) return false;
+  if (heldItem || player.grabbedType) return false;
+  const bed = findNearbyBigBed();
+  if (!bed) return false;
+
+  player.sleeping = true;
+  player.sleepFrame = 0;
+  player.sleepFrameTimer = 0;
+  player.sleepBedCol = bed.col;
+  player.sleepBedRow = bed.row;
+  return true;
+}
+
+// True if the given WORLD (x,y) point lands on ANY of a placed Big
+// Bed's 3x3 footprint tiles — not just wherever its art pixels happen
+// to be drawn, per request ("kahit 3x3 na tiles nun ng bigbed
+// functional"). Reuses findFootprintCoveringTile() (inventory.js),
+// same as the E-key check above, just keyed off a clicked tile instead
+// of the tile the player is facing.
+function isPointOnBigBed(x, y) {
+  const col = Math.floor(x / TILE);
+  const row = Math.floor(y / TILE);
+  if (player.scene === "outside") {
+    return [decorLayer, objectLayer, groundLayer, terrainLayer].some((layer) => {
+      const hit = findFootprintCoveringTile(layer, col, row);
+      return hit && hit.type === "bedBig";
+    });
+  }
+  const room = INTERIOR_ROOMS[player.activeRoomId];
+  if (!room) return false;
+  return room.decor.get(tileKey(col, row)) === "bedBig";
+}
+
+// Left-click anywhere on a placed Big Bed's 3x3 footprint at night
+// sleeps, same as pressing "E" while at one (trySleepInBed(), above) —
+// just an alternate input for the same action (still requires actually
+// being at the bed, night, hands empty, etc. — trySleepInBed() re-checks
+// all of that and simply no-ops if the click landed on a bed the player
+// isn't close enough to). Small Bed has no sleep sheet, so it's
+// deliberately left out here. Set up once from main.js, same pattern as
+// setupNpcClickHandler() (js/npc.js).
+function setupBedClickHandler() {
+  view.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return; // left button only
+    if (heldItem || player.grabbedType) return; // hands full — a click places/grabs instead, see inventory.js
+    const { x, y } = screenToWorld(e.clientX, e.clientY);
+    if (!isPointOnBigBed(x, y)) return;
+    trySleepInBed();
+  });
+}
+
+// Called every frame from updatePlayer() (player.js) instead of the
+// normal movement update while `player.sleeping` — advances the sleep
+// animation, and once all FRAME_COUNTS.sleep frames have played, hands
+// off to the same fade-to-black/fade-in sequence every interior door
+// uses, with the clock jump as the "onMidpoint" (invisible to the
+// player, same as a scene switch happening at the blackout point).
+function updateSleeping(dt) {
+  const fps = ANIM_FPS.sleep;
+  const frameCount = FRAME_COUNTS.sleep;
+  player.sleepFrameTimer += dt;
+  if (player.sleepFrameTimer >= 1 / fps) {
+    player.sleepFrameTimer = 0;
+    player.sleepFrame++;
+    if (player.sleepFrame >= frameCount) {
+      player.sleeping = false;
+      beginSceneFade(() => {
+        skipToNextSunrise();
+      });
+    }
+  }
+}

@@ -89,7 +89,8 @@ function getMultiTileFootprintRect(type, placedCol, placedRow) {
   // anything by default — house2/house3 currently rely on the automatic
   // rounding (11x11).
   const widthTiles = def.footprintWidthTiles || Math.round(icon.width / TILE);
-  const heightTiles = def.footprintHeightTiles || Math.round(icon.height / TILE);
+  const heightTiles =
+    def.footprintHeightTiles || Math.round(icon.height / TILE);
   // Centered on the placement tile's center (placedCol + 0.5), same
   // anchor drawGroundItemAt() (camera.js) actually draws at. For an ODD
   // widthTiles this lands exactly even (N/2 tiles each side of
@@ -110,7 +111,8 @@ function getMultiTileFootprintTiles(type, placedCol, placedRow) {
   const r = getMultiTileFootprintRect(type, placedCol, placedRow);
   const tiles = [];
   for (let row = r.topRow; row <= r.bottomRow; row++) {
-    for (let col = r.leftCol; col <= r.rightCol; col++) tiles.push({ col, row });
+    for (let col = r.leftCol; col <= r.rightCol; col++)
+      tiles.push({ col, row });
   }
   return tiles;
 }
@@ -148,11 +150,19 @@ function getObjectFootprintBlockedTiles(type, placedCol, placedRow) {
   if (!def.collides) return [];
 
   if (def.fixedFootprint) {
-    const { leftTiles = 0, rightTiles = 0, heightTiles = 1 } = def.fixedFootprint;
+    const {
+      leftTiles = 0,
+      rightTiles = 0,
+      heightTiles = 1,
+    } = def.fixedFootprint;
     const topRow = placedRow - heightTiles + 1;
     const blocked = [];
     for (let row = topRow; row <= placedRow; row++) {
-      for (let col = placedCol - leftTiles; col <= placedCol + rightTiles; col++) {
+      for (
+        let col = placedCol - leftTiles;
+        col <= placedCol + rightTiles;
+        col++
+      ) {
         blocked.push({ col, row });
       }
     }
@@ -160,6 +170,30 @@ function getObjectFootprintBlockedTiles(type, placedCol, placedRow) {
   }
 
   if (!def.multiTileFootprint) {
+    // A standalone span-door (Door (A)/(B)/(C) with `interior.
+    // doorSpanCols`, e.g. doorPlain3/"Door (C)") — a 3x3 footprint
+    // (doorSpanCols x doorSpanRows) anchored bottom-center on its
+    // placement tile, same as its art. Only the two SIDE columns are
+    // solid; the CENTER column (all rows) is deliberately left OUT of
+    // the blocked list — a real doorway you walk THROUGH, not a wall.
+    // See itemDefs' comment on doorPlain3 for why, and
+    // checkInteriorEntry()/checkIndoorWarpDoor() (interior.js) for what
+    // detects the player reaching that open center column.
+    if (def.interior && def.interior.doorSpanCols) {
+      const cols = def.interior.doorSpanCols;
+      const rows = def.interior.doorSpanRows || 1;
+      const halfCols = Math.floor(cols / 2); // e.g. cols=3 -> 1 tile on each side of placedCol
+      const blocked = [];
+      for (let r = 0; r < rows; r++) {
+        const row = placedRow - (rows - 1) + r; // rows run from placedRow-(rows-1) up through placedRow
+        for (let c = 0; c < cols; c++) {
+          const col = placedCol - halfCols + c;
+          if (col === placedCol) continue; // the center column — walkable
+          blocked.push({ col, row });
+        }
+      }
+      return blocked;
+    }
     return [{ col: placedCol, row: placedRow }];
   }
 
@@ -181,6 +215,92 @@ function getObjectFootprintBlockedTiles(type, placedCol, placedRow) {
     }
   }
   return blocked;
+}
+
+// `wallColliderPx: { left, right }` (house2/house3): sub-tile, pixel-
+// accurate side walls. The whole-tile footprint above can't match these
+// houses' side walls — they sit 2px inside a tile column on each side
+// (the art is centered on the placement tile's CENTER and the walls are
+// 11.25 tiles wide) — so for these items the player/NPC body is tested
+// against this world-space rectangle instead of the tile list:
+//   - minX/maxX: the real wall columns (`left`/`right`, in art pixels),
+//     placed with the exact same bottom-center anchor drawGroundItemAt()
+//     (camera.js) draws the icon with, so collision and art can't drift.
+//   - minY/maxY: whole tile rows, same as before — the footprint rows
+//     minus `footprintExcludeBackRows` at the back.
+//   - door: the `interior.doorOffset` tile, walkable (see
+//     isBlockedByHouseWalls()), so checkInteriorEntry() can still fire.
+function getHouseWallRect(type, placedCol, placedRow) {
+  const def = itemDefs[type];
+  const artLeft = (placedCol + 0.5) * TILE - def.icon.width / 2;
+  const r = getMultiTileFootprintRect(type, placedCol, placedRow);
+  return {
+    minX: artLeft + def.wallColliderPx.left,
+    maxX: artLeft + def.wallColliderPx.right,
+    minY: (r.topRow + (def.footprintExcludeBackRows || 0)) * TILE,
+    maxY: (r.bottomRow + 1) * TILE,
+    doorCol: def.interior ? placedCol + def.interior.doorOffset.col : null,
+    doorRow: def.interior ? placedRow + def.interior.doorOffset.row : null,
+  };
+}
+
+// Would a character whose feet are at world (x, feetY) be inside this
+// house's walls? The feet are treated as a horizontal segment
+// BODY_COLLISION_HALF_W wide on each side (config.js — the character's
+// real visible body width), not a single point: with a point, the body
+// always slid half its width into a side wall before the point itself
+// reached it. Just touching the wall edge is allowed (strict overlap).
+// The door tile is now SOLID too, same as the rest of the wall — per
+// request ("kahit lagyan na lang din ng collisions... makakapasok
+// parin... kasi sa loob e"): the door should feel like a real door you
+// bump into, not an open gap you can just stroll through. Entry still
+// works because checkInteriorEntry() (interior.js) no longer waits for
+// the feet to land inside the door tile (impossible now that it's
+// solid) — it fires the instant the player is stopped flush against the
+// door's own spot, via isTouchingHouseDoor() below, which shares this
+// same wall rect.
+function isBlockedByHouseWalls(type, placedCol, placedRow, x, feetY) {
+  const w = getHouseWallRect(type, placedCol, placedRow);
+  if (feetY < w.minY || feetY >= w.maxY) return false;
+  if (x + BODY_COLLISION_HALF_W <= w.minX || x - BODY_COLLISION_HALF_W >= w.maxX) return false;
+  return true;
+}
+
+// True once the player's feet are pressed right up against the door's
+// own column of the front wall — i.e. exactly the spot a solid door
+// would stop them at. Doesn't require the feet to be INSIDE the door
+// tile (isBlockedByHouseWalls now prevents that entirely); a few px of
+// slack (DOOR_TOUCH_SLACK_PX) covers sweepBodyTo()'s binary-search
+// landing short of the exact wall line by a sub-pixel amount.
+const DOOR_TOUCH_SLACK_PX = 3;
+function isTouchingHouseDoor(type, placedCol, placedRow, x, feetY) {
+  const w = getHouseWallRect(type, placedCol, placedRow);
+  if (w.doorCol === null) return false;
+  if (Math.floor(x / TILE) !== w.doorCol) return false;
+  return Math.abs(feetY - w.maxY) <= DOOR_TOUCH_SLACK_PX;
+}
+
+// (The old sub-pixel "touching" check for a standalone span-door was
+// removed here — now that the door has real depth (doorSpanRows) with a
+// walkable center column, entry/warp detection just checks the
+// player's tile position directly against that center column instead;
+// see checkInteriorEntry()/checkIndoorWarpDoor(), interior.js.)
+
+// Would this object, placed/finished at (col,row), end up colliding with
+// the spot the player is standing on right now? Used by the "don't trap
+// the player" checks below (canPlaceHouseFootprint(),
+// updateConstructions()). wallColliderPx houses use the same precise
+// test the player's movement does — the tile list would miss the 2px of
+// wall that pokes into the neighbouring column on each side.
+function wouldObjectTrapPlayer(type, col, row) {
+  if (itemDefs[type].wallColliderPx) {
+    const feetY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+    return isBlockedByHouseWalls(type, col, row, player.x, feetY);
+  }
+  const playerTile = getPlayerTile();
+  return getObjectFootprintBlockedTiles(type, col, row).some(
+    (t) => t.col === playerTile.col && t.row === playerTile.row,
+  );
 }
 
 // registry of placeable item types -> which asset image represents them.
@@ -237,16 +357,76 @@ const itemDefs = {
   // Renamed from "Grass" to "Ground" per request — these are the base
   // terrain tiles (moved into assets/items/tile/, see assets.js) that
   // everything else gets placed on top of, not just a grass decoration.
-  grass: { id: "grass", name: "Ground", icon: assets.grass, unlimited: true, flat: true },
-  grassTL: { id: "grassTL", name: "Ground (Top-Left)", icon: assets.grassTL, unlimited: true, flat: true },
-  grassTC: { id: "grassTC", name: "Ground (Top)", icon: assets.grassTC, unlimited: true, flat: true },
-  grassTR: { id: "grassTR", name: "Ground (Top-Right)", icon: assets.grassTR, unlimited: true, flat: true },
-  grassL: { id: "grassL", name: "Ground (Left)", icon: assets.grassL, unlimited: true, flat: true },
-  grassInner: { id: "grassInner", name: "Ground (Inner)", icon: assets.grassInner, unlimited: true, flat: true },
-  grassR: { id: "grassR", name: "Ground (Right)", icon: assets.grassR, unlimited: true, flat: true },
-  grassBL: { id: "grassBL", name: "Ground (Bottom-Left)", icon: assets.grassBL, unlimited: true, flat: true },
-  grassBC: { id: "grassBC", name: "Ground (Bottom)", icon: assets.grassBC, unlimited: true, flat: true },
-  grassBR: { id: "grassBR", name: "Ground (Bottom-Right)", icon: assets.grassBR, unlimited: true, flat: true },
+  grass: {
+    id: "grass",
+    name: "Ground",
+    icon: assets.grass,
+    unlimited: true,
+    flat: true,
+  },
+  grassTL: {
+    id: "grassTL",
+    name: "Ground (Top-Left)",
+    icon: assets.grassTL,
+    unlimited: true,
+    flat: true,
+  },
+  grassTC: {
+    id: "grassTC",
+    name: "Ground (Top)",
+    icon: assets.grassTC,
+    unlimited: true,
+    flat: true,
+  },
+  grassTR: {
+    id: "grassTR",
+    name: "Ground (Top-Right)",
+    icon: assets.grassTR,
+    unlimited: true,
+    flat: true,
+  },
+  grassL: {
+    id: "grassL",
+    name: "Ground (Left)",
+    icon: assets.grassL,
+    unlimited: true,
+    flat: true,
+  },
+  grassInner: {
+    id: "grassInner",
+    name: "Ground (Inner)",
+    icon: assets.grassInner,
+    unlimited: true,
+    flat: true,
+  },
+  grassR: {
+    id: "grassR",
+    name: "Ground (Right)",
+    icon: assets.grassR,
+    unlimited: true,
+    flat: true,
+  },
+  grassBL: {
+    id: "grassBL",
+    name: "Ground (Bottom-Left)",
+    icon: assets.grassBL,
+    unlimited: true,
+    flat: true,
+  },
+  grassBC: {
+    id: "grassBC",
+    name: "Ground (Bottom)",
+    icon: assets.grassBC,
+    unlimited: true,
+    flat: true,
+  },
+  grassBR: {
+    id: "grassBR",
+    name: "Ground (Bottom-Right)",
+    icon: assets.grassBR,
+    unlimited: true,
+    flat: true,
+  },
 
   // --- dirt terrain tiles, also added as placeable inventory items per
   // request — same 3 variants world.js randomly tiles the map's
@@ -255,9 +435,30 @@ const itemDefs = {
   // Ground tileset/Port tiles above — per request ("dirt, water first
   // layer, second layer grass, port") — so placing Dirt/Water never
   // erases a Ground/Port tile on the same spot, and vice versa.
-  dirt1: { id: "dirt1", name: "Dirt 1", icon: assets.dirt1, unlimited: true, flat: true, layer: "terrain" },
-  dirt2: { id: "dirt2", name: "Dirt 2", icon: assets.dirt2, unlimited: true, flat: true, layer: "terrain" },
-  dirt3: { id: "dirt3", name: "Dirt 3", icon: assets.dirt3, unlimited: true, flat: true, layer: "terrain" },
+  dirt1: {
+    id: "dirt1",
+    name: "Dirt 1",
+    icon: assets.dirt1,
+    unlimited: true,
+    flat: true,
+    layer: "terrain",
+  },
+  dirt2: {
+    id: "dirt2",
+    name: "Dirt 2",
+    icon: assets.dirt2,
+    unlimited: true,
+    flat: true,
+    layer: "terrain",
+  },
+  dirt3: {
+    id: "dirt3",
+    name: "Dirt 3",
+    icon: assets.dirt3,
+    unlimited: true,
+    flat: true,
+    layer: "terrain",
+  },
 
   // --- port/island 5x5 tileset — a land/water edge-and-corner set (like
   // the Ground tileset's 3x3, just a full 5x5) for building coastline
@@ -278,35 +479,193 @@ const itemDefs = {
   // tiles repeat), `port_l1` (matched `port_tc1`), `port_r1` (matched
   // `port_tc3`) — the last two apparently reused the same edge art on a
   // different side.
-  portTL: { id: "portTL", name: "Port (Top-Left)", icon: assets.portTL, unlimited: true, flat: true, collides: true },
-  portTC1: { id: "portTC1", name: "Port (Top 1)", icon: assets.portTC1, unlimited: true, flat: true, collides: true },
-  portTC2: { id: "portTC2", name: "Port (Top 2)", icon: assets.portTC2, unlimited: true, flat: true, collides: true },
-  portTC3: { id: "portTC3", name: "Port (Top 3)", icon: assets.portTC3, unlimited: true, flat: true, collides: true },
-  portTR: { id: "portTR", name: "Port (Top-Right)", icon: assets.portTR, unlimited: true, flat: true, collides: true },
-  portI1: { id: "portI1", name: "Port (Inner 1)", icon: assets.portI1, unlimited: true, flat: true },
-  portI2: { id: "portI2", name: "Port (Inner 2)", icon: assets.portI2, unlimited: true, flat: true },
-  portI3: { id: "portI3", name: "Port (Inner 3)", icon: assets.portI3, unlimited: true, flat: true, collides: true },
-  portL2: { id: "portL2", name: "Port (Left 2)", icon: assets.portL2, unlimited: true, flat: true, collides: true },
-  portI4: { id: "portI4", name: "Port (Inner 4)", icon: assets.portI4, unlimited: true, flat: true, collides: true },
-  portI6: { id: "portI6", name: "Port (Inner 6)", icon: assets.portI6, unlimited: true, flat: true },
-  portR2: { id: "portR2", name: "Port (Right 2)", icon: assets.portR2, unlimited: true, flat: true, collides: true },
-  portL3: { id: "portL3", name: "Port (Left 3)", icon: assets.portL3, unlimited: true, flat: true, collides: true },
-  portI7: { id: "portI7", name: "Port (Inner 7)", icon: assets.portI7, unlimited: true, flat: true, collides: true },
-  portI9: { id: "portI9", name: "Port (Inner 9)", icon: assets.portI9, unlimited: true, flat: true, collides: true },
-  portR3: { id: "portR3", name: "Port (Right 3)", icon: assets.portR3, unlimited: true, flat: true, collides: true },
-  portBC1: { id: "portBC1", name: "Port (Bottom 1)", icon: assets.portBC1, unlimited: true, flat: true, collides: true },
-  portBC2: { id: "portBC2", name: "Port (Bottom 2)", icon: assets.portBC2, unlimited: true, flat: true, collides: true },
-  portBC3: { id: "portBC3", name: "Port (Bottom 3)", icon: assets.portBC3, unlimited: true, flat: true, collides: true },
-  portBR: { id: "portBR", name: "Port (Bottom-Right)", icon: assets.portBR, unlimited: true, flat: true, collides: true },
+  portTL: {
+    id: "portTL",
+    name: "Port (Top-Left)",
+    icon: assets.portTL,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portTC1: {
+    id: "portTC1",
+    name: "Port (Top 1)",
+    icon: assets.portTC1,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portTC2: {
+    id: "portTC2",
+    name: "Port (Top 2)",
+    icon: assets.portTC2,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portTC3: {
+    id: "portTC3",
+    name: "Port (Top 3)",
+    icon: assets.portTC3,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portTR: {
+    id: "portTR",
+    name: "Port (Top-Right)",
+    icon: assets.portTR,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portI1: {
+    id: "portI1",
+    name: "Port (Inner 1)",
+    icon: assets.portI1,
+    unlimited: true,
+    flat: true,
+  },
+  portI2: {
+    id: "portI2",
+    name: "Port (Inner 2)",
+    icon: assets.portI2,
+    unlimited: true,
+    flat: true,
+  },
+  portI3: {
+    id: "portI3",
+    name: "Port (Inner 3)",
+    icon: assets.portI3,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portL2: {
+    id: "portL2",
+    name: "Port (Left 2)",
+    icon: assets.portL2,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portI4: {
+    id: "portI4",
+    name: "Port (Inner 4)",
+    icon: assets.portI4,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portI6: {
+    id: "portI6",
+    name: "Port (Inner 6)",
+    icon: assets.portI6,
+    unlimited: true,
+    flat: true,
+  },
+  portR2: {
+    id: "portR2",
+    name: "Port (Right 2)",
+    icon: assets.portR2,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portL3: {
+    id: "portL3",
+    name: "Port (Left 3)",
+    icon: assets.portL3,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portI7: {
+    id: "portI7",
+    name: "Port (Inner 7)",
+    icon: assets.portI7,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portI9: {
+    id: "portI9",
+    name: "Port (Inner 9)",
+    icon: assets.portI9,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portR3: {
+    id: "portR3",
+    name: "Port (Right 3)",
+    icon: assets.portR3,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portBC1: {
+    id: "portBC1",
+    name: "Port (Bottom 1)",
+    icon: assets.portBC1,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portBC2: {
+    id: "portBC2",
+    name: "Port (Bottom 2)",
+    icon: assets.portBC2,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portBC3: {
+    id: "portBC3",
+    name: "Port (Bottom 3)",
+    icon: assets.portBC3,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
+  portBR: {
+    id: "portBR",
+    name: "Port (Bottom-Right)",
+    icon: assets.portBR,
+    unlimited: true,
+    flat: true,
+    collides: true,
+  },
 
   // --- plain water — random-tiled the same idea as the dirt terrain
   // variants (js/world.js). Only 3 of the original 5 kept — 2 were
   // pixel-identical to the 3rd. `layer: "terrain"` — same base layer as
   // Dirt above (see that comment for why), so it doesn't erase a
   // Ground/Port tile placed on the same spot either.
-  water1: { id: "water1", name: "Water 1", icon: assets.water1, unlimited: true, flat: true, layer: "terrain" },
-  water2: { id: "water2", name: "Water 2", icon: assets.water2, unlimited: true, flat: true, layer: "terrain" },
-  water3: { id: "water3", name: "Water 3", icon: assets.water3, unlimited: true, flat: true, layer: "terrain" },
+  water1: {
+    id: "water1",
+    name: "Water 1",
+    icon: assets.water1,
+    unlimited: true,
+    flat: true,
+    layer: "terrain",
+  },
+  water2: {
+    id: "water2",
+    name: "Water 2",
+    icon: assets.water2,
+    unlimited: true,
+    flat: true,
+    layer: "terrain",
+  },
+  water3: {
+    id: "water3",
+    name: "Water 3",
+    icon: assets.water3,
+    unlimited: true,
+    flat: true,
+    layer: "terrain",
+  },
 
   // --- decorative flower — moved onto the same "decor" layer as wild
   // grass below, per request ("same lang din wag sa tile napapalitan din
@@ -315,8 +674,22 @@ const itemDefs = {
   // replace it; now it just overlaps, same as wild grass, and gets the
   // same sway + always-behind-the-player treatment from
   // wildgrass.js/camera.js.
-  decoFlower1: { id: "decoFlower1", name: "Flower (Tall)", icon: assets.decoFlower1, unlimited: true, flat: true, layer: "decor" },
-  decoFlower2: { id: "decoFlower2", name: "Flower (Short)", icon: assets.decoFlower2, unlimited: true, flat: true, layer: "decor" },
+  decoFlower1: {
+    id: "decoFlower1",
+    name: "Flower (Tall)",
+    icon: assets.decoFlower1,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
+  decoFlower2: {
+    id: "decoFlower2",
+    name: "Flower (Short)",
+    icon: assets.decoFlower2,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
 
   // --- wild grass — renamed from "decoGrass"/"Grass Tuft" per request,
   // and moved to its OWN layer (`layer: "decor"`, see layerForType()
@@ -329,14 +702,70 @@ const itemDefs = {
   // Rendered specially (sway + always-behind-the-player) by
   // wildgrass.js/camera.js, not the plain drawGroundItemAt() the ground
   // tileset uses — see drawPlayerStandingDecor(), camera.js.
-  wildGrass1: { id: "wildGrass1", name: "Wild Grass 1", icon: assets.wildGrass1, unlimited: true, flat: true, layer: "decor" },
-  wildGrass2: { id: "wildGrass2", name: "Wild Grass 2", icon: assets.wildGrass2, unlimited: true, flat: true, layer: "decor" },
-  wildGrass3: { id: "wildGrass3", name: "Wild Grass 3", icon: assets.wildGrass3, unlimited: true, flat: true, layer: "decor" },
-  wildGrass4: { id: "wildGrass4", name: "Wild Grass 4", icon: assets.wildGrass4, unlimited: true, flat: true, layer: "decor" },
-  wildGrass5: { id: "wildGrass5", name: "Wild Grass 5", icon: assets.wildGrass5, unlimited: true, flat: true, layer: "decor" },
-  wildGrass6: { id: "wildGrass6", name: "Wild Grass 6", icon: assets.wildGrass6, unlimited: true, flat: true, layer: "decor" },
-  wildGrass7: { id: "wildGrass7", name: "Wild Grass 7", icon: assets.wildGrass7, unlimited: true, flat: true, layer: "decor" },
-  wildGrass8: { id: "wildGrass8", name: "Wild Grass 8", icon: assets.wildGrass8, unlimited: true, flat: true, layer: "decor" },
+  wildGrass1: {
+    id: "wildGrass1",
+    name: "Wild Grass 1",
+    icon: assets.wildGrass1,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
+  wildGrass2: {
+    id: "wildGrass2",
+    name: "Wild Grass 2",
+    icon: assets.wildGrass2,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
+  wildGrass3: {
+    id: "wildGrass3",
+    name: "Wild Grass 3",
+    icon: assets.wildGrass3,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
+  wildGrass4: {
+    id: "wildGrass4",
+    name: "Wild Grass 4",
+    icon: assets.wildGrass4,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
+  wildGrass5: {
+    id: "wildGrass5",
+    name: "Wild Grass 5",
+    icon: assets.wildGrass5,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
+  wildGrass6: {
+    id: "wildGrass6",
+    name: "Wild Grass 6",
+    icon: assets.wildGrass6,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
+  wildGrass7: {
+    id: "wildGrass7",
+    name: "Wild Grass 7",
+    icon: assets.wildGrass7,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
+  wildGrass8: {
+    id: "wildGrass8",
+    name: "Wild Grass 8",
+    icon: assets.wildGrass8,
+    unlimited: true,
+    flat: true,
+    layer: "decor",
+  },
 
   // --- stones. Three tiers are harvestable resource nodes (Crush
   // animation, F key, see js/resources.js), same idea as the trees:
@@ -344,29 +773,117 @@ const itemDefs = {
   // bigger stone — 5/3/2 for Big/Medium/Small, mirroring the trees'
   // 5/3/2 big/thin/tiny wood amounts), and the same stone respawns on
   // its own tile 5 real minutes later.
-  stoneBig: { id: "stoneBig", name: "Big Stone", icon: assets.stoneBig, collides: true, unlimited: true, fixedFootprint: { leftTiles: 1, rightTiles: 1, heightTiles: 1 }, resource: { hitsToBreak: 3, breakAnim: "crush", dropItem: "stoneChunk", dropAmount: 5, respawnMinutes: 5 } },
-  stoneMedium: { id: "stoneMedium", name: "Medium Stone", icon: assets.stoneMedium, collides: true, unlimited: true, resource: { hitsToBreak: 3, breakAnim: "crush", dropItem: "stoneChunk", dropAmount: 3, respawnMinutes: 5 } },
-  stoneSmall: { id: "stoneSmall", name: "Small Stone", icon: assets.stoneSmall, collides: true, unlimited: true, resource: { hitsToBreak: 3, breakAnim: "crush", dropItem: "stoneChunk", dropAmount: 2, respawnMinutes: 5 } },
+  stoneBig: {
+    id: "stoneBig",
+    name: "Big Stone",
+    icon: assets.stoneBig,
+    collides: true,
+    unlimited: true,
+    fixedFootprint: { leftTiles: 1, rightTiles: 1, heightTiles: 1 },
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "crush",
+      dropItem: "stoneChunk",
+      dropAmount: 5,
+      respawnMinutes: 5,
+    },
+  },
+  stoneMedium: {
+    id: "stoneMedium",
+    name: "Medium Stone",
+    icon: assets.stoneMedium,
+    collides: true,
+    unlimited: true,
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "crush",
+      dropItem: "stoneChunk",
+      dropAmount: 3,
+      respawnMinutes: 5,
+    },
+  },
+  stoneSmall: {
+    id: "stoneSmall",
+    name: "Small Stone",
+    icon: assets.stoneSmall,
+    collides: true,
+    unlimited: true,
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "crush",
+      dropItem: "stoneChunk",
+      dropAmount: 2,
+      respawnMinutes: 5,
+    },
+  },
   // XS Stone: collides (1 tile, the default rule) but isn't a harvestable
   // resource — just a solid obstacle, no `resource` config.
-  stoneXS: { id: "stoneXS", name: "XS Stone", icon: assets.stoneXS, collides: true, unlimited: true },
+  stoneXS: {
+    id: "stoneXS",
+    name: "XS Stone",
+    icon: assets.stoneXS,
+    collides: true,
+    unlimited: true,
+  },
   // XXS Stone and the Pebbles below: no collision, and `flat: true` so
   // they sit in groundLayer like the ground tileset — always drawn
   // beneath the player, so walking over one always shows the character
   // on top of it, instead of the dynamic Y-sort objectLayer items use
   // (which could put a tiny flat pebble in front of the player depending
   // on relative position — not what a ground-level pebble should do).
-  stoneXXS: { id: "stoneXXS", name: "XXS Stone", icon: assets.stoneXXS, unlimited: true, flat: true },
-  stoneDecor1: { id: "stoneDecor1", name: "Pebbles 1", icon: assets.stoneDecor1, unlimited: true, flat: true },
-  stoneDecor2: { id: "stoneDecor2", name: "Pebbles 2", icon: assets.stoneDecor2, unlimited: true, flat: true },
-  stoneDecor3: { id: "stoneDecor3", name: "Pebbles 3", icon: assets.stoneDecor3, unlimited: true, flat: true },
-  stoneDecor4: { id: "stoneDecor4", name: "Pebbles 4", icon: assets.stoneDecor4, unlimited: true, flat: true },
-  stoneDecor5: { id: "stoneDecor5", name: "Pebbles 5", icon: assets.stoneDecor5, unlimited: true, flat: true },
+  stoneXXS: {
+    id: "stoneXXS",
+    name: "XXS Stone",
+    icon: assets.stoneXXS,
+    unlimited: true,
+    flat: true,
+  },
+  stoneDecor1: {
+    id: "stoneDecor1",
+    name: "Pebbles 1",
+    icon: assets.stoneDecor1,
+    unlimited: true,
+    flat: true,
+  },
+  stoneDecor2: {
+    id: "stoneDecor2",
+    name: "Pebbles 2",
+    icon: assets.stoneDecor2,
+    unlimited: true,
+    flat: true,
+  },
+  stoneDecor3: {
+    id: "stoneDecor3",
+    name: "Pebbles 3",
+    icon: assets.stoneDecor3,
+    unlimited: true,
+    flat: true,
+  },
+  stoneDecor4: {
+    id: "stoneDecor4",
+    name: "Pebbles 4",
+    icon: assets.stoneDecor4,
+    unlimited: true,
+    flat: true,
+  },
+  stoneDecor5: {
+    id: "stoneDecor5",
+    name: "Pebbles 5",
+    icon: assets.stoneDecor5,
+    unlimited: true,
+    flat: true,
+  },
   // Dropped by harvesting a stone — a plain inventory resource, not
   // really meant to be placed as decor, but there's no separate
   // "non-placeable" category in this system yet so it's just a normal
   // (flat, so it's harmless if placed) item like everything else.
-  stoneChunk: { id: "stoneChunk", name: "Stone Chunk", icon: assets.stoneSmall, unlimited: true, flat: true },
+  stoneChunk: {
+    id: "stoneChunk",
+    name: "Stone Chunk",
+    icon: assets.stoneSmall,
+    unlimited: true,
+    flat: true,
+  },
 
   // --- trees (leafless/cut + green/orange leafed variants) — all collide, all sorted ---
   // The bare/cut stumps below are also what a living tree gets replaced
@@ -381,20 +898,142 @@ const itemDefs = {
   // NOTE: both treeThinGreen and treeThinOrange share treeThinCutStump as
   // their stump, so which one it regrows into is a judgment call — chose
   // treeThinGreen; change `respawnAs` here if the orange one is meant.
-  treeBigCutStump: { id: "treeBigCutStump", name: "Big Tree Stump", icon: assets.treeBigCutStump, collides: true, unlimited: true, fixedFootprint: { leftTiles: 2, rightTiles: 1, heightTiles: 1 }, resource: { hitsToBreak: 2, breakAnim: "slice", respawnMinutes: 5, respawnAs: "treeBigOrange", dropItem: "woodLog", dropAmount: 3 } },
-  treeThinCutStump: { id: "treeThinCutStump", name: "Thin Tree Stump", icon: assets.treeThinCutStump, collides: true, unlimited: true, resource: { hitsToBreak: 2, breakAnim: "slice", respawnMinutes: 5, respawnAs: "treeThinGreen", dropItem: "woodLog", dropAmount: 2 } },
-  treeThinNoLeaves1: { id: "treeThinNoLeaves1", name: "Bare Tree 1", icon: assets.treeThinNoLeaves1, collides: true, unlimited: true, resource: { hitsToBreak: 3, breakAnim: "slice", respawnMinutes: 5, dropItem: "woodLog", dropAmount: 2 } },
-  treeThinNoLeaves2: { id: "treeThinNoLeaves2", name: "Bare Tree 2", icon: assets.treeThinNoLeaves2, collides: true, unlimited: true, resource: { hitsToBreak: 3, breakAnim: "slice", respawnMinutes: 5, dropItem: "woodLog", dropAmount: 2 } },
-  treeTinyCutStump: { id: "treeTinyCutStump", name: "Tiny Tree Stump", icon: assets.treeTinyCutStump, collides: true, unlimited: true, resource: { hitsToBreak: 2, breakAnim: "slice", respawnMinutes: 5, respawnAs: "treeTinyGreen", dropItem: "woodLog", dropAmount: 1 } },
+  treeBigCutStump: {
+    id: "treeBigCutStump",
+    name: "Big Tree Stump",
+    icon: assets.treeBigCutStump,
+    collides: true,
+    unlimited: true,
+    fixedFootprint: { leftTiles: 2, rightTiles: 1, heightTiles: 1 },
+    resource: {
+      hitsToBreak: 2,
+      breakAnim: "slice",
+      respawnMinutes: 5,
+      respawnAs: "treeBigOrange",
+      dropItem: "woodLog",
+      dropAmount: 3,
+    },
+  },
+  treeThinCutStump: {
+    id: "treeThinCutStump",
+    name: "Thin Tree Stump",
+    icon: assets.treeThinCutStump,
+    collides: true,
+    unlimited: true,
+    resource: {
+      hitsToBreak: 2,
+      breakAnim: "slice",
+      respawnMinutes: 5,
+      respawnAs: "treeThinGreen",
+      dropItem: "woodLog",
+      dropAmount: 2,
+    },
+  },
+  treeThinNoLeaves1: {
+    id: "treeThinNoLeaves1",
+    name: "Bare Tree 1",
+    icon: assets.treeThinNoLeaves1,
+    collides: true,
+    unlimited: true,
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      respawnMinutes: 5,
+      dropItem: "woodLog",
+      dropAmount: 2,
+    },
+  },
+  treeThinNoLeaves2: {
+    id: "treeThinNoLeaves2",
+    name: "Bare Tree 2",
+    icon: assets.treeThinNoLeaves2,
+    collides: true,
+    unlimited: true,
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      respawnMinutes: 5,
+      dropItem: "woodLog",
+      dropAmount: 2,
+    },
+  },
+  treeTinyCutStump: {
+    id: "treeTinyCutStump",
+    name: "Tiny Tree Stump",
+    icon: assets.treeTinyCutStump,
+    collides: true,
+    unlimited: true,
+    resource: {
+      hitsToBreak: 2,
+      breakAnim: "slice",
+      respawnMinutes: 5,
+      respawnAs: "treeTinyGreen",
+      dropItem: "woodLog",
+      dropAmount: 1,
+    },
+  },
   // Harvestable (living) trees: 3 hits with the Slice animation (F key)
   // permanently replaces the tile with its matching stump — named by the
   // same convention the source pack used ("thintree" -> "thincutted",
   // per request), no respawn. Unlike stones, cutting a tree doesn't grant
   // anything right now (not asked for) — just the visual/tile change.
-  treeThinGreen: { id: "treeThinGreen", name: "Thin Tree (Green)", icon: assets.treeThinGreen, collides: true, unlimited: true, resource: { hitsToBreak: 3, breakAnim: "slice", replaceWith: "treeThinCutStump", dropItem: "woodLog", dropAmount: 3 } },
-  treeTinyGreen: { id: "treeTinyGreen", name: "Tiny Tree (Green)", icon: assets.treeTinyGreen, collides: true, unlimited: true, resource: { hitsToBreak: 3, breakAnim: "slice", replaceWith: "treeTinyCutStump", dropItem: "woodLog", dropAmount: 2 } },
-  treeBigOrange: { id: "treeBigOrange", name: "Big Tree (Orange)", icon: assets.treeBigOrange, collides: true, unlimited: true, fixedFootprint: { leftTiles: 2, rightTiles: 1, heightTiles: 1 }, resource: { hitsToBreak: 3, breakAnim: "slice", replaceWith: "treeBigCutStump", dropItem: "woodLog", dropAmount: 5 } },
-  treeThinOrange: { id: "treeThinOrange", name: "Thin Tree (Orange)", icon: assets.treeThinOrange, collides: true, unlimited: true, resource: { hitsToBreak: 3, breakAnim: "slice", replaceWith: "treeThinCutStump", dropItem: "woodLog", dropAmount: 3 } },
+  treeThinGreen: {
+    id: "treeThinGreen",
+    name: "Thin Tree (Green)",
+    icon: assets.treeThinGreen,
+    collides: true,
+    unlimited: true,
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      replaceWith: "treeThinCutStump",
+      dropItem: "woodLog",
+      dropAmount: 3,
+    },
+  },
+  treeTinyGreen: {
+    id: "treeTinyGreen",
+    name: "Tiny Tree (Green)",
+    icon: assets.treeTinyGreen,
+    collides: true,
+    unlimited: true,
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      replaceWith: "treeTinyCutStump",
+      dropItem: "woodLog",
+      dropAmount: 2,
+    },
+  },
+  treeBigOrange: {
+    id: "treeBigOrange",
+    name: "Big Tree (Orange)",
+    icon: assets.treeBigOrange,
+    collides: true,
+    unlimited: true,
+    fixedFootprint: { leftTiles: 2, rightTiles: 1, heightTiles: 1 },
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      replaceWith: "treeBigCutStump",
+      dropItem: "woodLog",
+      dropAmount: 5,
+    },
+  },
+  treeThinOrange: {
+    id: "treeThinOrange",
+    name: "Thin Tree (Orange)",
+    icon: assets.treeThinOrange,
+    collides: true,
+    unlimited: true,
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      replaceWith: "treeThinCutStump",
+      dropItem: "woodLog",
+      dropAmount: 3,
+    },
+  },
 
   // `fadeOnlyWhenBehind` (camera.js shouldFadeForOcclusion()): the house
   // only turns see-through when the character is actually BEHIND it (feet
@@ -402,7 +1041,17 @@ const itemDefs = {
   // --- house — collides, but as a multi-tile footprint with its back
   // rows excluded (see getObjectFootprintBlockedTiles() below), not the
   // single-tile rule every other collider uses.
-  house1: { id: "house1", name: "House", icon: assets.house1, unlimited: true, collides: true, multiTileFootprint: true, footprintExcludeBackRows: 2, fadeOnlyWhenBehind: true, buildSeconds: 10 },
+  house1: {
+    id: "house1",
+    name: "House",
+    icon: assets.house1,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+    footprintExcludeBackRows: 2,
+    fadeOnlyWhenBehind: true,
+    buildSeconds: 10,
+  },
 
   // --- wood tools/weapons. 14 are real equippable weapons (`equipSlot` +
   // `weapon.attackAnim` — see the big comment above); the crate/plaque/
@@ -413,54 +1062,254 @@ const itemDefs = {
   // sickle) -> "slice", blunt/mining (pickaxe, mattock, hammer) -> "crush".
 
   // decor only — not equippable, same treatment as the grass tileset
-  woodCrate: { id: "woodCrate", name: "Wood Crate", icon: assets.woodCrate, unlimited: true, flat: true },
-  woodPlaque: { id: "woodPlaque", name: "Wood Plaque", icon: assets.woodPlaque, unlimited: true, flat: true },
-  woodShieldRound: { id: "woodShieldRound", name: "Wood Shield (Round)", icon: assets.woodShieldRound, unlimited: true, flat: true },
-  woodShieldSmall: { id: "woodShieldSmall", name: "Wood Shield (Small)", icon: assets.woodShieldSmall, unlimited: true, flat: true },
-  woodShieldLarge: { id: "woodShieldLarge", name: "Wood Shield (Large)", icon: assets.woodShieldLarge, unlimited: true, flat: true },
+  woodCrate: {
+    id: "woodCrate",
+    name: "Wood Crate",
+    icon: assets.woodCrate,
+    unlimited: true,
+    flat: true,
+  },
+  woodPlaque: {
+    id: "woodPlaque",
+    name: "Wood Plaque",
+    icon: assets.woodPlaque,
+    unlimited: true,
+    flat: true,
+  },
+  woodShieldRound: {
+    id: "woodShieldRound",
+    name: "Wood Shield (Round)",
+    icon: assets.woodShieldRound,
+    unlimited: true,
+    flat: true,
+  },
+  woodShieldSmall: {
+    id: "woodShieldSmall",
+    name: "Wood Shield (Small)",
+    icon: assets.woodShieldSmall,
+    unlimited: true,
+    flat: true,
+  },
+  woodShieldLarge: {
+    id: "woodShieldLarge",
+    name: "Wood Shield (Large)",
+    icon: assets.woodShieldLarge,
+    unlimited: true,
+    flat: true,
+  },
 
   // --- wood drop materials — granted from chopping trees (see
   // `resource.dropItem`/`dropAmount` on the tree entries below), and the
   // source of the "floating pickup" popup (spawnFloatingPickups(),
   // resources.js). Flat, plain inventory materials — same treatment as
   // stoneChunk.
-  woodLog: { id: "woodLog", name: "Wood Log", icon: assets.woodLog, unlimited: true, flat: true },
-  woodPlank: { id: "woodPlank", name: "Wood Plank", icon: assets.woodPlank, unlimited: true, flat: true },
-  woodStick: { id: "woodStick", name: "Wood Stick", icon: assets.woodStick, unlimited: true, flat: true },
+  woodLog: {
+    id: "woodLog",
+    name: "Wood Log",
+    icon: assets.woodLog,
+    unlimited: true,
+    flat: true,
+  },
+  woodPlank: {
+    id: "woodPlank",
+    name: "Wood Plank",
+    icon: assets.woodPlank,
+    unlimited: true,
+    flat: true,
+  },
+  woodStick: {
+    id: "woodStick",
+    name: "Wood Stick",
+    icon: assets.woodStick,
+    unlimited: true,
+    flat: true,
+  },
   // ==== added by tools/add_remaining_items.py — bushes, interior/outdoor
   // furniture, vegetables, alt. house skins, extra tree variants. All
   // default to no collision / no footprint design yet (except trees and
   // the two alt. houses, which match their existing siblings) — add
   // `collides: true` / `fixedFootprint` per item later as needed.
-  bushBigGreen: { id: "bushBigGreen", name: "Big Green Bush", icon: assets.bushBigGreen, unlimited: true },
-  bushBigLightGreen: { id: "bushBigLightGreen", name: "Big Light Green Bush", icon: assets.bushBigLightGreen, unlimited: true },
-  bushBigRed: { id: "bushBigRed", name: "Big Red Bush", icon: assets.bushBigRed, unlimited: true },
-  bushBigYellow: { id: "bushBigYellow", name: "Big Yellow Bush", icon: assets.bushBigYellow, unlimited: true },
-  bushMediumGreen: { id: "bushMediumGreen", name: "Medium Green Bush", icon: assets.bushMediumGreen, unlimited: true },
-  bushMediumLightGreen: { id: "bushMediumLightGreen", name: "Medium Light Green Bush", icon: assets.bushMediumLightGreen, unlimited: true },
-  bushMediumRed: { id: "bushMediumRed", name: "Medium Red Bush", icon: assets.bushMediumRed, unlimited: true },
-  bushMediumYellow: { id: "bushMediumYellow", name: "Medium Yellow Bush", icon: assets.bushMediumYellow, unlimited: true },
-  bushSmallGreen: { id: "bushSmallGreen", name: "Small Green Bush", icon: assets.bushSmallGreen, unlimited: true },
-  bushSmallLightGreen: { id: "bushSmallLightGreen", name: "Small Light Green Bush", icon: assets.bushSmallLightGreen, unlimited: true },
-  bushSmallRed: { id: "bushSmallRed", name: "Small Red Bush", icon: assets.bushSmallRed, unlimited: true },
-  bushSmallYellow: { id: "bushSmallYellow", name: "Small Yellow Bush", icon: assets.bushSmallYellow, unlimited: true },
-  bushXSGreen: { id: "bushXSGreen", name: "XS Green Bush", icon: assets.bushXSGreen, unlimited: true },
-  bushXSLightGreen: { id: "bushXSLightGreen", name: "XS Light Green Bush", icon: assets.bushXSLightGreen, unlimited: true },
-  bushXSRed: { id: "bushXSRed", name: "XS Red Bush", icon: assets.bushXSRed, unlimited: true },
-  bushXSYellow: { id: "bushXSYellow", name: "XS Yellow Bush", icon: assets.bushXSYellow, unlimited: true },
-  bushFlowerA: { id: "bushFlowerA", name: "Flowering Bush (A)", icon: assets.bushFlowerA, unlimited: true },
-  bushFlowerB: { id: "bushFlowerB", name: "Flowering Bush (B)", icon: assets.bushFlowerB, unlimited: true },
-  bushFlowerC: { id: "bushFlowerC", name: "Flowering Bush (C)", icon: assets.bushFlowerC, unlimited: true },
-  bushFlowerD: { id: "bushFlowerD", name: "Flowering Bush (D)", icon: assets.bushFlowerD, unlimited: true },
-  bushMushroom1: { id: "bushMushroom1", name: "Mushroom (A)", icon: assets.bushMushroom1, unlimited: true },
-  bushMushroom2: { id: "bushMushroom2", name: "Mushroom (B)", icon: assets.bushMushroom2, unlimited: true },
-  leavesFloor: { id: "leavesFloor", name: "Fallen Leaves (Ground)", icon: assets.leavesFloor, unlimited: true, flat: true },
-  treeMediumGreen: { id: "treeMediumGreen", name: "Medium Tree (Green)", icon: assets.treeMediumGreen, unlimited: true, collides: true },
-  treeMediumLightGreen: { id: "treeMediumLightGreen", name: "Medium Tree (Light Green)", icon: assets.treeMediumLightGreen, unlimited: true, collides: true },
-  treeMediumRed: { id: "treeMediumRed", name: "Medium Tree (Red)", icon: assets.treeMediumRed, unlimited: true, collides: true },
-  treeMediumYellow: { id: "treeMediumYellow", name: "Medium Tree (Yellow)", icon: assets.treeMediumYellow, unlimited: true, collides: true },
-  treeMediumGreenTrunk: { id: "treeMediumGreenTrunk", name: "Medium Trunk (Green)", icon: assets.treeMediumGreenTrunk, unlimited: true, collides: true },
-  treeMediumRedYellowTrunk: { id: "treeMediumRedYellowTrunk", name: "Medium Trunk (Red/Yellow)", icon: assets.treeMediumRedYellowTrunk, unlimited: true, collides: true },
+  bushBigGreen: {
+    id: "bushBigGreen",
+    name: "Big Green Bush",
+    icon: assets.bushBigGreen,
+    unlimited: true,
+  },
+  bushBigLightGreen: {
+    id: "bushBigLightGreen",
+    name: "Big Light Green Bush",
+    icon: assets.bushBigLightGreen,
+    unlimited: true,
+  },
+  bushBigRed: {
+    id: "bushBigRed",
+    name: "Big Red Bush",
+    icon: assets.bushBigRed,
+    unlimited: true,
+  },
+  bushBigYellow: {
+    id: "bushBigYellow",
+    name: "Big Yellow Bush",
+    icon: assets.bushBigYellow,
+    unlimited: true,
+  },
+  bushMediumGreen: {
+    id: "bushMediumGreen",
+    name: "Medium Green Bush",
+    icon: assets.bushMediumGreen,
+    unlimited: true,
+  },
+  bushMediumLightGreen: {
+    id: "bushMediumLightGreen",
+    name: "Medium Light Green Bush",
+    icon: assets.bushMediumLightGreen,
+    unlimited: true,
+  },
+  bushMediumRed: {
+    id: "bushMediumRed",
+    name: "Medium Red Bush",
+    icon: assets.bushMediumRed,
+    unlimited: true,
+  },
+  bushMediumYellow: {
+    id: "bushMediumYellow",
+    name: "Medium Yellow Bush",
+    icon: assets.bushMediumYellow,
+    unlimited: true,
+  },
+  bushSmallGreen: {
+    id: "bushSmallGreen",
+    name: "Small Green Bush",
+    icon: assets.bushSmallGreen,
+    unlimited: true,
+  },
+  bushSmallLightGreen: {
+    id: "bushSmallLightGreen",
+    name: "Small Light Green Bush",
+    icon: assets.bushSmallLightGreen,
+    unlimited: true,
+  },
+  bushSmallRed: {
+    id: "bushSmallRed",
+    name: "Small Red Bush",
+    icon: assets.bushSmallRed,
+    unlimited: true,
+  },
+  bushSmallYellow: {
+    id: "bushSmallYellow",
+    name: "Small Yellow Bush",
+    icon: assets.bushSmallYellow,
+    unlimited: true,
+  },
+  bushXSGreen: {
+    id: "bushXSGreen",
+    name: "XS Green Bush",
+    icon: assets.bushXSGreen,
+    unlimited: true,
+  },
+  bushXSLightGreen: {
+    id: "bushXSLightGreen",
+    name: "XS Light Green Bush",
+    icon: assets.bushXSLightGreen,
+    unlimited: true,
+  },
+  bushXSRed: {
+    id: "bushXSRed",
+    name: "XS Red Bush",
+    icon: assets.bushXSRed,
+    unlimited: true,
+  },
+  bushXSYellow: {
+    id: "bushXSYellow",
+    name: "XS Yellow Bush",
+    icon: assets.bushXSYellow,
+    unlimited: true,
+  },
+  bushFlowerA: {
+    id: "bushFlowerA",
+    name: "Flowering Bush (A)",
+    icon: assets.bushFlowerA,
+    unlimited: true,
+  },
+  bushFlowerB: {
+    id: "bushFlowerB",
+    name: "Flowering Bush (B)",
+    icon: assets.bushFlowerB,
+    unlimited: true,
+  },
+  bushFlowerC: {
+    id: "bushFlowerC",
+    name: "Flowering Bush (C)",
+    icon: assets.bushFlowerC,
+    unlimited: true,
+  },
+  bushFlowerD: {
+    id: "bushFlowerD",
+    name: "Flowering Bush (D)",
+    icon: assets.bushFlowerD,
+    unlimited: true,
+  },
+  bushMushroom1: {
+    id: "bushMushroom1",
+    name: "Mushroom (A)",
+    icon: assets.bushMushroom1,
+    unlimited: true,
+  },
+  bushMushroom2: {
+    id: "bushMushroom2",
+    name: "Mushroom (B)",
+    icon: assets.bushMushroom2,
+    unlimited: true,
+  },
+  leavesFloor: {
+    id: "leavesFloor",
+    name: "Fallen Leaves (Ground)",
+    icon: assets.leavesFloor,
+    unlimited: true,
+    flat: true,
+  },
+  treeMediumGreen: {
+    id: "treeMediumGreen",
+    name: "Medium Tree (Green)",
+    icon: assets.treeMediumGreen,
+    unlimited: true,
+    collides: true,
+  },
+  treeMediumLightGreen: {
+    id: "treeMediumLightGreen",
+    name: "Medium Tree (Light Green)",
+    icon: assets.treeMediumLightGreen,
+    unlimited: true,
+    collides: true,
+  },
+  treeMediumRed: {
+    id: "treeMediumRed",
+    name: "Medium Tree (Red)",
+    icon: assets.treeMediumRed,
+    unlimited: true,
+    collides: true,
+  },
+  treeMediumYellow: {
+    id: "treeMediumYellow",
+    name: "Medium Tree (Yellow)",
+    icon: assets.treeMediumYellow,
+    unlimited: true,
+    collides: true,
+  },
+  treeMediumGreenTrunk: {
+    id: "treeMediumGreenTrunk",
+    name: "Medium Trunk (Green)",
+    icon: assets.treeMediumGreenTrunk,
+    unlimited: true,
+    collides: true,
+  },
+  treeMediumRedYellowTrunk: {
+    id: "treeMediumRedYellowTrunk",
+    name: "Medium Trunk (Red/Yellow)",
+    icon: assets.treeMediumRedYellowTrunk,
+    unlimited: true,
+    collides: true,
+  },
   // `interior` (js/interior.js): walking onto the tile at
   // (placedCol + doorOffset.col, placedRow + doorOffset.row) — normally
   // part of the solid footprint — instead enters the named
@@ -469,114 +1318,801 @@ const itemDefs = {
   // Both currently point at "sharedHouse" — the only interior room
   // layout drawn so far (assets/interior/asesprite/interior.ase); give
   // one of them a different `roomId` once a second layout exists.
-  house2: { id: "house2", name: "House (Alt. 1)", icon: assets.house2, unlimited: true, collides: true, multiTileFootprint: true, footprintExcludeBackRows: 7, fadeOnlyWhenBehind: true, buildSeconds: 10, footprintWidthTiles: 11, interior: { roomId: "sharedHouse", doorOffset: { col: 0, row: 0 } } },
-  house3: { id: "house3", name: "House (Alt. 2)", icon: assets.house3, unlimited: true, collides: true, multiTileFootprint: true, footprintExcludeBackRows: 7, fadeOnlyWhenBehind: true, buildSeconds: 10, interior: { roomId: "sharedHouse", doorOffset: { col: 0, row: 0 } } },
-  floorBrown: { id: "floorBrown", name: "Floor (Brown)", icon: assets.floorBrown, unlimited: true, flat: true },
-  floorDarkGreen: { id: "floorDarkGreen", name: "Floor (Dark Green)", icon: assets.floorDarkGreen, unlimited: true, flat: true },
-  floorGreen: { id: "floorGreen", name: "Floor (Green)", icon: assets.floorGreen, unlimited: true, flat: true },
-  interiorWall: { id: "interiorWall", name: "Interior Wall", icon: assets.interiorWall, unlimited: true, flat: true },
-  ceilingTile: { id: "ceilingTile", name: "Ceiling", icon: assets.ceilingTile, unlimited: true, flat: true },
-  windowPlain1: { id: "windowPlain1", name: "Window (A)", icon: assets.windowPlain1, unlimited: true, flat: true },
-  windowPlain2: { id: "windowPlain2", name: "Window (B)", icon: assets.windowPlain2, unlimited: true, flat: true },
-  windowLight1: { id: "windowLight1", name: "Lit Window (A)", icon: assets.windowLight1, unlimited: true, flat: true },
-  windowLight2: { id: "windowLight2", name: "Lit Window (B)", icon: assets.windowLight2, unlimited: true, flat: true },
-  windowLight3: { id: "windowLight3", name: "Lit Window (C)", icon: assets.windowLight3, unlimited: true, flat: true },
-  doorPlain1: { id: "doorPlain1", name: "Door (A)", icon: assets.doorPlain1, unlimited: true, flat: true },
-  doorPlain2: { id: "doorPlain2", name: "Door (B)", icon: assets.doorPlain2, unlimited: true, flat: true },
-  doorPlain3: { id: "doorPlain3", name: "Door (C)", icon: assets.doorPlain3, unlimited: true, flat: true },
-  chimneyRedDoor: { id: "chimneyRedDoor", name: "Chimney Flue (Red)", icon: assets.chimneyRedDoor, unlimited: true, flat: true },
-  wallPoster: { id: "wallPoster", name: "Wall Poster", icon: assets.wallPoster, unlimited: true, flat: true },
-  pictureFrame: { id: "pictureFrame", name: "Picture Frame", icon: assets.pictureFrame, unlimited: true, flat: true },
-  boardA: { id: "boardA", name: "Board (A)", icon: assets.boardA, unlimited: true, flat: true },
-  boardB: { id: "boardB", name: "Board (B)", icon: assets.boardB, unlimited: true, flat: true },
-  wallFurniture1: { id: "wallFurniture1", name: "Wall Decor 1", icon: assets.wallFurniture1, unlimited: true, flat: true },
-  wallFurniture2: { id: "wallFurniture2", name: "Wall Decor 2", icon: assets.wallFurniture2, unlimited: true, flat: true },
-  wallFurniture3: { id: "wallFurniture3", name: "Wall Decor 3", icon: assets.wallFurniture3, unlimited: true, flat: true },
-  wallFurniture4: { id: "wallFurniture4", name: "Wall Decor 4", icon: assets.wallFurniture4, unlimited: true, flat: true },
-  wallFurniture5: { id: "wallFurniture5", name: "Wall Decor 5", icon: assets.wallFurniture5, unlimited: true, flat: true },
-  wallFurniture6: { id: "wallFurniture6", name: "Wall Decor 6", icon: assets.wallFurniture6, unlimited: true, flat: true },
-  wallFurniture7: { id: "wallFurniture7", name: "Wall Decor 7", icon: assets.wallFurniture7, unlimited: true, flat: true },
-  cookerExtension1: { id: "cookerExtension1", name: "Stove Extension (A)", icon: assets.cookerExtension1, unlimited: true, flat: true },
-  cookerExtension2: { id: "cookerExtension2", name: "Stove Extension (B)", icon: assets.cookerExtension2, unlimited: true, flat: true },
-  tableFurniture1: { id: "tableFurniture1", name: "Tabletop Clutter 1", icon: assets.tableFurniture1, unlimited: true, flat: true },
-  tableFurniture2: { id: "tableFurniture2", name: "Tabletop Clutter 2", icon: assets.tableFurniture2, unlimited: true, flat: true },
-  tableFurniture3: { id: "tableFurniture3", name: "Tabletop Clutter 3", icon: assets.tableFurniture3, unlimited: true, flat: true },
-  tableFurniture4: { id: "tableFurniture4", name: "Tabletop Clutter 4", icon: assets.tableFurniture4, unlimited: true, flat: true },
-  mugFull: { id: "mugFull", name: "Mug (Full)", icon: assets.mugFull, unlimited: true, flat: true },
-  mugEmpty: { id: "mugEmpty", name: "Mug (Empty)", icon: assets.mugEmpty, unlimited: true, flat: true },
-  plateEmpty: { id: "plateEmpty", name: "Plate (Empty)", icon: assets.plateEmpty, unlimited: true, flat: true },
-  plateFood: { id: "plateFood", name: "Plate (With Food)", icon: assets.plateFood, unlimited: true, flat: true },
-  meatItem: { id: "meatItem", name: "Meat", icon: assets.meatItem, unlimited: true, flat: true },
-  chairFront: { id: "chairFront", name: "Chair (Front-facing)", icon: assets.chairFront, unlimited: true },
-  chairRight: { id: "chairRight", name: "Chair (Side-facing)", icon: assets.chairRight, unlimited: true },
-  cabinetBaseA: { id: "cabinetBaseA", name: "Cabinet Base (A)", icon: assets.cabinetBaseA, unlimited: true },
-  cabinetBaseB: { id: "cabinetBaseB", name: "Cabinet Base (B)", icon: assets.cabinetBaseB, unlimited: true },
-  cabinetBaseC: { id: "cabinetBaseC", name: "Cabinet Base (C)", icon: assets.cabinetBaseC, unlimited: true },
-  cabinetBaseD: { id: "cabinetBaseD", name: "Cabinet Base (D)", icon: assets.cabinetBaseD, unlimited: true },
-  basket1: { id: "basket1", name: "Basket (A)", icon: assets.basket1, unlimited: true },
-  basket2: { id: "basket2", name: "Basket (B)", icon: assets.basket2, unlimited: true },
-  bedBig: { id: "bedBig", name: "Big Bed", icon: assets.bedBig, unlimited: true },
-  bedSmall: { id: "bedSmall", name: "Small Bed", icon: assets.bedSmall, unlimited: true },
-  tableBig: { id: "tableBig", name: "Big Table (A)", icon: assets.tableBig, unlimited: true },
-  tableBig1: { id: "tableBig1", name: "Big Table (B)", icon: assets.tableBig1, unlimited: true },
-  tableBig2: { id: "tableBig2", name: "Big Table (C)", icon: assets.tableBig2, unlimited: true },
-  tableCircle: { id: "tableCircle", name: "Round Table", icon: assets.tableCircle, unlimited: true },
-  tableKitchen: { id: "tableKitchen", name: "Kitchen Table", icon: assets.tableKitchen, unlimited: true },
-  tableSmall: { id: "tableSmall", name: "Small Table", icon: assets.tableSmall, unlimited: true },
-  cookerStove1: { id: "cookerStove1", name: "Stove (A)", icon: assets.cookerStove1, unlimited: true },
-  cookerStove2: { id: "cookerStove2", name: "Stove (B)", icon: assets.cookerStove2, unlimited: true },
-  cookerStove3: { id: "cookerStove3", name: "Stove (C)", icon: assets.cookerStove3, unlimited: true },
+  // house2/house3 collision (both PNGs are 192x192 = 12x12 tiles):
+  //   - LEFT/RIGHT: pixel-accurate to the real walls via `wallColliderPx`
+  //     (see getHouseWallRect() above) — NOT the 16px tile grid. Measured
+  //     from both PNGs: the walls run from art column 6 to 186 (180px =
+  //     11.25 tiles; the roof eaves overhang a further 4px each side, x
+  //     2..190, and aren't solid). Because the art is centered on the
+  //     placement tile's CENTER, those wall edges land 2px inside a tile
+  //     column on each side, so no whole-tile width could ever match them
+  //     — that was why the character still walked into both side walls.
+  //   - FRONT/BACK rows: still whole 16x16 tiles from the footprint below
+  //     — 12 rows tall (the art's real height), `footprintExcludeBackRows:
+  //     5` kept as-is, so the top 5 rows (roof) stay walkable and the
+  //     bottom 7 rows block.
+  //   - `footprintWidthTiles: 11` is now only the placement preview /
+  //     "is this area clear" size: 11 whole tiles is the closest tile fit
+  //     to the 11.25-tile walls (2px short on each side, symmetric
+  //     around the door).
+  house2: {
+    id: "house2",
+    name: "House (Alt. 1)",
+    icon: assets.house2,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+    footprintWidthTiles: 11,
+    footprintHeightTiles: 12,
+    footprintExcludeBackRows: 5,
+    wallColliderPx: { left: 6, right: 186 },
+    fadeOnlyWhenBehind: true,
+    buildSeconds: 10,
+    interior: { roomId: "sharedHouse", doorOffset: { col: 0, row: 0 } },
+  },
+  house3: {
+    id: "house3",
+    name: "House (Alt. 2)",
+    icon: assets.house3,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+    footprintWidthTiles: 11,
+    footprintHeightTiles: 12,
+    footprintExcludeBackRows: 5,
+    wallColliderPx: { left: 6, right: 186 }, // same wall columns as house2 (measured separately — identical)
+    fadeOnlyWhenBehind: true,
+    buildSeconds: 10,
+    interior: { roomId: "sharedHouse", doorOffset: { col: 0, row: 0 } },
+  },
+  floorBrown: {
+    id: "floorBrown",
+    name: "Floor (Brown)",
+    icon: assets.floorBrown,
+    unlimited: true,
+    flat: true,
+  },
+  floorDarkGreen: {
+    id: "floorDarkGreen",
+    name: "Floor (Dark Green)",
+    icon: assets.floorDarkGreen,
+    unlimited: true,
+    flat: true,
+  },
+  floorGreen: {
+    id: "floorGreen",
+    name: "Floor (Green)",
+    icon: assets.floorGreen,
+    unlimited: true,
+    flat: true,
+  },
+  interiorWall: {
+    id: "interiorWall",
+    name: "Interior Wall",
+    icon: assets.interiorWall,
+    unlimited: true,
+    flat: true,
+  },
+  ceilingTile: {
+    id: "ceilingTile",
+    name: "Ceiling",
+    icon: assets.ceilingTile,
+    unlimited: true,
+    flat: true,
+  },
+  windowPlain1: {
+    id: "windowPlain1",
+    name: "Window (A)",
+    icon: assets.windowPlain1,
+    unlimited: true,
+    flat: true,
+  },
+  windowPlain2: {
+    id: "windowPlain2",
+    name: "Window (B)",
+    icon: assets.windowPlain2,
+    unlimited: true,
+    flat: true,
+  },
+  windowLight1: {
+    id: "windowLight1",
+    name: "Lit Window (A)",
+    icon: assets.windowLight1,
+    unlimited: true,
+    flat: true,
+  },
+  windowLight2: {
+    id: "windowLight2",
+    name: "Lit Window (B)",
+    icon: assets.windowLight2,
+    unlimited: true,
+    flat: true,
+  },
+  windowLight3: {
+    id: "windowLight3",
+    name: "Lit Window (C)",
+    icon: assets.windowLight3,
+    unlimited: true,
+    flat: true,
+  },
+  doorPlain1: {
+    id: "doorPlain1",
+    name: "Door (A)",
+    icon: assets.doorPlain1,
+    unlimited: true,
+    flat: true,
+  },
+  doorPlain2: {
+    id: "doorPlain2",
+    name: "Door (B)",
+    icon: assets.doorPlain2,
+    unlimited: true,
+    flat: true,
+  },
+  doorPlain3: {
+    id: "doorPlain3",
+    name: "Door (C)",
+    icon: assets.doorPlain3,
+    unlimited: true,
+    flat: true,
+    // The sprite (assets/particles/inside/door3.png) is 48x48px = a full
+    // 3x3 tile grid, not 2x1 — per correction ("di lang pala 2 column
+    // yun 3 din... check mo yung png ng mga doors 3x3"). Anchored
+    // bottom-center on its placement tile (drawGroundItemAt(), camera.js
+    // — same math as everything else in `groundLayer`), the 3x3 spans
+    // columns [placedCol-1, placedCol+1] and rows [placedRow-2,
+    // placedRow].
+    //   - `doorSpanCols`/`doorSpanRows: 3` — the full footprint size.
+    //     Only the two SIDE columns are solid (`collides: true` below +
+    //     getObjectFootprintBlockedTiles()'s span-door branch,
+    //     inventory.js) — the CENTER column (all 3 rows) stays
+    //     deliberately walkable, forming a real doorway you walk
+    //     THROUGH rather than a wall you're stopped at.
+    collides: true,
+    // Functions as a real front door for a custom-built house (hand-
+    // placed from individual wall/window/door decor pieces, rather than
+    // baked into the house2/house3 multiTileFootprint art) — walking
+    // "up" through its center reaches the door's middle tile and enters
+    // the shared interior room, same idea as house2/house3's door
+    // (js/interior.js's checkInteriorEntry()), just for a standalone
+    // item instead of a whole building. Per request ("kapag nadikit sa
+    // yung head sa gitna ng 3x3 pinaka middle is tyaka magtrigger"):
+    //   - `spawnCol`/`spawnRow` — this door drops the player at its OWN
+    //     spot inside the room (the 5th tile down, room-local), instead
+    //     of the main entrance's spawnX/spawnY (INTERIOR_ROOMS.
+    //     sharedHouse) — see enterInterior(), js/interior.js.
+    //   - `doorSpanCols`/`doorSpanRows` also make this door SOLID across
+    //     its two side columns (center column walkable) if placed
+    //     indoors as decor — see isInteriorTileBlocked(), js/interior.js.
+    //     The actual indoor warp trigger/landing tiles are now plain,
+    //     hand-set coordinates on the ROOM itself, not derived from
+    //     wherever this item happens to be placed — see
+    //     INTERIOR_ROOMS.sharedHouse.indoorWarp and
+    //     checkIndoorWarpDoor(), js/interior.js.
+    interior: { roomId: "sharedHouse", doorSpanCols: 3, doorSpanRows: 3, spawnCol: 12, spawnRow: 5 },
+  },
+  chimneyRedDoor: {
+    id: "chimneyRedDoor",
+    name: "Chimney Flue (Red)",
+    icon: assets.chimneyRedDoor,
+    unlimited: true,
+    flat: true,
+  },
+  wallPoster: {
+    id: "wallPoster",
+    name: "Wall Poster",
+    icon: assets.wallPoster,
+    unlimited: true,
+    flat: true,
+  },
+  pictureFrame: {
+    id: "pictureFrame",
+    name: "Picture Frame",
+    icon: assets.pictureFrame,
+    unlimited: true,
+    flat: true,
+  },
+  boardA: {
+    id: "boardA",
+    name: "Board (A)",
+    icon: assets.boardA,
+    unlimited: true,
+    flat: true,
+  },
+  boardB: {
+    id: "boardB",
+    name: "Board (B)",
+    icon: assets.boardB,
+    unlimited: true,
+    flat: true,
+  },
+  wallFurniture1: {
+    id: "wallFurniture1",
+    name: "Wall Decor 1",
+    icon: assets.wallFurniture1,
+    unlimited: true,
+    flat: true,
+  },
+  wallFurniture2: {
+    id: "wallFurniture2",
+    name: "Wall Decor 2",
+    icon: assets.wallFurniture2,
+    unlimited: true,
+    flat: true,
+  },
+  wallFurniture3: {
+    id: "wallFurniture3",
+    name: "Wall Decor 3",
+    icon: assets.wallFurniture3,
+    unlimited: true,
+    flat: true,
+  },
+  wallFurniture4: {
+    id: "wallFurniture4",
+    name: "Wall Decor 4",
+    icon: assets.wallFurniture4,
+    unlimited: true,
+    flat: true,
+  },
+  wallFurniture5: {
+    id: "wallFurniture5",
+    name: "Wall Decor 5",
+    icon: assets.wallFurniture5,
+    unlimited: true,
+    flat: true,
+  },
+  wallFurniture6: {
+    id: "wallFurniture6",
+    name: "Wall Decor 6",
+    icon: assets.wallFurniture6,
+    unlimited: true,
+    flat: true,
+  },
+  wallFurniture7: {
+    id: "wallFurniture7",
+    name: "Wall Decor 7",
+    icon: assets.wallFurniture7,
+    unlimited: true,
+    flat: true,
+  },
+  cookerExtension1: {
+    id: "cookerExtension1",
+    name: "Stove Extension (A)",
+    icon: assets.cookerExtension1,
+    unlimited: true,
+    flat: true,
+  },
+  cookerExtension2: {
+    id: "cookerExtension2",
+    name: "Stove Extension (B)",
+    icon: assets.cookerExtension2,
+    unlimited: true,
+    flat: true,
+  },
+  tableFurniture1: {
+    id: "tableFurniture1",
+    name: "Tabletop Clutter 1",
+    icon: assets.tableFurniture1,
+    unlimited: true,
+    flat: true,
+  },
+  tableFurniture2: {
+    id: "tableFurniture2",
+    name: "Tabletop Clutter 2",
+    icon: assets.tableFurniture2,
+    unlimited: true,
+    flat: true,
+  },
+  tableFurniture3: {
+    id: "tableFurniture3",
+    name: "Tabletop Clutter 3",
+    icon: assets.tableFurniture3,
+    unlimited: true,
+    flat: true,
+  },
+  tableFurniture4: {
+    id: "tableFurniture4",
+    name: "Tabletop Clutter 4",
+    icon: assets.tableFurniture4,
+    unlimited: true,
+    flat: true,
+  },
+  mugFull: {
+    id: "mugFull",
+    name: "Mug (Full)",
+    icon: assets.mugFull,
+    unlimited: true,
+    flat: true,
+  },
+  mugEmpty: {
+    id: "mugEmpty",
+    name: "Mug (Empty)",
+    icon: assets.mugEmpty,
+    unlimited: true,
+    flat: true,
+  },
+  plateEmpty: {
+    id: "plateEmpty",
+    name: "Plate (Empty)",
+    icon: assets.plateEmpty,
+    unlimited: true,
+    flat: true,
+  },
+  plateFood: {
+    id: "plateFood",
+    name: "Plate (With Food)",
+    icon: assets.plateFood,
+    unlimited: true,
+    flat: true,
+  },
+  meatItem: {
+    id: "meatItem",
+    name: "Meat",
+    icon: assets.meatItem,
+    unlimited: true,
+    flat: true,
+  },
+  chairFront: {
+    id: "chairFront",
+    name: "Chair (Front-facing)",
+    icon: assets.chairFront,
+    unlimited: true,
+  },
+  chairRight: {
+    id: "chairRight",
+    name: "Chair (Side-facing)",
+    icon: assets.chairRight,
+    unlimited: true,
+  },
+  cabinetBaseA: {
+    id: "cabinetBaseA",
+    name: "Cabinet Base (A)",
+    icon: assets.cabinetBaseA,
+    unlimited: true,
+  },
+  cabinetBaseB: {
+    id: "cabinetBaseB",
+    name: "Cabinet Base (B)",
+    icon: assets.cabinetBaseB,
+    unlimited: true,
+  },
+  cabinetBaseC: {
+    id: "cabinetBaseC",
+    name: "Cabinet Base (C)",
+    icon: assets.cabinetBaseC,
+    unlimited: true,
+  },
+  cabinetBaseD: {
+    id: "cabinetBaseD",
+    name: "Cabinet Base (D)",
+    icon: assets.cabinetBaseD,
+    unlimited: true,
+  },
+  basket1: {
+    id: "basket1",
+    name: "Basket (A)",
+    icon: assets.basket1,
+    unlimited: true,
+  },
+  basket2: {
+    id: "basket2",
+    name: "Basket (B)",
+    icon: assets.basket2,
+    unlimited: true,
+  },
+  bedBig: {
+    id: "bedBig",
+    name: "Big Bed",
+    icon: assets.bedBig,
+    unlimited: true,
+    // Per request ("automatic na may collission na dapat kapag lapag sa
+    // tile kung ano size nila yun na mismo yung collissions"): solid,
+    // sized to match its own art (46x54px ≈ 3 tiles wide, 3 tall) rather
+    // than the single-tile default — same `fixedFootprint` pattern Big
+    // Stone already uses (getObjectFootprintBlockedTiles(), above).
+    // `collides: true` is also what makes the outdoor E-grab/place
+    // mechanic (findGrabbableInLayer(), tryGrabOrPlaceInFront() —
+    // inventory.js) check the tile IN FRONT of the player rather than
+    // underfoot, same as every other collidable object — "ERT" already
+    // works generically for any placed item, so no new code was needed
+    // there, just this.
+    collides: true,
+    fixedFootprint: { leftTiles: 1, rightTiles: 1, heightTiles: 3 },
+  },
+  bedSmall: {
+    id: "bedSmall",
+    name: "Small Bed",
+    icon: assets.bedSmall,
+    unlimited: true,
+    // Same reasoning as Big Bed above, sized to its own (narrower)
+    // art (30x54px ≈ 2 tiles wide, 3 tall).
+    collides: true,
+    fixedFootprint: { leftTiles: 0, rightTiles: 1, heightTiles: 3 },
+  },
+  tableBig: {
+    id: "tableBig",
+    name: "Big Table (A)",
+    icon: assets.tableBig,
+    unlimited: true,
+  },
+  tableBig1: {
+    id: "tableBig1",
+    name: "Big Table (B)",
+    icon: assets.tableBig1,
+    unlimited: true,
+  },
+  tableBig2: {
+    id: "tableBig2",
+    name: "Big Table (C)",
+    icon: assets.tableBig2,
+    unlimited: true,
+  },
+  tableCircle: {
+    id: "tableCircle",
+    name: "Round Table",
+    icon: assets.tableCircle,
+    unlimited: true,
+  },
+  tableKitchen: {
+    id: "tableKitchen",
+    name: "Kitchen Table",
+    icon: assets.tableKitchen,
+    unlimited: true,
+  },
+  tableSmall: {
+    id: "tableSmall",
+    name: "Small Table",
+    icon: assets.tableSmall,
+    unlimited: true,
+  },
+  cookerStove1: {
+    id: "cookerStove1",
+    name: "Stove (A)",
+    icon: assets.cookerStove1,
+    unlimited: true,
+  },
+  cookerStove2: {
+    id: "cookerStove2",
+    name: "Stove (B)",
+    icon: assets.cookerStove2,
+    unlimited: true,
+  },
+  cookerStove3: {
+    id: "cookerStove3",
+    name: "Stove (C)",
+    icon: assets.cookerStove3,
+    unlimited: true,
+  },
   couch: { id: "couch", name: "Couch", icon: assets.couch, unlimited: true },
-  drawerFurniture: { id: "drawerFurniture", name: "Drawer", icon: assets.drawerFurniture, unlimited: true },
-  broom: { id: "broom", name: "Broom (Walis)", icon: assets.broom, unlimited: true },
-  barrelInterior: { id: "barrelInterior", name: "Barrel", icon: assets.barrelInterior, unlimited: true },
-  crateInterior: { id: "crateInterior", name: "Wooden Crate", icon: assets.crateInterior, unlimited: true },
-  chimneyPlain: { id: "chimneyPlain", name: "Chimney", icon: assets.chimneyPlain, unlimited: true },
-  chimneyRed: { id: "chimneyRed", name: "Chimney (Red)", icon: assets.chimneyRed, unlimited: true },
-  benchHorizontal: { id: "benchHorizontal", name: "Bench (Horizontal)", icon: assets.benchHorizontal, unlimited: true },
-  benchVertical: { id: "benchVertical", name: "Bench (Vertical)", icon: assets.benchVertical, unlimited: true },
-  chairOutdoorFront: { id: "chairOutdoorFront", name: "Outdoor Chair (Front)", icon: assets.chairOutdoorFront, unlimited: true },
-  chairOutdoorSide: { id: "chairOutdoorSide", name: "Outdoor Chair (Side)", icon: assets.chairOutdoorSide, unlimited: true },
+  drawerFurniture: {
+    id: "drawerFurniture",
+    name: "Drawer",
+    icon: assets.drawerFurniture,
+    unlimited: true,
+  },
+  broom: {
+    id: "broom",
+    name: "Broom (Walis)",
+    icon: assets.broom,
+    unlimited: true,
+  },
+  barrelInterior: {
+    id: "barrelInterior",
+    name: "Barrel",
+    icon: assets.barrelInterior,
+    unlimited: true,
+  },
+  crateInterior: {
+    id: "crateInterior",
+    name: "Wooden Crate",
+    icon: assets.crateInterior,
+    unlimited: true,
+  },
+  chimneyPlain: {
+    id: "chimneyPlain",
+    name: "Chimney",
+    icon: assets.chimneyPlain,
+    unlimited: true,
+  },
+  chimneyRed: {
+    id: "chimneyRed",
+    name: "Chimney (Red)",
+    icon: assets.chimneyRed,
+    unlimited: true,
+  },
+  benchHorizontal: {
+    id: "benchHorizontal",
+    name: "Bench (Horizontal)",
+    icon: assets.benchHorizontal,
+    unlimited: true,
+  },
+  benchVertical: {
+    id: "benchVertical",
+    name: "Bench (Vertical)",
+    icon: assets.benchVertical,
+    unlimited: true,
+  },
+  chairOutdoorFront: {
+    id: "chairOutdoorFront",
+    name: "Outdoor Chair (Front)",
+    icon: assets.chairOutdoorFront,
+    unlimited: true,
+  },
+  chairOutdoorSide: {
+    id: "chairOutdoorSide",
+    name: "Outdoor Chair (Side)",
+    icon: assets.chairOutdoorSide,
+    unlimited: true,
+  },
   fence: { id: "fence", name: "Fence", icon: assets.fence, unlimited: true },
-  floorMat: { id: "floorMat", name: "Floor Mat", icon: assets.floorMat, unlimited: true, flat: true },
-  longTableHorizontal: { id: "longTableHorizontal", name: "Long Table (Horizontal)", icon: assets.longTableHorizontal, unlimited: true },
-  longTableVertical: { id: "longTableVertical", name: "Long Table (Vertical)", icon: assets.longTableVertical, unlimited: true },
-  portBridge: { id: "portBridge", name: "Port Bridge", icon: assets.portBridge, unlimited: true },
-  portBridgeDecor: { id: "portBridgeDecor", name: "Port Bridge Decor", icon: assets.portBridgeDecor, unlimited: true },
-  portBridgeFront1: { id: "portBridgeFront1", name: "Port Bridge Front (A)", icon: assets.portBridgeFront1, unlimited: true, flat: true },
-  portBridgeFront2: { id: "portBridgeFront2", name: "Port Bridge Front (B)", icon: assets.portBridgeFront2, unlimited: true, flat: true },
-  portBridgeFront3: { id: "portBridgeFront3", name: "Port Bridge Front (C)", icon: assets.portBridgeFront3, unlimited: true, flat: true },
-  portBridgeFront4: { id: "portBridgeFront4", name: "Port Bridge Front (D)", icon: assets.portBridgeFront4, unlimited: true, flat: true },
-  portBridgeWall1: { id: "portBridgeWall1", name: "Port Bridge Wall (A)", icon: assets.portBridgeWall1, unlimited: true, flat: true },
-  portBridgeWall2: { id: "portBridgeWall2", name: "Port Bridge Wall (B)", icon: assets.portBridgeWall2, unlimited: true, flat: true },
-  postPlain: { id: "postPlain", name: "Post", icon: assets.postPlain, unlimited: true },
-  postLight: { id: "postLight", name: "Lamp Post", icon: assets.postLight, unlimited: true },
-  postHandleLight: { id: "postHandleLight", name: "Handheld Lamp", icon: assets.postHandleLight, unlimited: true, flat: true },
-  tableOutdoorSmall: { id: "tableOutdoorSmall", name: "Small Outdoor Table", icon: assets.tableOutdoorSmall, unlimited: true, flat: true },
-  vegOnion: { id: "vegOnion", name: "Onion", icon: assets.vegOnion, unlimited: true, flat: true },
-  vegOnionBox: { id: "vegOnionBox", name: "Onion Crate", icon: assets.vegOnionBox, unlimited: true },
-  vegPetchay: { id: "vegPetchay", name: "Petchay", icon: assets.vegPetchay, unlimited: true, flat: true },
-  vegPetchayBox: { id: "vegPetchayBox", name: "Petchay Crate", icon: assets.vegPetchayBox, unlimited: true },
-  vegCabbage: { id: "vegCabbage", name: "Cabbage", icon: assets.vegCabbage, unlimited: true, flat: true },
-  vegCabbageBox: { id: "vegCabbageBox", name: "Cabbage Crate", icon: assets.vegCabbageBox, unlimited: true },
-  vegBrocolli: { id: "vegBrocolli", name: "Broccoli", icon: assets.vegBrocolli, unlimited: true, flat: true },
-  vegBrocolliBox: { id: "vegBrocolliBox", name: "Broccoli Crate", icon: assets.vegBrocolliBox, unlimited: true },
-  vegBrocolliFlower: { id: "vegBrocolliFlower", name: "Broccoli Flower", icon: assets.vegBrocolliFlower, unlimited: true, flat: true },
-  vegBrocolliFlowerBox: { id: "vegBrocolliFlowerBox", name: "Broccoli Flower Crate", icon: assets.vegBrocolliFlowerBox, unlimited: true },
-  vegCarrots: { id: "vegCarrots", name: "Carrots", icon: assets.vegCarrots, unlimited: true, flat: true },
-  vegCarrotBox: { id: "vegCarrotBox", name: "Carrot Crate", icon: assets.vegCarrotBox, unlimited: true },
-  vegDragonfruit: { id: "vegDragonfruit", name: "Dragonfruit", icon: assets.vegDragonfruit, unlimited: true, flat: true },
-  vegDragonfruitBox: { id: "vegDragonfruitBox", name: "Dragonfruit Crate", icon: assets.vegDragonfruitBox, unlimited: true },
-  vegCrate: { id: "vegCrate", name: "Crate (Closed)", icon: assets.vegCrate, unlimited: true },
-  vegCrateOpen: { id: "vegCrateOpen", name: "Crate (Open)", icon: assets.vegCrateOpen, unlimited: true },
-  dirtRake: { id: "dirtRake", name: "Dirt Rake", icon: assets.dirtRake, unlimited: true, flat: true },
-  dirtWet: { id: "dirtWet", name: "Wet Dirt Patch", icon: assets.dirtWet, unlimited: true, flat: true },
-  plantDrawer: { id: "plantDrawer", name: "Plant Drawer", icon: assets.plantDrawer, unlimited: true },
-  plotSocketOpen: { id: "plotSocketOpen", name: "Planting Socket (Open)", icon: assets.plotSocketOpen, unlimited: true, flat: true },
-  plotSocketClosed: { id: "plotSocketClosed", name: "Planting Socket (Closed)", icon: assets.plotSocketClosed, unlimited: true, flat: true },
-  waterCrateHorizontal: { id: "waterCrateHorizontal", name: "Water Crate (Horizontal)", icon: assets.waterCrateHorizontal, unlimited: true },
-  waterCrateVertical: { id: "waterCrateVertical", name: "Water Crate (Vertical)", icon: assets.waterCrateVertical, unlimited: true },
+  floorMat: {
+    id: "floorMat",
+    name: "Floor Mat",
+    icon: assets.floorMat,
+    unlimited: true,
+    flat: true,
+  },
+  longTableHorizontal: {
+    id: "longTableHorizontal",
+    name: "Long Table (Horizontal)",
+    icon: assets.longTableHorizontal,
+    unlimited: true,
+  },
+  longTableVertical: {
+    id: "longTableVertical",
+    name: "Long Table (Vertical)",
+    icon: assets.longTableVertical,
+    unlimited: true,
+  },
+  portBridge: {
+    id: "portBridge",
+    name: "Port Bridge",
+    icon: assets.portBridge,
+    unlimited: true,
+  },
+  portBridgeDecor: {
+    id: "portBridgeDecor",
+    name: "Port Bridge Decor",
+    icon: assets.portBridgeDecor,
+    unlimited: true,
+  },
+  portBridgeFront1: {
+    id: "portBridgeFront1",
+    name: "Port Bridge Front (A)",
+    icon: assets.portBridgeFront1,
+    unlimited: true,
+    flat: true,
+  },
+  portBridgeFront2: {
+    id: "portBridgeFront2",
+    name: "Port Bridge Front (B)",
+    icon: assets.portBridgeFront2,
+    unlimited: true,
+    flat: true,
+  },
+  portBridgeFront3: {
+    id: "portBridgeFront3",
+    name: "Port Bridge Front (C)",
+    icon: assets.portBridgeFront3,
+    unlimited: true,
+    flat: true,
+  },
+  portBridgeFront4: {
+    id: "portBridgeFront4",
+    name: "Port Bridge Front (D)",
+    icon: assets.portBridgeFront4,
+    unlimited: true,
+    flat: true,
+  },
+  portBridgeWall1: {
+    id: "portBridgeWall1",
+    name: "Port Bridge Wall (A)",
+    icon: assets.portBridgeWall1,
+    unlimited: true,
+    flat: true,
+  },
+  portBridgeWall2: {
+    id: "portBridgeWall2",
+    name: "Port Bridge Wall (B)",
+    icon: assets.portBridgeWall2,
+    unlimited: true,
+    flat: true,
+  },
+  postPlain: {
+    id: "postPlain",
+    name: "Post",
+    icon: assets.postPlain,
+    unlimited: true,
+  },
+  postLight: {
+    id: "postLight",
+    name: "Lamp Post",
+    icon: assets.postLight,
+    unlimited: true,
+  },
+  postHandleLight: {
+    id: "postHandleLight",
+    name: "Handheld Lamp",
+    icon: assets.postHandleLight,
+    unlimited: true,
+    flat: true,
+  },
+  tableOutdoorSmall: {
+    id: "tableOutdoorSmall",
+    name: "Small Outdoor Table",
+    icon: assets.tableOutdoorSmall,
+    unlimited: true,
+    flat: true,
+  },
+  vegOnion: {
+    id: "vegOnion",
+    name: "Onion",
+    icon: assets.vegOnion,
+    unlimited: true,
+    flat: true,
+  },
+  vegOnionBox: {
+    id: "vegOnionBox",
+    name: "Onion Crate",
+    icon: assets.vegOnionBox,
+    unlimited: true,
+  },
+  vegPetchay: {
+    id: "vegPetchay",
+    name: "Petchay",
+    icon: assets.vegPetchay,
+    unlimited: true,
+    flat: true,
+  },
+  vegPetchayBox: {
+    id: "vegPetchayBox",
+    name: "Petchay Crate",
+    icon: assets.vegPetchayBox,
+    unlimited: true,
+  },
+  vegCabbage: {
+    id: "vegCabbage",
+    name: "Cabbage",
+    icon: assets.vegCabbage,
+    unlimited: true,
+    flat: true,
+  },
+  vegCabbageBox: {
+    id: "vegCabbageBox",
+    name: "Cabbage Crate",
+    icon: assets.vegCabbageBox,
+    unlimited: true,
+  },
+  vegBrocolli: {
+    id: "vegBrocolli",
+    name: "Broccoli",
+    icon: assets.vegBrocolli,
+    unlimited: true,
+    flat: true,
+  },
+  vegBrocolliBox: {
+    id: "vegBrocolliBox",
+    name: "Broccoli Crate",
+    icon: assets.vegBrocolliBox,
+    unlimited: true,
+  },
+  vegBrocolliFlower: {
+    id: "vegBrocolliFlower",
+    name: "Broccoli Flower",
+    icon: assets.vegBrocolliFlower,
+    unlimited: true,
+    flat: true,
+  },
+  vegBrocolliFlowerBox: {
+    id: "vegBrocolliFlowerBox",
+    name: "Broccoli Flower Crate",
+    icon: assets.vegBrocolliFlowerBox,
+    unlimited: true,
+  },
+  vegCarrots: {
+    id: "vegCarrots",
+    name: "Carrots",
+    icon: assets.vegCarrots,
+    unlimited: true,
+    flat: true,
+  },
+  vegCarrotBox: {
+    id: "vegCarrotBox",
+    name: "Carrot Crate",
+    icon: assets.vegCarrotBox,
+    unlimited: true,
+  },
+  vegDragonfruit: {
+    id: "vegDragonfruit",
+    name: "Dragonfruit",
+    icon: assets.vegDragonfruit,
+    unlimited: true,
+    flat: true,
+  },
+  vegDragonfruitBox: {
+    id: "vegDragonfruitBox",
+    name: "Dragonfruit Crate",
+    icon: assets.vegDragonfruitBox,
+    unlimited: true,
+  },
+  vegCrate: {
+    id: "vegCrate",
+    name: "Crate (Closed)",
+    icon: assets.vegCrate,
+    unlimited: true,
+  },
+  vegCrateOpen: {
+    id: "vegCrateOpen",
+    name: "Crate (Open)",
+    icon: assets.vegCrateOpen,
+    unlimited: true,
+  },
+  dirtRake: {
+    id: "dirtRake",
+    name: "Dirt Rake",
+    icon: assets.dirtRake,
+    unlimited: true,
+    flat: true,
+  },
+  dirtWet: {
+    id: "dirtWet",
+    name: "Wet Dirt Patch",
+    icon: assets.dirtWet,
+    unlimited: true,
+    flat: true,
+  },
+  plantDrawer: {
+    id: "plantDrawer",
+    name: "Plant Drawer",
+    icon: assets.plantDrawer,
+    unlimited: true,
+  },
+  plotSocketOpen: {
+    id: "plotSocketOpen",
+    name: "Planting Socket (Open)",
+    icon: assets.plotSocketOpen,
+    unlimited: true,
+    flat: true,
+  },
+  plotSocketClosed: {
+    id: "plotSocketClosed",
+    name: "Planting Socket (Closed)",
+    icon: assets.plotSocketClosed,
+    unlimited: true,
+    flat: true,
+  },
+  waterCrateHorizontal: {
+    id: "waterCrateHorizontal",
+    name: "Water Crate (Horizontal)",
+    icon: assets.waterCrateHorizontal,
+    unlimited: true,
+  },
+  waterCrateVertical: {
+    id: "waterCrateVertical",
+    name: "Water Crate (Vertical)",
+    icon: assets.waterCrateVertical,
+    unlimited: true,
+  },
 
+  // --- dev / level-design tool: one 16x16-tile collision block, for
+  // manually marking spots inside an interior room (js/interior.js) that
+  // should block movement — furniture, walls, whatever isn't walkable in
+  // the new room art. Held/unheld exactly like every other item above
+  // (holdSlot()/cancelHeldItem()); `interiorOnly: true` is what routes
+  // its placement into the room's own `collisions` map instead of the
+  // outdoor terrain/ground/decor/object layers (see placeHeldItemAt()
+  // and updatePlayerInsideInterior(), plus checkInteriorClick() below).
+  // Per request ("gusto ko maglagay ka ng isang item na pang collisions
+  // isang tile 16x16... ilagay mo sa inventory tapos na hohold at na e
+  // tapos unhold").
+  collisionBlock: {
+    id: "collisionBlock",
+    name: "Collision Block",
+    icon: assets.collisionMarker,
+    unlimited: true,
+    collides: true,
+    interiorOnly: true,
+  },
 };
 
 /* ---------------- tile groups (consolidated inventory slots) ----------------
@@ -611,7 +2147,10 @@ const TILE_GROUP_META = {
   // a "kind of stone tile" you'd browse alongside Big/Medium/Small/XS/
   // XXS Stone and the 5 Pebbles, so it's excluded explicitly rather
   // than just letting the "stone" prefix catch it too.
-  stone: { name: "Stones", match: (t) => t.startsWith("stone") && t !== "stoneChunk" },
+  stone: {
+    name: "Stones",
+    match: (t) => t.startsWith("stone") && t !== "stoneChunk",
+  },
   // Every tree/stump variant (living, bare, and cut-stump alike) — no
   // exclusions needed, `woodLog`/`woodPlank`/`woodStick` etc. are a
   // separate "wood" prefix, not "tree".
@@ -630,7 +2169,8 @@ const tileGroups = {};
 Object.keys(itemDefs).forEach((type) => {
   const gid = tileGroupIdForType(type);
   if (!gid) return;
-  if (!tileGroups[gid]) tileGroups[gid] = { id: gid, name: TILE_GROUP_META[gid].name, members: [] };
+  if (!tileGroups[gid])
+    tileGroups[gid] = { id: gid, name: TILE_GROUP_META[gid].name, members: [] };
   tileGroups[gid].members.push(type);
 });
 
@@ -641,10 +2181,14 @@ Object.keys(itemDefs).forEach((type) => {
 // exact same Object.keys(itemDefs) order right below, which it always is.
 const tileGroupByType = {};
 Object.values(tileGroups).forEach((g) => {
-  g.members.forEach((t) => { tileGroupByType[t] = g; });
+  g.members.forEach((t) => {
+    tileGroupByType[t] = g;
+  });
 });
 const inventoryIndexByType = {};
-Object.keys(itemDefs).forEach((type, i) => { inventoryIndexByType[type] = i; });
+Object.keys(itemDefs).forEach((type, i) => {
+  inventoryIndexByType[type] = i;
+});
 
 const inventory = new Array(INVENTORY_ROWS * INVENTORY_COLS).fill(null);
 // Reset + auto-fill: one inventory slot per itemDefs entry, in the order
@@ -679,7 +2223,7 @@ function resetInventoryFromItemDefs() {
 const hotbar = [0, 1, 2, 3, 4, 5, 6];
 
 let selectedHotbarIndex = 0;
-let heldItem = null;        // null | { type, fromSlot }  (fromSlot = an INVENTORY index)
+let heldItem = null; // null | { type, fromSlot }  (fromSlot = an INVENTORY index)
 let inventoryOpen = false;
 
 // Four independent "col,row" -> type layers, stacked bottom to top (see
@@ -734,7 +2278,7 @@ function getPlayerTile() {
   const feetWorldY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
   return {
     col: Math.floor(player.x / TILE),
-    row: Math.floor(feetWorldY / TILE)
+    row: Math.floor(feetWorldY / TILE),
   };
 }
 
@@ -742,7 +2286,9 @@ function isWithinPlacementRange(col, row) {
   const p = getPlayerTile();
   // Chebyshev distance (a square range, not a circle) — simple and matches
   // "5 range ng tiles" without needing to justify a specific shape.
-  return Math.max(Math.abs(col - p.col), Math.abs(row - p.row)) <= PLACEMENT_RANGE;
+  return (
+    Math.max(Math.abs(col - p.col), Math.abs(row - p.row)) <= PLACEMENT_RANGE
+  );
 }
 
 /* ---------------- holding / placing ---------------- */
@@ -816,8 +2362,17 @@ function isMultiTileFootprintAreaClear(type, anchorCol, anchorRow) {
   // (not just its anchor tile) — two buildings-in-progress can't overlap
   // even if neither one's ANCHOR tile is the other's.
   for (const info of pendingConstructions.values()) {
-    const otherTiles = getMultiTileFootprintTiles(info.type, info.col, info.row);
-    if (otherTiles.some((ot) => tiles.some((t) => t.col === ot.col && t.row === ot.row))) return false;
+    const otherTiles = getMultiTileFootprintTiles(
+      info.type,
+      info.col,
+      info.row,
+    );
+    if (
+      otherTiles.some((ot) =>
+        tiles.some((t) => t.col === ot.col && t.row === ot.row),
+      )
+    )
+      return false;
   }
   return true;
 }
@@ -832,11 +2387,10 @@ function isMultiTileFootprintAreaClear(type, anchorCol, anchorRow) {
 // holding one), so the preview's white/red never disagrees with what an
 // actual click would do.
 function canPlaceHouseFootprint(type, anchorCol, anchorRow) {
-  if (anchorCol < 0 || anchorRow < 0 || anchorCol >= COLS || anchorRow >= ROWS) return false;
+  if (anchorCol < 0 || anchorRow < 0 || anchorCol >= COLS || anchorRow >= ROWS)
+    return false;
   if (!isWithinPlacementRange(anchorCol, anchorRow)) return false;
-  const playerTile = getPlayerTile();
-  const blocked = getObjectFootprintBlockedTiles(type, anchorCol, anchorRow);
-  if (blocked.some((t) => t.col === playerTile.col && t.row === playerTile.row)) return false;
+  if (wouldObjectTrapPlayer(type, anchorCol, anchorRow)) return false;
   return isMultiTileFootprintAreaClear(type, anchorCol, anchorRow);
 }
 
@@ -847,7 +2401,9 @@ function canPlaceHouseFootprint(type, anchorCol, anchorRow) {
 // confirmed isMultiTileFootprintAreaClear().
 function startConstruction(type, col, row) {
   pendingConstructions.set(tileKey(col, row), {
-    type, col, row,
+    type,
+    col,
+    row,
     startAt: Date.now(),
     finishAt: Date.now() + itemDefs[type].buildSeconds * 1000,
   });
@@ -869,12 +2425,9 @@ function startConstruction(type, col, row) {
 function updateConstructions() {
   if (pendingConstructions.size === 0) return;
   const now = Date.now();
-  const playerTile = getPlayerTile();
   pendingConstructions.forEach((info, key) => {
     if (now < info.finishAt) return;
-    const blocked = getObjectFootprintBlockedTiles(info.type, info.col, info.row);
-    const wouldTrapPlayer = blocked.some((t) => t.col === playerTile.col && t.row === playerTile.row);
-    if (wouldTrapPlayer) return; // keep waiting — try again next frame
+    if (wouldObjectTrapPlayer(info.type, info.col, info.row)) return; // keep waiting — try again next frame
     objectLayer.set(key, info.type);
     pendingConstructions.delete(key);
     saveGame();
@@ -883,12 +2436,32 @@ function updateConstructions() {
 
 function placeHeldItemAt(col, row) {
   if (!heldItem) return;
+
+  // `interiorOnly` items (right now, just the Collision Block — see
+  // itemDefs) place into an interior room's own `collisions` map
+  // instead of any outdoor layer; hand off to interior.js's version
+  // entirely rather than falling through to the outdoor-grid logic
+  // below, which knows nothing about room-local coordinates.
+  if (itemDefs[heldItem.type].interiorOnly) {
+    placeInteriorCollisionAt(col, row);
+    return;
+  }
+
+  // Any OTHER item, held while actually inside a room, places into that
+  // room's own `decor` map instead (js/interior.js's
+  // placeInteriorDecorAt()) — per request: ordinary items (doors,
+  // picture frames, windows, furniture) can be placed indoors now too,
+  // stacking freely with a Collision Block on the same tile since the
+  // two maps never check each other. Falls through to the outdoor logic
+  // below only while `scene === "outside"`.
+  if (player.scene === "inside") {
+    placeInteriorDecorAt(col, row);
+    return;
+  }
+
   // Placement targets the outdoor tile grid (screenToTile() reads camX/
-  // camY, which only make sense for the outdoor camera) — a defensive
-  // no-op while inside an interior scene (js/interior.js), which doesn't
-  // have a placement grid at all. In practice heldItem is already
-  // cleared on entry (enterInterior()), so this only matters if
-  // something's re-held from the inventory panel while inside.
+  // camY, which only make sense for the outdoor camera) — scene is
+  // guaranteed "outside" here (the "inside" case returned just above).
   if (player.scene !== "outside") return;
   if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return; // outside the map
   if (!isWithinPlacementRange(col, row)) return; // outside the 5-tile range
@@ -905,7 +2478,12 @@ function placeHeldItemAt(col, row) {
   // way out. `PLACEMENT_RANGE`'s highlighted area includes the player's
   // own tile at offset (0,0), so nothing else was stopping a click there.
   const playerTile = getPlayerTile();
-  if (itemDefs[heldItem.type].collides && col === playerTile.col && row === playerTile.row) return;
+  if (
+    itemDefs[heldItem.type].collides &&
+    col === playerTile.col &&
+    row === playerTile.row
+  )
+    return;
 
   const def = itemDefs[heldItem.type];
   const layer = layerForType(heldItem.type);
@@ -938,8 +2516,17 @@ function placeHeldItemAt(col, row) {
     layer.set(tileKey(col, row), heldItem.type);
   }
 
-  const usedSlotIndex = heldItem.fromSlot;
+  commitPlacementUse(heldItem.fromSlot);
+}
 
+// Shared tail of placeHeldItemAt() (outdoor layers) and
+// placeInteriorCollisionAt() (js/interior.js's room.collisions) — once
+// whichever map actually got the new entry, both do the exact same
+// bookkeeping: keep the hotbar highlight following the slot being
+// placed from, decrement/clear it (unless `unlimited`), stop holding if
+// the stack just ran out, save, and re-render the hotbar/inventory/
+// held-item HUD.
+function commitPlacementUse(usedSlotIndex) {
   // if that inventory slot happens to be on the hotbar, move the
   // selection highlight to follow it — so whatever you're actively
   // placing is the one shown as "active" on the hotbar
@@ -982,11 +2569,16 @@ function placeHeldItemAt(col, row) {
 function getTileInFrontOfPlayer() {
   const p = getPlayerTile();
   switch (player.facing) {
-    case "up": return { col: p.col, row: p.row - 1 };
-    case "down": return { col: p.col, row: p.row + 1 };
-    case "left": return { col: p.col - 1, row: p.row };
-    case "right": return { col: p.col + 1, row: p.row };
-    default: return p;
+    case "up":
+      return { col: p.col, row: p.row - 1 };
+    case "down":
+      return { col: p.col, row: p.row + 1 };
+    case "left":
+      return { col: p.col - 1, row: p.row };
+    case "right":
+      return { col: p.col + 1, row: p.row };
+    default:
+      return p;
   }
 }
 
@@ -1031,15 +2623,40 @@ function getTileInFrontOfPlayer() {
 // there, grabbing needs to be able to find and remove it, not just
 // assume it's impossible and only ever look in front. Returns { type,
 // col, row } or null.
+// Finds whichever item in `layer` covers (col,row) — a direct key match
+// first (any item, single-tile or not), or failing that, scans for a
+// `fixedFootprint` item (Big Stone, Big/Small Bed — inventory.js's
+// itemDefs) whose actual blocked area (getObjectFootprintBlockedTiles())
+// includes this tile even though it's anchored elsewhere. Without this,
+// a multi-tile item could only ever be grabbed/interacted with by
+// facing its EXACT anchor tile — one out of however many tiles its art
+// visually covers — which reads as "not working at all" for anything
+// wider than 1x1 (bedBig's 3x3, say). Returns { type, anchorCol,
+// anchorRow } or null.
+function findFootprintCoveringTile(layer, col, row) {
+  const direct = getLayerItemId(layer, col, row);
+  if (direct) return { type: direct, anchorCol: col, anchorRow: row };
+  for (const [key, type] of layer) {
+    const def = itemDefs[type];
+    if (!def.fixedFootprint) continue;
+    const [anchorCol, anchorRow] = key.split(",").map(Number);
+    const tiles = getObjectFootprintBlockedTiles(type, anchorCol, anchorRow);
+    if (tiles.some((t) => t.col === col && t.row === row)) {
+      return { type, anchorCol, anchorRow };
+    }
+  }
+  return null;
+}
+
 function findGrabbableInLayer(layer, front, here) {
   const hereType = getLayerItemId(layer, here.col, here.row);
   if (hereType) {
     return { type: hereType, col: here.col, row: here.row };
   }
   if (front) {
-    const frontType = getLayerItemId(layer, front.col, front.row);
-    if (frontType && itemDefs[frontType].collides) {
-      return { type: frontType, col: front.col, row: front.row };
+    const hit = findFootprintCoveringTile(layer, front.col, front.row);
+    if (hit && itemDefs[hit.type].collides) {
+      return { type: hit.type, col: hit.anchorCol, row: hit.anchorRow };
     }
   }
   return null;
@@ -1048,8 +2665,16 @@ function findGrabbableInLayer(layer, front, here) {
 function tryGrabOrPlaceInFront() {
   if (player.grabbedType) {
     const type = player.grabbedType;
-    const target = itemDefs[type].collides ? getTileInFrontOfPlayer() : getPlayerTile();
-    if (target.col < 0 || target.row < 0 || target.col >= COLS || target.row >= ROWS) return;
+    const target = itemDefs[type].collides
+      ? getTileInFrontOfPlayer()
+      : getPlayerTile();
+    if (
+      target.col < 0 ||
+      target.row < 0 ||
+      target.col >= COLS ||
+      target.row >= ROWS
+    )
+      return;
 
     const layer = layerForType(type);
     const existing = getLayerItemId(layer, target.col, target.row);
@@ -1067,7 +2692,13 @@ function tryGrabOrPlaceInFront() {
   // findGrabbableInLayer() rather than assuming a whole layer is always
   // colliding or never colliding.
   const rawFront = getTileInFrontOfPlayer();
-  const front = (rawFront.col >= 0 && rawFront.row >= 0 && rawFront.col < COLS && rawFront.row < ROWS) ? rawFront : null;
+  const front =
+    rawFront.col >= 0 &&
+    rawFront.row >= 0 &&
+    rawFront.col < COLS &&
+    rawFront.row < ROWS
+      ? rawFront
+      : null;
   const here = getPlayerTile();
 
   let found = findGrabbableInLayer(decorLayer, front, here);
@@ -1136,15 +2767,36 @@ function tryThrowGrabbedItem() {
   const p = getPlayerTile();
   let target;
   switch (player.facing) {
-    case "up": target = { col: p.col, row: p.row - 2 }; break;
-    case "down": target = { col: p.col, row: p.row + 2 }; break;
-    case "left": target = { col: p.col - 2, row: p.row }; break;
-    case "right": target = { col: p.col + 2, row: p.row }; break;
-    default: target = p;
+    case "up":
+      target = { col: p.col, row: p.row - 2 };
+      break;
+    case "down":
+      target = { col: p.col, row: p.row + 2 };
+      break;
+    case "left":
+      target = { col: p.col - 2, row: p.row };
+      break;
+    case "right":
+      target = { col: p.col + 2, row: p.row };
+      break;
+    default:
+      target = p;
   }
-  if (target.col < 0 || target.row < 0 || target.col >= COLS || target.row >= ROWS) return; // nowhere to throw it, off the edge of the map — stays in hand
+  if (
+    target.col < 0 ||
+    target.row < 0 ||
+    target.col >= COLS ||
+    target.row >= ROWS
+  )
+    return; // nowhere to throw it, off the edge of the map — stays in hand
 
-  spawnThrowToss(player.grabbedType, player.x, player.y, target.col, target.row);
+  spawnThrowToss(
+    player.grabbedType,
+    player.x,
+    player.y,
+    target.col,
+    target.row,
+  );
   player.grabbedType = null;
   player.mode = "normal";
   saveGame();
@@ -1251,9 +2903,15 @@ heldItemHudUnholdBtn.addEventListener("click", () => cancelHeldItem());
 /* ---------------- UI: equipped-weapon HUD (icon + name + Unequip button) ---------------- */
 
 const equippedWeaponHudEl = document.getElementById("equipped-weapon-hud");
-const equippedWeaponHudIconEl = document.getElementById("equipped-weapon-hud-icon");
-const equippedWeaponHudNameEl = document.getElementById("equipped-weapon-hud-name");
-const equippedWeaponHudUnequipBtn = document.getElementById("equipped-weapon-hud-unequip");
+const equippedWeaponHudIconEl = document.getElementById(
+  "equipped-weapon-hud-icon",
+);
+const equippedWeaponHudNameEl = document.getElementById(
+  "equipped-weapon-hud-name",
+);
+const equippedWeaponHudUnequipBtn = document.getElementById(
+  "equipped-weapon-hud-unequip",
+);
 
 // Shows the currently-equipped weapon (icon + name) with a button to
 // unequip it. Hidden entirely while nothing is equipped. This is a
@@ -1279,7 +2937,9 @@ equippedWeaponHudUnequipBtn.addEventListener("click", () => unequipWeapon());
 const equipmentOverlayEl = document.getElementById("equipment-overlay");
 const equipmentCanvasEl = document.getElementById("equipment-character-canvas");
 const equipmentSlotWeaponEl = document.getElementById("equipment-slot-weapon");
-const equipmentSlotWeaponIconEl = document.getElementById("equipment-slot-weapon-icon");
+const equipmentSlotWeaponIconEl = document.getElementById(
+  "equipment-slot-weapon-icon",
+);
 const equipmentPickerEl = document.getElementById("equipment-weapon-picker");
 let equipmentOpen = false;
 
@@ -1294,8 +2954,14 @@ function renderEquipmentCharacterPreview() {
   ctx2.clearRect(0, 0, equipmentCanvasEl.width, equipmentCanvasEl.height);
   ctx2.drawImage(
     assets.idleDown,
-    0, 0, FRAME_SIZE, FRAME_SIZE,           // source: first frame only
-    0, 0, equipmentCanvasEl.width, equipmentCanvasEl.height, // dest: fill the canvas
+    0,
+    0,
+    FRAME_SIZE,
+    FRAME_SIZE, // source: first frame only
+    0,
+    0,
+    equipmentCanvasEl.width,
+    equipmentCanvasEl.height, // dest: fill the canvas
   );
 }
 
@@ -1354,7 +3020,12 @@ function openEquipmentWeaponPicker() {
 
   const seenTypes = new Set();
   inventory.forEach((slot) => {
-    if (!slot || itemDefs[slot.type].equipSlot !== "weapon" || seenTypes.has(slot.type)) return;
+    if (
+      !slot ||
+      itemDefs[slot.type].equipSlot !== "weapon" ||
+      seenTypes.has(slot.type)
+    )
+      return;
     seenTypes.add(slot.type);
 
     const def = itemDefs[slot.type];
@@ -1386,7 +3057,8 @@ function openEquipmentWeaponPicker() {
 }
 
 equipmentSlotWeaponEl.addEventListener("click", () => {
-  if (equipmentPickerEl.classList.contains("hidden")) openEquipmentWeaponPicker();
+  if (equipmentPickerEl.classList.contains("hidden"))
+    openEquipmentWeaponPicker();
   else closeEquipmentWeaponPicker();
 });
 
@@ -1394,8 +3066,13 @@ equipmentSlotWeaponEl.addEventListener("click", () => {
 // the inventory's item-action-menu below)
 document.addEventListener("click", (e) => {
   if (equipmentPickerEl.classList.contains("hidden")) return;
-  if (e.target === equipmentPickerEl || equipmentPickerEl.contains(e.target)) return;
-  if (e.target === equipmentSlotWeaponEl || equipmentSlotWeaponEl.contains(e.target)) return;
+  if (e.target === equipmentPickerEl || equipmentPickerEl.contains(e.target))
+    return;
+  if (
+    e.target === equipmentSlotWeaponEl ||
+    equipmentSlotWeaponEl.contains(e.target)
+  )
+    return;
   closeEquipmentWeaponPicker();
 });
 
@@ -1411,7 +3088,8 @@ function renderHotbar() {
     const box = document.createElement("div");
     box.className = "hotbar-slot";
     if (i === selectedHotbarIndex) box.classList.add("selected");
-    if (heldItem && invIndex !== null && heldItem.fromSlot === invIndex) box.classList.add("held");
+    if (heldItem && invIndex !== null && heldItem.fromSlot === invIndex)
+      box.classList.add("held");
 
     const number = document.createElement("span");
     number.className = "slot-number";
@@ -1504,11 +3182,13 @@ function renderInventory() {
 function buildTileGroupSlotBox(group) {
   const box = document.createElement("div");
   box.className = "inv-slot inv-slot-group";
-  box.title = group.name + " (" + group.members.length + " tiles) — click to choose";
+  box.title =
+    group.name + " (" + group.members.length + " tiles) — click to choose";
 
   // Highlight the family's slot green while the player is holding ANY
   // one of its members, same idea as a normal slot's `.held` state.
-  if (heldItem && tileGroupByType[heldItem.type] === group) box.classList.add("held");
+  if (heldItem && tileGroupByType[heldItem.type] === group)
+    box.classList.add("held");
 
   const preview = document.createElement("div");
   preview.className = "inv-group-preview";
@@ -1612,7 +3292,11 @@ function openTileVariantPicker(group, anchorEl) {
 // again.
 document.addEventListener("click", (e) => {
   if (tileVariantPickerEl.classList.contains("hidden")) return;
-  if (e.target === tileVariantPickerEl || tileVariantPickerEl.contains(e.target)) return;
+  if (
+    e.target === tileVariantPickerEl ||
+    tileVariantPickerEl.contains(e.target)
+  )
+    return;
   if (e.target.closest && e.target.closest(".inv-slot-group")) return;
   closeTileVariantPicker();
 });

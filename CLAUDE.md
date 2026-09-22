@@ -2992,6 +2992,81 @@ not part of the running game.
   188×103 ≈ 19k `drawImage` calls to lay the random tiles) — a one-time
   cost at load, not per-frame, so it doesn't affect runtime performance.
 
+90. **house2/house3 (now 192x192) — pixel-accurate side-wall collision;
+    stale alpha masks regenerated.** Per request: after resizing both PNGs
+    to 192x192 the character still walked into the left AND right walls
+    (screenshots), and switching the footprint 11 -> 12 tiles didn't fix
+    it. Three separate causes, all fixed:
+    - **The walls don't sit on the tile grid.** Measured from both PNGs:
+      walls span art x 6..186 (180px = 11.25 tiles; roof eaves overhang
+      to 2..190). The art is centered on the placement tile's CENTER, so
+      in world space the walls are [P*16-82, P*16+98) — 2px into the
+      neighbouring column on each side. No whole-tile width can match
+      that (11 = 2px short each side; 12 = 2px short left, 14px of
+      invisible wall right). New `wallColliderPx: { left: 6, right: 186 }`
+      on both itemDefs; `getHouseWallRect()` / `isBlockedByHouseWalls()`
+      (inventory.js) test against those exact columns, placed with the
+      same anchor math as drawGroundItemAt(). Rows are still whole tiles:
+      12-row footprint, `footprintExcludeBackRows: 5` kept (top 5 rows
+      walkable, bottom 7 block). Door tile stays walkable. The front edge
+      deliberately stays the straight tile-row line (not the stepped
+      wing bottoms) — the house is one sprite with one Y-sort line, so
+      letting the player into the recess under a wing would draw them
+      behind that wing. `footprintWidthTiles` back to 11 (only affects the
+      placement preview / area-clear now — closest tile fit, symmetric).
+    - **The player collided as a single feet point.** Half the body
+      (~6 world px) always slid into a side wall before the point hit it.
+      New `BODY_COLLISION_HALF_W = 6` (config.js — sprite body columns
+      24..40 of 64, x0.75); `isBodyBlockedAt()` (player.js) tests a
+      segment that wide for wallColliderPx houses. Everything else still
+      goes through the unchanged `isTileBlocked()` (which now skips
+      wallColliderPx items when called from isBodyBlockedAt()). The NPC
+      uses isBodyBlockedAt() too.
+    - **Stopping short.** A blocked step used to be refused whole, leaving
+      up to a frame's movement (a few px running) of gap. `sweepBodyTo()`
+      binary-searches to stop flush. Escape hatch: if the player is
+      already overlapping (old save next to a now-wider wall), movement is
+      free until they're out, so nobody gets stuck.
+    - `js/objectAlphaMasks.js` still had house2/house3 at 182x182 (the old
+      size) — the fade test was reading a mask offset from the 192px art.
+      Regenerated with tools/generate_alpha_masks.py; only those two
+      entries changed. Re-run it whenever a PNG is resized.
+    - Trap checks (`canPlaceHouseFootprint()`, `updateConstructions()`)
+      now go through `wouldObjectTrapPlayer()`, which uses the same
+      precise test for wallColliderPx houses.
+    - Verified with a Node harness running the real functions: walking in
+      from either side at every depth, the body edge stops at exactly art
+      x 6.0 / 186.0; from below it stops at the bottom tile line except in
+      the door column (reaches the door tile); from behind it stops at
+      art y 80.
+
+91. **house2/house3's door is now solid too — entry triggers on contact,
+    not on standing inside the tile.** Per request: "yung sa door ng
+    bahay kahit lagyan na lang din ng collisions tapos makakapasok parin
+    pumapasok kasi sa loob e" — the door tile used to be fully carved
+    out of collision (a plain gap you could walk straight through); now
+    it collides exactly like the rest of the front wall.
+    - `isBlockedByHouseWalls()` (inventory.js): the door-tile exception
+      removed — the whole front wall (door column included) is solid.
+    - New `isTouchingHouseDoor()` (inventory.js): true once the player's
+      feet are within `DOOR_TOUCH_SLACK_PX` (3px) of the wall's front
+      line AND in the door's tile column — i.e. exactly the spot the now-
+      solid door stops them at (from either side of that line —
+      sweepBodyTo() lands them a hair on the free side of it, not
+      inside).
+    - `checkInteriorEntry()` (interior.js): for `wallColliderPx` houses,
+      swapped the old "feet tile === door tile" check (impossible now
+      that the tile is solid) for `isTouchingHouseDoor()` — entry fires
+      the instant the player bumps into the door, like a real door
+      instead of an open gap. Non-wallColliderPx houses (none exist yet,
+      kept for forward-compat) still use the old exact-tile check.
+    - Verified with the same Node harness as entry 90: walking straight
+      into the door column stops flush and reports touching=true, at
+      both normal and running speed; walking into any other wall column
+      (even one tile off from the door) stops flush too but reports
+      touching=false; the side-wall stop position from entry 90 is
+      unaffected.
+
 ## Possible next steps (not done yet, just noted)
 
 - An actual item/object to pick up in the world, wired to trigger the

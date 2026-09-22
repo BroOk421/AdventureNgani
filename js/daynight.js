@@ -58,7 +58,7 @@ function loadOrInitDayNightEpoch() {
   return epoch;
 }
 
-const dayNightEpoch = loadOrInitDayNightEpoch();
+let dayNightEpoch = loadOrInitDayNightEpoch();
 let gameSeconds = SUNRISE_HOUR * 3600; // overwritten on the very first updateDayNight() call
 let gameDay = 1; // overwritten on the very first updateDayNight() call too — see getGameDay()
 
@@ -82,6 +82,29 @@ function getGameHour() {
 // Current in-game day number, 1-indexed — for the "Day N" HUD readout.
 function getGameDay() {
   return gameDay;
+}
+
+// Jumps the clock forward to the NEXT SUNRISE_HOUR (06:00) — today's if
+// it hasn't happened yet, otherwise tomorrow's — by shifting the
+// persisted epoch backward so the very next updateDayNight() call lands
+// exactly there. Used by the Big Bed sleep sequence (js/resources.js's
+// trySleepInBed()/updateSleeping()) to "wake up at 6am" — called from
+// inside a beginSceneFade() onMidpoint, same as every other interior.js
+// scene transition, so the jump itself is never visible on screen.
+function skipToNextSunrise() {
+  const targetDayElapsed = SUNRISE_HOUR * 3600;
+  const currentDayElapsed = gameSeconds;
+  const delta = currentDayElapsed < targetDayElapsed
+    ? targetDayElapsed - currentDayElapsed
+    : (GAME_SECONDS_PER_DAY - currentDayElapsed) + targetDayElapsed;
+  dayNightEpoch -= (delta / TIME_SCALE) * 1000;
+  try {
+    localStorage.setItem(DAYNIGHT_STORAGE_KEY, String(dayNightEpoch));
+  } catch (e) {
+    // localStorage unavailable — the jump still works for this session,
+    // just won't survive a reload any better than the clock normally does
+  }
+  updateDayNight(); // refresh gameSeconds/gameDay immediately, don't wait for next frame
 }
 
 // "HH:MM" in 24-hour military time.

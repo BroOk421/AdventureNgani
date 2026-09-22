@@ -169,6 +169,12 @@ const assets = {
   // exists, entered by walking onto house2's/house3's front-door tile.
   // See js/interior.js.
   interiorHouse: new Image(),
+  // Dev/level-design-only marker (no source art — drawn on a throwaway
+  // canvas below, same pattern as camera.js's silhouetteCanvas) for the
+  // interior collision-block item (js/interior.js's `room.collisions`) —
+  // a plain hazard-striped square just so it's visible both in the
+  // inventory and sitting on the floor while placing it.
+  collisionMarker: new Image(),
 
   // --- weather FX particles (assets/particles/), see js/weatherfx.js ---
   rain: new Image(),
@@ -284,6 +290,12 @@ const assets = {
   basket1: new Image(),
   basket2: new Image(),
   bedBig: new Image(),
+  // 20-frame sleep animation for the Big Bed (assets/interior/
+  // asesprite/bigbed-sheet.png — 1380x54 = 20 frames of 69x54 each,
+  // laid out horizontally), played while `player.sleeping` (js/
+  // resources.js's trySleepInBed()/updateSleeping()) instead of the
+  // normal `assets.bedBig` icon.
+  bedBigSleep: new Image(),
   bedSmall: new Image(),
   tableBig: new Image(),
   tableBig1: new Image(),
@@ -563,6 +575,33 @@ assets.woodLog.src = "assets/items/wood_drops/wood_log.png";
 assets.woodPlank.src = "assets/items/wood_drops/wood_plank.png";
 assets.woodStick.src = "assets/items/wood_drops/wood_stick.png";
 
+// Draws the collision-marker icon on a throwaway canvas instead of
+// loading a file — it's a dev/level-design tool, not real game art (see
+// the `collisionMarker` key above). A red hazard-striped square with a
+// yellow "X" through it, easy to spot both in the inventory grid and
+// sitting on an interior room's floor.
+(function generateCollisionMarkerIcon() {
+  const size = 16;
+  const c = document.createElement("canvas");
+  c.width = size;
+  c.height = size;
+  const cx = c.getContext("2d");
+  cx.fillStyle = "rgba(200, 30, 30, 0.65)";
+  cx.fillRect(0, 0, size, size);
+  cx.strokeStyle = "#ffd83d";
+  cx.lineWidth = 2;
+  cx.strokeRect(1, 1, size - 2, size - 2);
+  cx.beginPath();
+  cx.moveTo(2, 2);
+  cx.lineTo(size - 2, size - 2);
+  cx.moveTo(size - 2, 2);
+  cx.lineTo(2, size - 2);
+  cx.strokeStyle = "#ffd83d";
+  cx.lineWidth = 1.5;
+  cx.stroke();
+  assets.collisionMarker.src = c.toDataURL();
+})();
+
 let assetsLoadedCount = 0;
 const assetsNeededCount = Object.keys(assets).length;
 let onAssetsReadyCallback = null;
@@ -659,6 +698,7 @@ assets.cabinetBaseD.src = "assets/interior/base5.png";
 assets.basket1.src = "assets/interior/basket.png";
 assets.basket2.src = "assets/interior/basket2.png";
 assets.bedBig.src = "assets/interior/bigbed.png";
+assets.bedBigSleep.src = "assets/interior/asesprite/bigbed-sheet.png";
 assets.bedSmall.src = "assets/interior/smallbed.png";
 assets.tableBig.src = "assets/interior/bigtable.png";
 assets.tableBig1.src = "assets/interior/bigtable1.png";

@@ -106,8 +106,7 @@ function pickNewNpcTarget() {
     const dist = Math.random() * NPC_ROAM_RADIUS;
     const candidateX = clamp(npc.homeX + Math.cos(angle) * dist, NPC_DRAW_SIZE / 2, MAP_W - NPC_DRAW_SIZE / 2);
     const candidateY = clamp(npc.homeY + Math.sin(angle) * dist, NPC_DRAW_SIZE / 2, MAP_H - NPC_DRAW_SIZE / 2);
-    const tile = feetTileAt(candidateX, candidateY); // js/player.js — same feet-based tile math the player's own collision uses
-    if (!isTileBlocked(tile.col, tile.row)) {
+    if (!isBodyBlockedAt(candidateX, candidateY)) { // js/player.js — same collision check the player's own movement uses
       npc.targetX = candidateX;
       npc.targetY = candidateY;
       return;
@@ -141,13 +140,11 @@ function moveNpcTowardTarget(dt) {
   const wantY = clamp(npc.y + vy * NPC_MOVE_SPEED * dt, NPC_DRAW_SIZE / 2, MAP_H - NPC_DRAW_SIZE / 2);
 
   let moved = false;
-  const stepX = feetTileAt(wantX, npc.y);
-  if (!isTileBlocked(stepX.col, stepX.row)) {
+  if (!isBodyBlockedAt(wantX, npc.y)) {
     npc.x = wantX;
     moved = true;
   }
-  const stepY = feetTileAt(npc.x, wantY); // uses the (possibly just-updated) npc.x
-  if (!isTileBlocked(stepY.col, stepY.row)) {
+  if (!isBodyBlockedAt(npc.x, wantY)) { // uses the (possibly just-updated) npc.x
     npc.y = wantY;
     moved = true;
   }
