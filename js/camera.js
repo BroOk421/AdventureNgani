@@ -89,6 +89,24 @@ function drawShadow(px, feetY, size, sheet, sx) {
 
   ctx.save();
   ctx.translate(px, feetY);
+  // Keep the shadow GLUED to the feet — per request ("idikit mo lang sa
+  // paa yung shadow, wag lumayo... same parin yung size, iuusog lang
+  // papunta sa paa parang naka magnet").
+  //
+  // The silhouette below is drawn with the sprite FRAME's bottom edge at
+  // the pivot, but the character's actual feet sit higher up inside that
+  // frame (SPRITE_FEET_FRACTION = 0.62 — the rest is transparent padding
+  // under them). Once the skew/squash transform runs, that padding gets
+  // stretched and swung too, which is what dragged the shadow's feet away
+  // from the character's — worst at sunrise/sunset, when skew/squash peak.
+  //
+  // So: work out exactly where the shadow's FEET row lands under the
+  // transform, and nudge the whole thing back by that much. This is a
+  // pure screen-space translation applied AFTER the transform, so the
+  // shadow's size, lean and length are all completely unchanged — it just
+  // slides over until its feet sit on the character's feet.
+  const feetLocalY = -size * (1 - SPRITE_FEET_FRACTION); // feet row, in pre-transform local space (frame bottom = 0)
+  ctx.translate(-skew * feetLocalY, squashY * feetLocalY);
   // Negative Y scale flips the silhouette upside-down. Because the image is
   // drawn with its bottom edge (the feet) exactly at local y = 0 (dy = -size),
   // that edge stays pinned at the pivot no matter the scale/skew — only the
@@ -160,6 +178,383 @@ function drawSleepingBed() {
   ctx.drawImage(icon, sx, 0, frameW, frameH, screenX, screenY, w, h);
 }
 
+// Soft ambient glow behind the character — per request ("lagyan mo rin ng
+// light yung character pero behind ng character, di masyadong maliwanag,
+// konting naninag lang na circle, medyo malaki lang ng konti sa kanya"):
+// a gentle, low-opacity radial glow centered on the character, its circle
+// just a bit bigger than the sprite itself. Drawn BEFORE the sprite (see
+// drawPlayer() below) so it sits fully BEHIND the character, like a soft
+// light the character carries with them, rather than on top of/around
+// the art.
+const PLAYER_GLOW_RADIUS_SCALE = 0.85; // relative to the sprite's own size — "medyo malaki lang ng konti sa kanya"
+// Candle light — per request ("yung light circle gawin mong color is
+// parang candle light"). A real flame isn't white: it's a warm amber
+// that gets noticeably more orange toward the edge of its reach, as the
+// weaker light loses its blue end first. So this is three stops rather
+// than two — a pale warm core, an amber middle, fading to a deep orange
+// nothing — instead of the old flat off-white, which read more like a
+// flashlight. Alphas stay low to keep it "di masyadong maliwanag".
+const PLAYER_GLOW_COLOR_INNER = "rgba(255,198,124,0.95)"; // pale warm core, right at the flame
+const PLAYER_GLOW_COLOR_MID = "rgba(255,152,66,0.60)";   // amber body of the pool of light
+const PLAYER_GLOW_COLOR_OUTER = "rgba(255,120,30,0)";     // deep orange, faded to nothing
+
+/* --- Light occlusion: walls/decor cast silhouettes out of the glow -----
+   Per request ("yung pagkashadow ng wall, kaya ba yung mismong itsura
+   lumitaw, hindi tile, pero same shadow style?" — and before that, the
+   Graveyard Keeper reference). The glow used to be a flat circle pasted
+   over everything, shining straight through walls. Now every solid thing
+   within the glow's reach throws its shadow away from the character, and
+   those shadows are punched OUT of the circle — so the light stops dead
+   at a wall.
+
+   The shadow uses the object's REAL SPRITE SHAPE, not its tile box: a
+   round barrel throws a round shadow, a slanted wall throws a slanted
+   one. That's done by projecting the sprite's own black silhouette
+   outward from the light — for a point light, scaling a shape about the
+   light and unioning every step IS its shadow volume, so the result is
+   geometrically the true shadow of that exact silhouette, not an
+   approximation of it.
+
+   Two small offscreen canvases (same trick as buildSilhouette() above):
+   one builds the shadow mask, the other the light. Paint the gradient,
+   `destination-out` the mask once, blit. Both are only as wide as the
+   glow itself — a couple of tiles across — so this stays cheap even
+   running every frame. */
+const glowCanvas = document.createElement("canvas");
+const glowCtx = glowCanvas.getContext("2d");
+const glowMaskCanvas = document.createElement("canvas");
+const glowMaskCtx = glowMaskCanvas.getContext("2d");
+
+// Solid-black copies of object sprites, keyed by the source Image — the
+// shape that actually gets projected below. Cached because an object's
+// art never changes, so this runs once per sprite for the whole session
+// rather than every frame.
+const OCCLUDER_SILHOUETTE_CACHE = new Map();
+
+function getOccluderSilhouette(icon) {
+  if (!icon || !icon.width || !icon.height) return null;
+  const cached = OCCLUDER_SILHOUETTE_CACHE.get(icon);
+  if (cached) return cached;
+  const c = document.createElement("canvas");
+  c.width = icon.width;
+  c.height = icon.height;
+  const cc = c.getContext("2d");
+  cc.drawImage(icon, 0, 0);
+  // Keep the sprite's alpha shape, flatten every opaque pixel to black —
+  // this is the silhouette the shadow is cast from.
+  cc.globalCompositeOperation = "source-in";
+  cc.fillStyle = "#000";
+  cc.fillRect(0, 0, icon.width, icon.height);
+  cc.globalCompositeOperation = "source-over";
+  OCCLUDER_SILHOUETTE_CACHE.set(icon, c);
+  return c;
+}
+
+// How bright the candle circle is right now — per request ("meron parin
+// circle light kapag sa umaga, e alisin mo na yun kapag umaga, kahit sa
+// room, sa gabi lang, start 6pm to 6am"). 0 = no candle at all, 1 = full
+// night. Nighttime is the ONLY thing that lights it: weather is
+// deliberately not a factor anymore, because letting overcast days
+// contribute meant a rainy or cloudy morning still lit the candle at
+// 9am. Now it's purely the clock, so 06:00-18:00 is always dark, indoors
+// and out alike (renderInteriorScene() draws the player through the same
+// drawPlayer() path, so the room is covered by this too).
+//
+// This deliberately does NOT reuse getDayFactor() the way the sky tint
+// does. getDayFactor() is still 0 AT 06:00 — sunrise is where it STARTS
+// climbing, only reaching full daylight an hour later — so a candle tied
+// to it was still burning at full strength at the exact moment you woke
+// up. The candle gets its own ramp instead, shifted one TWILIGHT_HOURS
+// earlier, so it finishes fading out exactly AT SUNRISE_HOUR.
+function getNightLightFactor() {
+  const h = getGameHour();
+  if (h >= SUNRISE_HOUR && h <= SUNSET_HOUR) return 0; // 06:00-18:00 — daytime, no candle, ever
+  if (h > SUNSET_HOUR) {
+    // Evening: starts at 18:00 and eases up over TWILIGHT_HOURS, so it
+    // arrives as the light goes rather than snapping on.
+    return Math.max(0, Math.min(1, (h - SUNSET_HOUR) / TWILIGHT_HOURS));
+  }
+  // Pre-dawn: eases back down through the last TWILIGHT_HOURS of night,
+  // hitting exactly 0 at 06:00 — gone by the time you're up.
+  return Math.max(0, Math.min(1, (SUNRISE_HOUR - h) / TWILIGHT_HOURS));
+}
+
+const LIGHT_MAX_OCCLUDERS = 14;  // hard ceiling on shadow casters per frame — nearest ones win
+const LIGHT_SHADOW_STEP_PX = 3;  // world px a projection may advance per step — smaller = smoother, more steps
+const LIGHT_SHADOW_MAX_STEPS = 34;
+// Generous tile margin for the cheap reject below: big sprites (houses,
+// tall trees) are anchored several tiles below/right of where their art
+// actually starts, so a tight box would cull them while they're still
+// visibly inside the light.
+const LIGHT_OCCLUDER_TILE_MARGIN = 8;
+
+// Everything solid near the light, as world-space rects PLUS the sprite
+// to cast from. Outdoors that's anything colliding across the four layers
+// (walls, trees, stones, houses), bottom-center anchored on its tile
+// exactly the way drawObjectLayerItem() draws it, so the shadow lines up
+// with the art pixel for pixel. Indoors it's every placed decor item
+// (indoor walls/furniture are decor, not collision data) plus the room's
+// Collision Blocks — those are invisible by design, so they fall back to
+// a plain tile box with no sprite.
+function collectLightOccluders(worldCX, worldCY, worldRadius) {
+  const out = [];
+  const minX = worldCX - worldRadius, maxX = worldCX + worldRadius;
+  const minY = worldCY - worldRadius, maxY = worldCY + worldRadius;
+
+  // Bottom-center anchor shared by every placed object in the game.
+  const pushSprite = (type, col, row) => {
+    const def = itemDefs[type];
+    if (!def || !def.icon || !def.icon.width) return;
+    // Skip the Lit Windows (`fadeWithDaylight`) — per request ("sa shadow
+    // wag mo na isama yung mga lit window kasi shadow na ng bintana
+    // yun"). Those sprites ARE light spilling out of a window, not a
+    // solid object standing in the way, so casting a shadow from one had
+    // the light blocking itself.
+    if (def.fadeWithDaylight) return;
+    // Cast from the art that's ACTUALLY on screen, at the position it's
+    // actually drawn. Two things were being ignored here: `artRoot`
+    // (which shifts a lamp post so its foot stands on the tile rather
+    // than its bounding box being centred on it) and the night art
+    // swap. Without them the shadow was thrown from where the sprite
+    // used to sit before root anchoring — about a tile and a half off to
+    // the side, which is exactly what it looked like.
+    const swap = nightSwapFor(type);
+    const icon = swap ? swap.icon : def.icon;
+    const root = (swap ? swap.root : def.artRoot) || { x: 0, y: 0 };
+    const x = (col + 0.5) * TILE - icon.width / 2 - root.x;
+    const y = (row + 1) * TILE - icon.height - root.y;
+    if (x + icon.width < minX || x > maxX || y + icon.height < minY || y > maxY) return;
+    out.push({ icon, x, y, w: icon.width, h: icon.height });
+  };
+
+  if (player.scene === "inside") {
+    const room = INTERIOR_ROOMS[player.activeRoomId];
+    if (!room) return out;
+    for (const [key, type] of room.decor) {
+      const [col, row] = key.split(",").map(Number);
+      pushSprite(type, col, row);
+    }
+    for (const key of room.collisions.keys()) {
+      const [col, row] = key.split(",").map(Number);
+      const x = col * TILE, y = row * TILE;
+      if (x + TILE < minX || x > maxX || y + TILE < minY || y > maxY) continue;
+      out.push({ icon: null, x, y, w: TILE, h: TILE }); // invisible wall — no art to cast from
+    }
+  } else {
+    // Cheap tile-bounds reject first: the world can hold thousands of
+    // placed items, and only the handful within a couple of tiles can
+    // possibly shadow anything, so skip the rest before doing any real
+    // per-sprite work.
+    const minCol = Math.floor(minX / TILE) - LIGHT_OCCLUDER_TILE_MARGIN;
+    const maxCol = Math.ceil(maxX / TILE) + LIGHT_OCCLUDER_TILE_MARGIN;
+    const minRow = Math.floor(minY / TILE) - LIGHT_OCCLUDER_TILE_MARGIN;
+    const maxRow = Math.ceil(maxY / TILE) + LIGHT_OCCLUDER_TILE_MARGIN;
+    for (const layer of [terrainLayer, groundLayer, decorLayer, objectLayer]) {
+      for (const [key, type] of layer) {
+        const def = itemDefs[type];
+        if (!def) continue;
+        // Two ways in: anything solid blocks light by definition, and
+        // anything flagged `castsLightShadow` opts in on top of that —
+        // per request ("add mo rin yung ibang walang shadow gaya ng bush,
+        // mushrooms... pero yung flower na folder flower1, flower2 lagyan
+        // mo ng shadow"). Bushes, mushrooms and the tall/short flowers
+        // are things you walk straight through, so they never collided
+        // and so never showed up in the light — but they're solid enough
+        // to block a candle, and a lit clearing where the bushes throw
+        // nothing looks wrong. The flowering bushes in assets/bushes/ are
+        // deliberately left out, as asked.
+        if (!def.collides && !def.castsLightShadow) continue;
+        const comma = key.indexOf(",");
+        const col = +key.slice(0, comma);
+        const row = +key.slice(comma + 1);
+        if (col < minCol || col > maxCol || row < minRow || row > maxRow) continue;
+        pushSprite(type, col, row);
+      }
+    }
+  }
+
+  // Nearest-first, capped — a hard ceiling on how much work one frame can
+  // ask for no matter how densely the player has built.
+  if (out.length > LIGHT_MAX_OCCLUDERS) {
+    out.sort((a, b) => {
+      const da = Math.hypot(a.x + a.w / 2 - worldCX, a.y + a.h / 2 - worldCY);
+      const db = Math.hypot(b.x + b.w / 2 - worldCX, b.y + b.h / 2 - worldCY);
+      return da - db;
+    });
+    out.length = LIGHT_MAX_OCCLUDERS;
+  }
+  return out;
+}
+
+function drawPlayerGlow(px, py, size) {
+  // Night only, 18:00-06:00 — see getNightLightFactor() above.
+  const darkness = getNightLightFactor();
+  if (darkness <= 0.02) return;
+
+  const radius = size * PLAYER_GLOW_RADIUS_SCALE; // screen px
+  const d = Math.ceil(radius * 2);
+  if (d <= 0) return;
+
+  if (glowCanvas.width !== d || glowCanvas.height !== d) {
+    glowCanvas.width = d;
+    glowCanvas.height = d;
+    glowMaskCanvas.width = d;
+    glowMaskCanvas.height = d;
+  }
+  const cx = d / 2, cy = d / 2;
+
+  // 1. Build the shadow mask: every occluder's silhouette, projected out
+  //    from the light. Drawn source-over onto its own canvas so the
+  //    overlapping copies simply union into one solid shape instead of
+  //    stacking up unevenly.
+  const worldRadius = radius / zoom;
+  const occluders = collectLightOccluders(player.x, player.y, worldRadius);
+  let hasShadow = false;
+
+  if (occluders.length) {
+    glowMaskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    glowMaskCtx.clearRect(0, 0, d, d);
+    glowMaskCtx.fillStyle = "#000";
+    const far = worldRadius * 2; // past the glow's own edge — anything beyond is already dark
+
+    for (const o of occluders) {
+      // The rect in canvas-local px at scale 1. Because the light sits at
+      // the canvas center, projecting by `s` is just multiplying these by
+      // `s` — the light-relative math collapses into a plain scale.
+      const bx = (o.x - player.x) * zoom;
+      const by = (o.y - player.y) * zoom;
+      const bw = o.w * zoom;
+      const bh = o.h * zoom;
+
+      // Nearest/farthest corner distances decide how far to project and
+      // how finely to step, so a shadow neither falls short nor tears
+      // open into stripes.
+      const dxs = [o.x - player.x, o.x + o.w - player.x];
+      const dys = [o.y - player.y, o.y + o.h - player.y];
+      let dMin = Infinity, dMax = 0;
+      for (const dx of dxs) for (const dy of dys) {
+        const dist = Math.hypot(dx, dy);
+        if (dist < dMin) dMin = dist;
+        if (dist > dMax) dMax = dist;
+      }
+      dMin = Math.max(dMin, 6); // don't let an object underfoot blow the projection up
+      if (dMax <= 0) continue;
+
+      const maxScale = Math.min(12, far / dMin);
+      if (maxScale <= 1) continue;
+      const steps = Math.max(3, Math.min(
+        LIGHT_SHADOW_MAX_STEPS,
+        Math.ceil(((maxScale - 1) * dMax) / LIGHT_SHADOW_STEP_PX),
+      ));
+
+      const sil = getOccluderSilhouette(o.icon);
+      for (let i = 0; i <= steps; i++) {
+        const s = 1 + ((maxScale - 1) * i) / steps;
+        if (sil) {
+          glowMaskCtx.drawImage(sil, cx + bx * s, cy + by * s, bw * s, bh * s);
+        } else {
+          glowMaskCtx.fillRect(cx + bx * s, cy + by * s, bw * s, bh * s);
+        }
+      }
+      hasShadow = true;
+    }
+  }
+
+  // 2. The light itself — same soft warm circle as before.
+  glowCtx.setTransform(1, 0, 0, 1, 0, 0);
+  glowCtx.clearRect(0, 0, d, d);
+  const gradient = glowCtx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  gradient.addColorStop(0, PLAYER_GLOW_COLOR_INNER);
+  gradient.addColorStop(0.55, PLAYER_GLOW_COLOR_MID);
+  gradient.addColorStop(1, PLAYER_GLOW_COLOR_OUTER);
+  glowCtx.fillStyle = gradient;
+  glowCtx.beginPath();
+  glowCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+  glowCtx.fill();
+
+  // 3. Carve the mask out of it in one pass — one blur for the whole set
+  //    of shadows, so their edges soften without each shape being
+  //    filtered separately.
+  if (hasShadow) {
+    glowCtx.globalCompositeOperation = "destination-out";
+    glowCtx.filter = "blur(2px)";
+    glowCtx.drawImage(glowMaskCanvas, 0, 0);
+    glowCtx.filter = "none";
+    glowCtx.globalCompositeOperation = "source-over";
+  }
+
+  // 4. Blit the finished, shadowed light into the scene, faded by how
+  //    dark it actually is right now.
+  //
+  //    Composited ADDITIVELY ("lighter") rather than painted over the
+  //    scene. Past roughly 0.6 opacity a normal blend stops looking like
+  //    light and starts looking like a sticker — it hides the ground
+  //    under the character instead of illuminating it, and pushes
+  //    everything toward one flat colour. Adding the light to what's
+  //    already there is how real light behaves: the ground keeps its own
+  //    detail and simply gets brighter, and the circle can go well past
+  //    what a plain overlay could without washing out.
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = darkness;
+  ctx.drawImage(glowCanvas, px - d / 2, py - d / 2);
+  ctx.restore();
+}
+
+// Just the character's art — no shadow, no glow, no lighting of any
+// kind. Split out of drawPlayer() below so the night relight
+// (drawPlayerNightRelight()) can redraw exactly the same pixels in the
+// same place without duplicating the sheet/frame/mirroring logic.
+function drawPlayerSprite(px, py, scale) {
+  const sheet = currentPlayerSheet();
+  const sx = player.frame * FRAME_SIZE;
+  const size = DRAW_SIZE * scale;
+
+  ctx.save();
+  if (player.facing === "left") {
+    ctx.translate(px, py);
+    ctx.scale(-1, 1);
+    ctx.drawImage(sheet, sx, 0, FRAME_SIZE, FRAME_SIZE, -size / 2, -size / 2, size, size);
+  } else {
+    ctx.drawImage(sheet, sx, 0, FRAME_SIZE, FRAME_SIZE, px - size / 2, py - size / 2, size, size);
+  }
+  ctx.restore();
+
+  // What you're holding shows above your head, so it's visible in-world
+  // (not just in the HUD) — mirrors js/inventory.js's `heldItem`.
+  drawHeldItemAboveHead(px, py, size, scale);
+}
+
+// Gives the character back their daylight colours at night — per request
+// ("yung character sa circle light, i-normal mo na yung kulay ng
+// character sa gabi").
+//
+// The night look comes from two full-screen washes painted over the
+// finished frame (getSkyOverlayColor() + drawNightBlueTint()), and those
+// hit the character just as hard as the ground: at full night the sky
+// tint alone is 55% opaque navy, which drags skin and clothes toward a
+// flat blue-grey. It can't be cancelled out BEFORE the wash either —
+// undoing a 0.55 overlay would need the sprite drawn at ~430 brightness,
+// well past what a pixel can hold.
+//
+// So the character is simply painted once more AFTER those washes, at
+// the strength of the darkening itself. Daylight leaves it at 0 (nothing
+// is redrawn at all); full night leaves it at 1, restoring their true
+// colours — which reads correctly anyway, since they're standing in
+// their own candlelight.
+function drawPlayerNightRelight() {
+  if (player.sleeping) return; // the bed's own sleep animation is drawn instead of the character
+  const night = 1 - getDayFactor(); // matches the wash exactly, so it eases in/out with it
+  if (night <= 0.01) return;
+
+  const px = (player.x - camX) * zoom;
+  const py = (player.y - camY) * zoom;
+  ctx.save();
+  ctx.globalAlpha = night;
+  drawPlayerSprite(px, py, zoom);
+  ctx.restore();
+}
+
 function drawPlayer(px, py, scale) {
   // while the collect action plays, use its sheet; otherwise the normal
   // idle/walk/run (or carry* equivalent) sheet.
@@ -183,40 +578,8 @@ function drawPlayer(px, py, scale) {
   const shadowX = px + SHADOW_OFFSET_X * scale; // left/right nudge, scaled with zoom
 
   drawShadow(shadowX, feetY, size, sheet, sx);
-
-  ctx.save();
-  if (player.facing === "left") {
-    ctx.translate(px, py);
-    ctx.scale(-1, 1);
-    ctx.drawImage(
-      sheet,
-      sx,
-      0,
-      FRAME_SIZE,
-      FRAME_SIZE,
-      -size / 2,
-      -size / 2,
-      size,
-      size,
-    );
-  } else {
-    ctx.drawImage(
-      sheet,
-      sx,
-      0,
-      FRAME_SIZE,
-      FRAME_SIZE,
-      px - size / 2,
-      py - size / 2,
-      size,
-      size,
-    );
-  }
-  ctx.restore();
-
-  // What you're holding shows above your head, so it's visible in-world
-  // (not just in the HUD) — mirrors js/inventory.js's `heldItem`.
-  drawHeldItemAboveHead(px, py, size, scale);
+  drawPlayerGlow(px, py, size); // behind the character — see drawPlayerGlow() above
+  drawPlayerSprite(px, py, scale); // the art itself (shared with the night relight above)
   // The equipped weapon is NOT shown in-world anymore (per request) — see
   // player.equippedWeapon, still tracked and used for F's attack
   // animation and shown in the Equipment screen (G key) and the
@@ -486,7 +849,12 @@ function characterFeetBehindObject(body, objMask, objMinX, objMinY) {
 //  3. `fadeOnlyWhenBehind` items (the house): the feet must be hidden
 //     behind the object's pixels — see characterFeetBehindObject();
 //  4. the character's real pixels must touch the object's real pixels.
-function shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, objSortY) {
+// `maskType` lets the caller test against a DIFFERENT art's mask than
+// the item's own — needed for the lamp post, which swaps to a
+// differently-shaped sprite at night: the fade has to match whichever
+// art is actually on screen, or the player would vanish behind pixels
+// that aren't there (or show through ones that are).
+function shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, objSortY, maskType) {
   if (itemDefs[type].noOcclusionFade) return false;
 
   const playerSortY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
@@ -497,7 +865,7 @@ function shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, objSor
 
   if (itemDefs[type].fadeBoundingBoxOnly) return true;
 
-  const objMask = getObjectMask(type);
+  const objMask = getObjectMask(maskType || type);
   if (itemDefs[type].fadeOnlyWhenBehind && !characterFeetBehindObject(body, objMask, objMinX, objMinY)) return false;
 
   return characterTouchesObjectPixels(body, objMask, objMinX, objMinY);
@@ -515,26 +883,186 @@ function shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, objSor
 // the character; only actually being covered by a leaf/trunk pixel does.
 const OBJECT_FADE_ALPHA = 0.45;
 
-function drawObjectLayerItem(type, col, row) {
-  const icon = itemDefs[type].icon;
+/* --- root anchoring -------------------------------------------------
+   Almost everything placed is anchored bottom-CENTRE on its tile, which
+   is right for a bush or a rock whose mass sits in the middle of its
+   art. It's wrong for something like a lamp post, where the art is a
+   tall pole standing at one edge with an arm reaching across: centring
+   that leaves the pole a tile and a half away from the tile you clicked,
+   which is exactly what the placement preview was showing.
+
+   `artRoot` (and `nightArtRoot` for the night art) says where the
+   object's ROOT — the bit actually touching the ground — sits inside its
+   own art, measured in art px from the art's bottom-centre. Drawing
+   shifts by that, so the root lands on the placement tile and the rest
+   of the art hangs off it. That makes the lamp behave like a tree: one
+   tile, the tile you clicked, with the art growing up and out from it. */
+function objectArtRect(icon, root, col, row, camX, camY) {
   const w = icon.width * zoom;
   const h = icon.height * zoom;
-  const tileCenterX = (col + 0.5) * TILE;
+  const rx = root ? root.x * zoom : 0;
+  const ry = root ? root.y * zoom : 0;
+  return {
+    x: ((col + 0.5) * TILE - camX) * zoom - w / 2 - rx,
+    y: ((row + 1) * TILE - camY) * zoom - h - ry,
+    w,
+    h,
+  };
+}
+
+/* --- night art swap (lamp posts) ------------------------------------
+   An item with a `nightIcon` shows that art once it's dark and its
+   normal art by day, crossfading between the two on the SAME ramp the
+   candle and the sky use — per request ("pa-fade yung entrance ng pag
+   transition"), so the lamp warms up at dusk rather than popping. */
+function nightSwapFor(type) {
+  const def = itemDefs[type];
+  if (!def.nightIcon || !def.nightIcon.width) return null;
+  const night = getNightLightFactor();
+  if (night <= 0.01) return null; // full daylight — nothing to swap in
+  return { icon: def.nightIcon, night, root: def.nightArtRoot || def.artRoot };
+}
+
+function drawObjectLayerItem(type, col, row) {
+  const def = itemDefs[type];
+  const icon = def.icon;
   const tileBottomY = (row + 1) * TILE;
+  const day = objectArtRect(icon, def.artRoot, col, row, camX, camY);
+  const swap = nightSwapFor(type);
 
-  const objMinX = tileCenterX - icon.width / 2;
-  const objMaxX = tileCenterX + icon.width / 2;
-  const objMinY = tileBottomY - icon.height;
-  const objMaxY = tileBottomY;
+  // The occlusion fade is pixel-accurate off the art's own mask (this is
+  // the tree behaviour — transparent deadspace never fades, only real
+  // pixels do), so it has to be measured against the art that's actually
+  // showing AND at the shifted position root anchoring draws it at.
+  // Once the night art is more than half faded in, that's the one the
+  // player can actually be hidden behind.
+  const showNight = swap && swap.night > 0.5;
+  const shown = showNight ? swap.icon : icon;
+  const shownRect = showNight ? objectArtRect(swap.icon, swap.root, col, row, camX, camY) : day;
+  const maskType = showNight ? (def.nightMaskType || type) : type;
+  const objMinX = camX + shownRect.x / zoom;
+  const objMinY = camY + shownRect.y / zoom;
+  const shouldFade = shouldFadeForOcclusion(
+    type, objMinX, objMinX + shown.width, objMinY, objMinY + shown.height,
+    tileBottomY, maskType);
+  const baseAlpha = shouldFade ? OBJECT_FADE_ALPHA : 1;
 
-  const shouldFade = shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, tileBottomY);
-
-  const screenX = (tileCenterX - camX) * zoom - w / 2;
-  const screenY = (tileBottomY - camY) * zoom - h;
+  if (swap) {
+    // Crossfade: the day art fades out as the night art fades in, so
+    // there's never a frame where the object vanishes entirely.
+    const nite = showNight ? shownRect : objectArtRect(swap.icon, swap.root, col, row, camX, camY);
+    ctx.globalAlpha = baseAlpha * (1 - swap.night);
+    ctx.drawImage(icon, day.x, day.y, day.w, day.h);
+    ctx.globalAlpha = baseAlpha * swap.night;
+    ctx.drawImage(swap.icon, nite.x, nite.y, nite.w, nite.h);
+    ctx.globalAlpha = 1;
+    return;
+  }
 
   if (shouldFade) ctx.globalAlpha = OBJECT_FADE_ALPHA;
-  ctx.drawImage(icon, screenX, screenY, w, h);
+  ctx.drawImage(icon, day.x, day.y, day.w, day.h);
   if (shouldFade) ctx.globalAlpha = 1;
+}
+
+/* --- lamp-post light ------------------------------------------------
+   Per request ("lagyan mo ng ilaw same ng color ng circle light... 80x80
+   px yung light niya, may radius lang sa mga sulok"): an 80x80 world-px
+   glow in the same candle colours the player's own light uses, shaped as
+   a ROUNDED SQUARE rather than a circle — soft edges, but with the
+   corners only rounded off instead of the whole thing collapsing into a
+   disc.
+
+   Built once into an offscreen sprite and then just blitted per lamp:
+   the shape never changes, only where it's drawn and how bright, so
+   rebuilding it per lamp per frame would be pure waste. Composited
+   additively for the same reason the player's candle is — light adds to
+   what's under it instead of painting over it. */
+const POST_GLOW_WORLD_SIZE = TILE * 7;  // "yung laki ng light is 7x7" — 7 tiles across
+const POST_GLOW_CORNER_CUT = TILE;      // "yung sulok is wag ng lagyan" — a tile off each corner, so each edge reads as 5
+
+// The candle and this lamp use the same colours, but they're drawn at
+// different points in the frame: the player's candle goes down with the
+// world, BEFORE the night washes, so those washes dim it; this one is
+// drawn after them so it can spill over the character, which would leave
+// it far brighter for free. That difference is exactly why the lamp was
+// blowing out while the candle looked fine.
+//
+// So it's dimmed by hand to land at the same strength the candle ends up
+// at: what survives the sky tint (0.55 navy) and the blue night tint
+// (0.16) is (1 - 0.55) * (1 - 0.16) — per request, "same lang sa circle
+// light na liwanag, ganun lang kalakas".
+const POST_GLOW_MATCH_CANDLE = (1 - 0.55) * (1 - 0.16);
+
+const postGlowCanvas = document.createElement("canvas");
+let postGlowReady = false;
+
+function roundRectPath(g, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  g.beginPath();
+  g.moveTo(x + rr, y);
+  g.arcTo(x + w, y, x + w, y + h, rr);
+  g.arcTo(x + w, y + h, x, y + h, rr);
+  g.arcTo(x, y + h, x, y, rr);
+  g.arcTo(x, y, x + w, y, rr);
+  g.closePath();
+}
+
+// A soft SQUARE pool of light with its corners taken off, rather than a
+// disc — a lamp on a post throws light across the ground it stands on,
+// not a neat circle. Built by blurring two nested rounded squares onto
+// one sprite: a wide dim one for the spill and a small bright one for
+// the core, in the candle's own two colours. They're composited
+// source-over here (not additively), so the centre tops out at the inner
+// colour instead of the two summing past white.
+function buildPostGlowSprite() {
+  const S = 4; // supersampled, so it stays smooth when scaled up by zoom
+  const n = POST_GLOW_WORLD_SIZE * S;
+  postGlowCanvas.width = n;
+  postGlowCanvas.height = n;
+  const g = postGlowCanvas.getContext("2d");
+  g.clearRect(0, 0, n, n);
+
+  const layer = (inset, radius, color, blurPx) => {
+    g.filter = "blur(" + blurPx * S + "px)";
+    g.fillStyle = color;
+    roundRectPath(g, inset * S, inset * S,
+      (POST_GLOW_WORLD_SIZE - inset * 2) * S,
+      (POST_GLOW_WORLD_SIZE - inset * 2) * S,
+      radius * S);
+    g.fill();
+    g.filter = "none";
+  };
+  // The outer square is inset and then blurred back out, so its edge
+  // lands near the full 7 tiles while staying soft. Its corner radius is
+  // the one-tile cut asked for.
+  layer(POST_GLOW_CORNER_CUT, POST_GLOW_CORNER_CUT * 1.6, PLAYER_GLOW_COLOR_MID, 13);
+  layer(POST_GLOW_WORLD_SIZE * 0.32, POST_GLOW_CORNER_CUT * 0.7, PLAYER_GLOW_COLOR_INNER, 11);
+  postGlowReady = true;
+}
+
+function drawPostLightGlows(camX, camY) {
+  const night = getNightLightFactor();
+  if (night <= 0.01) return; // daylight — the lamps are off
+  if (!postGlowReady) buildPostGlowSprite();
+
+  const size = POST_GLOW_WORLD_SIZE * zoom;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = night * POST_GLOW_MATCH_CANDLE;
+  for (const [key, type] of objectLayer) {
+    const def = itemDefs[type];
+    if (!def || !def.lightGlow) continue;
+    const comma = key.indexOf(",");
+    const col = +key.slice(0, comma);
+    const row = +key.slice(comma + 1);
+    const wx = (col + 0.5) * TILE + def.lightGlow.offsetX;
+    const wy = (row + 1) * TILE + def.lightGlow.offsetY;
+    const sx = (wx - camX) * zoom - size / 2;
+    const sy = (wy - camY) * zoom - size / 2;
+    if (sx + size < 0 || sy + size < 0 || sx > view.width || sy > view.height) continue; // off-screen
+    ctx.drawImage(postGlowCanvas, sx, sy, size, size);
+  }
+  ctx.restore();
 }
 
 // Base terrain (Dirt, Water — `layer: "terrain"` in itemDefs,
@@ -829,6 +1357,110 @@ function drawPlacementRange(camX, camY) {
   }
 }
 
+/* ---------------- held-item ghost preview ----------------
+   A see-through mock-up of whatever's held, drawn on the tile the mouse
+   is pointing at — per request ("kahit anong na-hohold, yung mouse
+   tinututok sa kahit aling tile, dapat parang naka-mockup siya kung ano
+   itsura kapag binagsak... na naka-opacity").
+
+   Before this the only preview was the tile OUTLINE, which tells you
+   where a thing lands but nothing about how it will look: a tall tree,
+   a wall panel and a rug all previewed as the same 16px square, even
+   though their art is anchored bottom-centre and can tower several
+   tiles above the tile you clicked. The ghost is drawn with the exact
+   same anchor the real placement uses, so what you see is what you get.
+
+   It goes red when the click would be refused, for the same reasons the
+   outline already goes red — so the two can never disagree. */
+const HELD_GHOST_ALPHA = 0.55;
+const HELD_GHOST_BLOCKED_TINT = "rgba(220,40,40,0.55)";
+
+const ghostCanvas = document.createElement("canvas");
+const ghostCtx = ghostCanvas.getContext("2d");
+
+// The icon, optionally washed red. Uses `source-atop` so the tint lands
+// only on the art's own opaque pixels and the sprite keeps its shape,
+// rather than staining the whole bounding box.
+function buildHeldGhost(icon, blocked) {
+  if (ghostCanvas.width !== icon.width || ghostCanvas.height !== icon.height) {
+    ghostCanvas.width = icon.width;
+    ghostCanvas.height = icon.height;
+  }
+  ghostCtx.setTransform(1, 0, 0, 1, 0, 0);
+  ghostCtx.clearRect(0, 0, icon.width, icon.height);
+  ghostCtx.drawImage(icon, 0, 0);
+  if (blocked) {
+    ghostCtx.globalCompositeOperation = "source-atop";
+    ghostCtx.fillStyle = HELD_GHOST_BLOCKED_TINT;
+    ghostCtx.fillRect(0, 0, icon.width, icon.height);
+    ghostCtx.globalCompositeOperation = "source-over";
+  }
+  return ghostCanvas;
+}
+
+// Shared by the outdoor and indoor previews: draw `type`'s art at
+// (col,row) with the bottom-centre anchor every placed object uses.
+function drawHeldGhostAt(type, col, row, camX, camY, blocked) {
+  const def = itemDefs[type];
+  // Preview the art the player will actually get right now — the night
+  // version once it's dark — and anchor it the same way, so the ghost
+  // can't promise one position and the placed object land at another.
+  const swap = nightSwapFor(type);
+  const icon = swap ? swap.icon : def.icon;
+  const root = swap ? swap.root : def.artRoot;
+  if (!icon || !icon.width) return;
+  const r = objectArtRect(icon, root, col, row, camX, camY);
+  ctx.save();
+  ctx.globalAlpha = HELD_GHOST_ALPHA;
+  ctx.drawImage(buildHeldGhost(icon, blocked), r.x, r.y, r.w, r.h);
+  ctx.restore();
+}
+
+// Outdoors. Only for `heldItem` — the E-key `player.grabbedType` flow
+// drops things in FRONT of the player rather than under the cursor, so a
+// ghost at the mouse would point at the wrong tile entirely.
+function drawHeldItemGhost(camX, camY) {
+  if (!heldItem) return;
+  const type = heldItem.type;
+  const def = itemDefs[type];
+  const { col, row } = screenToTile(lastMouseClientX, lastMouseClientY);
+  if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return;
+
+  // Houses run through their own footprint rules; everything else is the
+  // plain "is this tile free on my layer, and would it trap me" test —
+  // the same pair drawPlacementRange() colours its outlines with.
+  let blocked;
+  if (def.multiTileFootprint && def.buildSeconds) {
+    blocked = !canPlaceHouseFootprint(type, col, row);
+  } else {
+    const p = getPlayerTile();
+    const occupied = getLayerItemId(layerForType(type), col, row) !== null;
+    const wouldTrap = def.collides && col === p.col && row === p.row;
+    blocked = occupied || wouldTrap || !isWithinPlacementRange(col, row);
+  }
+  drawHeldGhostAt(type, col, row, camX, camY, blocked);
+}
+
+// Indoors — same idea against the room's own maps and bounds.
+function drawInteriorHeldItemGhost(room, camX, camY) {
+  if (!heldItem) return;
+  const type = heldItem.type;
+  const def = itemDefs[type];
+  if (def.multiTileFootprint) return; // refused indoors anyway (placeInteriorDecorAt())
+  const { col, row } = screenToTile(lastMouseClientX, lastMouseClientY);
+  const maxCol = Math.ceil(room.width / TILE) - 1;
+  const maxRow = Math.ceil(room.height / TILE) - 1;
+  if (col < 0 || row < 0 || col > maxCol || row > maxRow) return;
+
+  const targetMap = def.interiorOnly ? room.collisions : room.decor;
+  const p = interiorFeetTileAt(player.x, player.y);
+  const blocked =
+    targetMap.has(tileKey(col, row)) ||
+    (def.interiorOnly && col === p.col && row === p.row) ||
+    Math.max(Math.abs(col - p.col), Math.abs(row - p.row)) > PLACEMENT_RANGE;
+  drawHeldGhostAt(type, col, row, camX, camY, blocked);
+}
+
 // Interior counterpart to drawPlacementRange() above, for while `heldItem`
 // is held inside a room (js/interior.js) — same PLACEMENT_RANGE grid,
 // same white-valid/red-blocked coloring, just checked against the
@@ -1026,8 +1658,21 @@ function renderInteriorScene() {
   // function or the outdoor render() runs per frame, so reusing the same
   // pair of variables for "the room's scroll offset" vs. "the map's
   // scroll offset" never conflicts.
-  camX = clamp(player.x - viewWorldW / 2, 0, Math.max(0, room.width - viewWorldW));
-  camY = clamp(player.y - viewWorldH / 2, 0, Math.max(0, room.height - viewWorldH));
+  // A room SMALLER than the screen gets centred rather than pinned to
+  // the top-left — per request ("di naka-center yung camera ng room ng
+  // house1"). The clamp below can only ever return 0 in that case
+  // (`room.width - viewWorldW` is negative, and Math.max floors it at
+  // 0), which pushed a small room hard against the left/top edge with
+  // dead space filling the rest of the view. Offsetting by half the
+  // difference — a NEGATIVE scroll — puts the room in the middle
+  // instead. Rooms bigger than the screen still scroll and clamp exactly
+  // as before.
+  camX = room.width <= viewWorldW
+    ? (room.width - viewWorldW) / 2
+    : clamp(player.x - viewWorldW / 2, 0, room.width - viewWorldW);
+  camY = room.height <= viewWorldH
+    ? (room.height - viewWorldH) / 2
+    : clamp(player.y - viewWorldH / 2, 0, room.height - viewWorldH);
 
   ctx.clearRect(0, 0, vw, vh);
   ctx.fillStyle = "#0a0a0a";
@@ -1082,7 +1727,21 @@ function renderInteriorScene() {
   }
 
   drawThrownTosses(); // T-key throw arc for a grabbed Collision Block (js/inventory.js's tryThrowGrabbedInteriorItem(), interior.js) — same visual as the outdoor throw
+  drawInteriorHeldItemGhost(room, camX, camY); // see-through mock-up of what's held, under the cursor — drawn BEFORE the grid so the outline stays readable on top of it
   drawInteriorPlacementRange(room, camX, camY); // white/red tile-border grid while holding something, same idea as drawPlacementRange() outdoors
+
+  // Day/night sky tint indoors — per request ("kung ano yung dilim sa
+  // labas kapag nagagagabi ganun din [sa loob]... nag fafade yung kulay
+  // pa gabi tapos paumaga ganun din babalik lang sa normal color"): the
+  // room used to stay the same brightness at 3am as at noon. This reuses
+  // the EXACT same shared clock + easing (js/daynight.js's
+  // getSkyOverlayColor()/getDayFactor()) the outdoor view uses, so the
+  // room fades toward night and back to normal on the same smooth
+  // twilight ramp, in lockstep with outside, instead of snapping.
+  ctx.fillStyle = getSkyOverlayColor();
+  ctx.fillRect(0, 0, vw, vh);
+  drawNightBlueTint(); // same extra cool/moonlit wash the outdoor view gets at night, layered on top
+  drawPlayerNightRelight(); // and the same relight, so the character keeps their colours indoors too
 
   // Small "how to leave" hint — the exit mat isn't otherwise marked as
   // interactive, so this keeps it discoverable. Pinned to the bottom of
@@ -1297,6 +1956,7 @@ function render() {
 
   drawFloatingPickups(); // resource-drop popups, on top of the world but drawn before the placement grid
   drawThrownTosses(); // T-key throw arc (js/resources.js) — same layer of the render as the pickups above
+  drawHeldItemGhost(camX, camY); // see-through mock-up of what's held, under the cursor — drawn BEFORE the grid so the outline stays readable on top of it
   drawPlacementRange(camX, camY); // overlay on top so the grid is always visible, even over a tall object
 
   // Clouds float above everything on the ground; rain falls in front of
@@ -1320,6 +1980,8 @@ function render() {
   drawMinimap(); // top-right overview — a separate <canvas> (index.html), not part of the main view/sky tint above (js/hud.js)
 
   drawNightBlueTint(); // extra blue cast at night, on top of the sky tint above — see above
+  drawPlayerNightRelight(); // give the character back their real colours through those washes — see above
+  drawPostLightGlows(camX, camY); // lamp light goes on LAST so it spills across the character too — per request, "naka-overlap yung light sa character"
   drawVignetteBlur(); // soft edge blur, all four sides, sunny daytime only — see above
   drawSceneFadeOverlay(); // interior enter/exit fade-to-black (js/interior.js) — drawn last, over absolutely everything
 }

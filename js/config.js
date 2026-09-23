@@ -136,12 +136,37 @@ const HARVEST_RANGE = 1;       // tiles around the player where F can hit a reso
 // drop has a fixed (wx, wy) on the map, so walking around gives real
 // parallax instead of the rain looking like it's pinned to the screen.
 const RAIN_DROP_COUNT = 50;
-const RAIN_FRAME_W = 8, RAIN_FRAME_H = 8, RAIN_FRAME_COUNT = 3; // assets/particles/Rain.png
+// Rain is DRAWN BY CODE now (js/weatherfx.js's drawRain()) instead of
+// blitting frames out of assets/particles/Rain.png — per request ("sa
+// rainy alisin mo na yung pixel, gawa ka na lang ng ulan by code, pero
+// same parin itsura"). Same straight-down fall and same look, just built
+// from primitives: each drop is a 1px-wide streak, 7-10 world px long.
+// The ground splash is UNCHANGED and still uses RainOnFloor.png.
+const RAIN_DROP_WIDTH = 1;                          // world px across — "1px width lang"
+const RAIN_LENGTH_MIN = 7, RAIN_LENGTH_MAX = 10;    // world px long — "yung laki is 7-10px"
+const RAIN_COLOR_RGB = "174,206,235";               // pale blue-grey; alpha varies per drop for depth
+const RAIN_ALPHA_MIN = 0.45, RAIN_ALPHA_MAX = 0.9;
 const SPLASH_FRAME_W = 8, SPLASH_FRAME_H = 8, SPLASH_FRAME_COUNT = 3; // assets/particles/RainOnFloor.png
-const RAIN_WORLD_SIZE = 7;
 const SPLASH_WORLD_SIZE = 3;
 const SPLASH_LIFETIME = 0.35; // seconds a ground-splash animation plays for
-const RAIN_FALL_SPEED_MIN = 160, RAIN_FALL_SPEED_MAX = 70; // world px/sec, straight down
+const RAIN_FALL_SPEED_MIN = 70, RAIN_FALL_SPEED_MAX = 160; // world px/sec, straight down
+
+// Thunderstorm = the same rain, turned up — per request ("may
+// thunderstorm, kapag maulan medyo mas malakas yung bagsak"): more
+// drops, falling faster, streaked a little longer, plus lightning.
+const STORM_DROP_MULT = 1.8;
+const STORM_SPEED_MULT = 1.4;
+const STORM_LENGTH_MULT = 1.25;
+const RAIN_DROP_COUNT_MAX = Math.ceil(RAIN_DROP_COUNT * STORM_DROP_MULT); // pool size — plain rain just uses fewer of them
+const LIGHTNING_GAP_MIN = 4, LIGHTNING_GAP_MAX = 15; // real seconds between strikes
+const LIGHTNING_FLASH_DURATION = 0.45;               // how long one strike's flicker lasts
+const LIGHTNING_FLASH_ALPHA = 0.5;                   // peak brightness of the flash
+const LIGHTNING_COLOR_RGB = "205,225,255";
+// The drawn bolt itself (js/weatherfx.js buildLightningBolt()): core
+// line thickness in screen px, and how far each zig may wander
+// sideways per step — bigger = more ragged.
+const LIGHTNING_BOLT_WIDTH = 2;
+const LIGHTNING_JAG_PX = 26;
 const WEATHER_SPAWN_MARGIN = 50; // world px outside the visible camera area used for pop-in/out
 
 // --- Snow ------------------------------------------------------------
@@ -248,24 +273,50 @@ const CALENDAR_MONTH_SEASON = [
 ];
 const CALENDAR_SEASON_ICONS = { Spring: "🌸", Summer: "☀️", Fall: "🍂", Winter: "❄️" };
 
-// Weather states actually rendered by js/weatherfx.js (Rainy -> rain,
-// Snow -> snow, Sunny -> neither, just brighter sun rays/thinner clouds).
+// Weather states actually rendered by js/weatherfx.js. Sunny and Cloudy
+// have no precipitation (Cloudy just thickens the cloud cover and kills
+// the god-rays); Rainy and Thunderstorm both rain, the storm harder; Snow
+// snows.
 const WEATHER_STATES = [
   { name: "Sunny", icon: "☀️" },
+  { name: "Cloudy", icon: "☁️" },
   { name: "Rainy", icon: "🌧️" },
+  { name: "Thunderstorm", icon: "⛈️" },
   { name: "Snow", icon: "❄️" },
 ];
-// Each season's odds of rolling into each state (must sum to ~1 per row).
-const SEASON_WEATHER_WEIGHTS = {
-  Spring: { Sunny: 0.45, Rainy: 0.50, Snow: 0.05 },
-  Summer: { Sunny: 0.80, Rainy: 0.20, Snow: 0.00 },
-  Fall: { Sunny: 0.45, Rainy: 0.45, Snow: 0.10 },
-  Winter: { Sunny: 0.30, Rainy: 0.05, Snow: 0.65 },
-};
+
+// Odds of each state, PER MONTH (index 0 = January .. 11 = December).
+// Each row must sum to ~1.
+//
+// Per request ("yung sa snow di accurate, mag snow lang kapag November at
+// January... tapos rainy minsan lang pero madalas sunny, cloudy at may
+// thunderstorm"): this used to be keyed by SEASON, which meant all three
+// winter months (Dec/Jan/Feb) snowed heavily and rain turned up roughly
+// half the time in spring and fall. Keying it by month instead is what
+// lets snow be limited to exactly two months rather than a whole season.
+//   - Snow: November and January ONLY — every other month is flat 0.
+//   - Sunny + Cloudy carry most of the year, so clear/overcast is the
+//     norm and wet days stand out.
+//   - Rainy stays occasional, with Thunderstorm a smaller slice of it
+//     that peaks over the summer.
+const MONTH_WEATHER_WEIGHTS = [
+  /* Jan */ { Sunny: 0.32, Cloudy: 0.25, Rainy: 0.05, Thunderstorm: 0.00, Snow: 0.38 },
+  /* Feb */ { Sunny: 0.48, Cloudy: 0.33, Rainy: 0.14, Thunderstorm: 0.05, Snow: 0.00 },
+  /* Mar */ { Sunny: 0.47, Cloudy: 0.30, Rainy: 0.16, Thunderstorm: 0.07, Snow: 0.00 },
+  /* Apr */ { Sunny: 0.46, Cloudy: 0.30, Rainy: 0.16, Thunderstorm: 0.08, Snow: 0.00 },
+  /* May */ { Sunny: 0.50, Cloudy: 0.28, Rainy: 0.14, Thunderstorm: 0.08, Snow: 0.00 },
+  /* Jun */ { Sunny: 0.55, Cloudy: 0.25, Rainy: 0.12, Thunderstorm: 0.08, Snow: 0.00 },
+  /* Jul */ { Sunny: 0.56, Cloudy: 0.24, Rainy: 0.11, Thunderstorm: 0.09, Snow: 0.00 },
+  /* Aug */ { Sunny: 0.53, Cloudy: 0.25, Rainy: 0.13, Thunderstorm: 0.09, Snow: 0.00 },
+  /* Sep */ { Sunny: 0.50, Cloudy: 0.27, Rainy: 0.15, Thunderstorm: 0.08, Snow: 0.00 },
+  /* Oct */ { Sunny: 0.48, Cloudy: 0.30, Rainy: 0.16, Thunderstorm: 0.06, Snow: 0.00 },
+  /* Nov */ { Sunny: 0.33, Cloudy: 0.27, Rainy: 0.07, Thunderstorm: 0.02, Snow: 0.31 },
+  /* Dec */ { Sunny: 0.45, Cloudy: 0.34, Rainy: 0.16, Thunderstorm: 0.05, Snow: 0.00 },
+];
 
 // How the current weather nudges the ambient effects that already exist
 // for time-of-day (js/weatherfx.js): sunny days get thinner clouds and
-// stronger god-rays, rainy/snowy days get thicker cloud cover and duller
-// (sun-blocked) rays.
-const WEATHER_CLOUD_OPACITY_MULT = { Sunny: 0.55, Rainy: 1.3, Snow: 1.0 };
-const WEATHER_SUNRAY_MULT = { Sunny: 1.2, Rainy: 0.15, Snow: 0.5 };
+// stronger god-rays, overcast/rainy/stormy days get thicker cloud cover
+// and duller (sun-blocked) rays.
+const WEATHER_CLOUD_OPACITY_MULT = { Sunny: 0.55, Cloudy: 1.45, Rainy: 1.3, Thunderstorm: 1.75, Snow: 1.0 };
+const WEATHER_SUNRAY_MULT = { Sunny: 1.2, Cloudy: 0.22, Rainy: 0.15, Thunderstorm: 0.05, Snow: 0.5 };

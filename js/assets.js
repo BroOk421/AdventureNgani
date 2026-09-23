@@ -169,6 +169,7 @@ const assets = {
   // exists, entered by walking onto house2's/house3's front-door tile.
   // See js/interior.js.
   interiorHouse: new Image(),
+  interiorSmall: new Image(), // the small one-room interior (js/interior.js's smallInterior)
   // Dev/level-design-only marker (no source art — drawn on a throwaway
   // canvas below, same pattern as camera.js's silhouetteCanvas) for the
   // interior collision-block item (js/interior.js's `room.collisions`) —
@@ -177,7 +178,6 @@ const assets = {
   collisionMarker: new Image(),
 
   // --- weather FX particles (assets/particles/), see js/weatherfx.js ---
-  rain: new Image(),
   rainOnFloor: new Image(),
   snow: new Image(),
   clouds: new Image(),
@@ -245,9 +245,6 @@ const assets = {
   treeMediumRedYellowTrunk: new Image(),
   house2: new Image(),
   house3: new Image(),
-  floorBrown: new Image(),
-  floorDarkGreen: new Image(),
-  floorGreen: new Image(),
   interiorWall: new Image(),
   ceilingTile: new Image(),
   windowPlain1: new Image(),
@@ -283,6 +280,7 @@ const assets = {
   meatItem: new Image(),
   chairFront: new Image(),
   chairRight: new Image(),
+  chairLeft: new Image(),  // the mirror of chairRight — art was already on disk, just unused
   cabinetBaseA: new Image(),
   cabinetBaseB: new Image(),
   cabinetBaseC: new Image(),
@@ -317,7 +315,7 @@ const assets = {
   benchVertical: new Image(),
   chairOutdoorFront: new Image(),
   chairOutdoorSide: new Image(),
-  fence: new Image(),
+  chairOutdoorSideLeft: new Image(), // generated mirror of chairside.png
   floorMat: new Image(),
   longTableHorizontal: new Image(),
   longTableVertical: new Image(),
@@ -331,6 +329,9 @@ const assets = {
   portBridgeWall2: new Image(),
   postPlain: new Image(),
   postLight: new Image(),
+  postLightLit: new Image(), // the lit-at-night version of the lamp post
+  postLightLeft: new Image(),    // generated mirrors of the two above, for a left-facing lamp
+  postLightLitLeft: new Image(),
   postHandleLight: new Image(),
   tableOutdoorSmall: new Image(),
   vegOnion: new Image(),
@@ -357,6 +358,69 @@ const assets = {
   waterCrateHorizontal: new Image(),
   waterCrateVertical: new Image(),
 
+
+  // Fence Tiles — fence sliced into 16px tiles (see itemDefs' fenceTile* entries)
+  fenceTileR0C0: new Image(),
+  fenceTileR0C1: new Image(),
+  fenceTileR0C2: new Image(),
+  fenceTileR0C3: new Image(),
+  fenceTileR0C4: new Image(),
+  fenceTileR1C0: new Image(),
+  fenceTileR1C1: new Image(),
+  fenceTileR1C3: new Image(),
+  fenceTileR1C4: new Image(),
+  fenceTileR2C0: new Image(),
+  fenceTileR2C4: new Image(),
+  fenceTileR3C0: new Image(),
+  fenceTileR3C1: new Image(),
+  fenceTileR3C3: new Image(),
+  fenceTileR3C4: new Image(),
+  fenceTileR4C0: new Image(),
+  fenceTileR4C1: new Image(),
+  fenceTileR4C2: new Image(),
+  fenceTileR4C3: new Image(),
+  // Brown Floor Tiles — floorBrown sliced into 16px tiles (see itemDefs' floorBrownTile* entries)
+  floorBrownTileR0C1: new Image(),
+  floorBrownTileR0C2: new Image(),
+  floorBrownTileR0C3: new Image(),
+  floorBrownTileR1C0: new Image(),
+  floorBrownTileR1C1: new Image(),
+  floorBrownTileR1C2: new Image(),
+  floorBrownTileR1C3: new Image(),
+  floorBrownTileR1C4: new Image(),
+  floorBrownTileR2C0: new Image(),
+  floorBrownTileR2C1: new Image(),
+  floorBrownTileR2C2: new Image(),
+  floorBrownTileR2C3: new Image(),
+  floorBrownTileR2C4: new Image(),
+  floorBrownTileR3C0: new Image(),
+  floorBrownTileR3C1: new Image(),
+  floorBrownTileR3C2: new Image(),
+  floorBrownTileR3C3: new Image(),
+  floorBrownTileR3C4: new Image(),
+  floorBrownTileR4C1: new Image(),
+  floorBrownTileR4C2: new Image(),
+  floorBrownTileR4C3: new Image(),
+  // Dark Green Floor Tiles — floorDarkGreen sliced into 16px tiles (see itemDefs' floorDarkGreenTile* entries)
+  floorDarkGreenTileR0C0: new Image(),
+  floorDarkGreenTileR0C1: new Image(),
+  floorDarkGreenTileR0C2: new Image(),
+  floorDarkGreenTileR1C0: new Image(),
+  floorDarkGreenTileR1C1: new Image(),
+  floorDarkGreenTileR1C2: new Image(),
+  floorDarkGreenTileR2C0: new Image(),
+  floorDarkGreenTileR2C1: new Image(),
+  floorDarkGreenTileR2C2: new Image(),
+  // Green Floor Tiles — floorGreen sliced into 16px tiles (see itemDefs' floorGreenTile* entries)
+  floorGreenTileR0C0: new Image(),
+  floorGreenTileR0C1: new Image(),
+  floorGreenTileR0C2: new Image(),
+  floorGreenTileR1C0: new Image(),
+  floorGreenTileR1C1: new Image(),
+  floorGreenTileR1C2: new Image(),
+  floorGreenTileR2C0: new Image(),
+  floorGreenTileR2C1: new Image(),
+  floorGreenTileR2C2: new Image(),
 };
 
 assets.dirt1.src = "assets/items/tile/dirt1.png";
@@ -537,7 +601,8 @@ assets.treeThinOrange.src = "assets/items/trees/orange/thintree_orange.png";
 assets.house1.src = "assets/items/house/house1.png";
 
 // --- weather FX particles — rain, drifting clouds, low fog (js/weatherfx.js) ---
-assets.rain.src = "assets/particles/Rain.png";
+// Rain.png is no longer loaded — rain is drawn by code now (js/weatherfx.js's
+// drawRain()). RainOnFloor.png below is still used for the ground splash.
 assets.rainOnFloor.src = "assets/particles/RainOnFloor.png";
 assets.snow.src = "assets/particles/Snow.png";
 assets.clouds.src = "assets/particles/Clouds.png";
@@ -653,9 +718,7 @@ assets.treeMediumRedYellowTrunk.src = "assets/items/trees/trunks/mediumredyellow
 assets.house2.src = "assets/items/house/house2.png";
 assets.house3.src = "assets/items/house/house3.png";
 assets.interiorHouse.src = "assets/interior/asesprite/interior.png";
-assets.floorBrown.src = "assets/interior/floorbrown.png";
-assets.floorDarkGreen.src = "assets/interior/floordarkgreen.png";
-assets.floorGreen.src = "assets/interior/floorgreen.png";
+assets.interiorSmall.src = "assets/interior/asesprite/smallinterior.png";
 assets.interiorWall.src = "assets/interior/interior_wall.png";
 assets.ceilingTile.src = "assets/interior/ceiling.png";
 assets.windowPlain1.src = "assets/interior/window.png";
@@ -691,6 +754,7 @@ assets.plateFood.src = "assets/interior/plate_food.png";
 assets.meatItem.src = "assets/interior/meat.png";
 assets.chairFront.src = "assets/interior/frontchair.png";
 assets.chairRight.src = "assets/interior/rightchair.png";
+assets.chairLeft.src = "assets/interior/leftchair.png";
 assets.cabinetBaseA.src = "assets/interior/base.png";
 assets.cabinetBaseB.src = "assets/interior/base2.png";
 assets.cabinetBaseC.src = "assets/interior/base3.png";
@@ -720,7 +784,7 @@ assets.benchHorizontal.src = "assets/outdoor/benchh.png";
 assets.benchVertical.src = "assets/outdoor/benchv.png";
 assets.chairOutdoorFront.src = "assets/outdoor/chairfront.png";
 assets.chairOutdoorSide.src = "assets/outdoor/chairside.png";
-assets.fence.src = "assets/outdoor/fence.png";
+assets.chairOutdoorSideLeft.src = "assets/outdoor/chairside_left.png";
 assets.floorMat.src = "assets/outdoor/floormat.png";
 assets.longTableHorizontal.src = "assets/outdoor/longtableh.png";
 assets.longTableVertical.src = "assets/outdoor/longtablev.png";
@@ -734,6 +798,9 @@ assets.portBridgeWall1.src = "assets/outdoor/port_bridge_wall.png";
 assets.portBridgeWall2.src = "assets/outdoor/port_bridge_wall2.png";
 assets.postPlain.src = "assets/outdoor/post.png";
 assets.postLight.src = "assets/outdoor/postlight.png";
+assets.postLightLit.src = "assets/outdoor/postlight-light.png";
+assets.postLightLeft.src = "assets/outdoor/postlight_left.png";
+assets.postLightLitLeft.src = "assets/outdoor/postlight-light_left.png";
 assets.postHandleLight.src = "assets/outdoor/posthandlelight.png";
 assets.tableOutdoorSmall.src = "assets/outdoor/table.png";
 assets.vegOnion.src = "assets/items/vegetables/onion/onion_mature.png";
@@ -759,3 +826,63 @@ assets.plotSocketOpen.src = "assets/items/vegetables/socketopen.png";
 assets.plotSocketClosed.src = "assets/items/vegetables/socketclose.png";
 assets.waterCrateHorizontal.src = "assets/items/vegetables/waterboxh.png";
 assets.waterCrateVertical.src = "assets/items/vegetables/waterboxv.png";
+
+// --- fence / floor sheets sliced into 16px tiles (js/inventory.js tile groups) ---
+assets.fenceTileR0C0.src = "assets/outdoor/fence_tiles/r0c0.png";
+assets.fenceTileR0C1.src = "assets/outdoor/fence_tiles/r0c1.png";
+assets.fenceTileR0C2.src = "assets/outdoor/fence_tiles/r0c2.png";
+assets.fenceTileR0C3.src = "assets/outdoor/fence_tiles/r0c3.png";
+assets.fenceTileR0C4.src = "assets/outdoor/fence_tiles/r0c4.png";
+assets.fenceTileR1C0.src = "assets/outdoor/fence_tiles/r1c0.png";
+assets.fenceTileR1C1.src = "assets/outdoor/fence_tiles/r1c1.png";
+assets.fenceTileR1C3.src = "assets/outdoor/fence_tiles/r1c3.png";
+assets.fenceTileR1C4.src = "assets/outdoor/fence_tiles/r1c4.png";
+assets.fenceTileR2C0.src = "assets/outdoor/fence_tiles/r2c0.png";
+assets.fenceTileR2C4.src = "assets/outdoor/fence_tiles/r2c4.png";
+assets.fenceTileR3C0.src = "assets/outdoor/fence_tiles/r3c0.png";
+assets.fenceTileR3C1.src = "assets/outdoor/fence_tiles/r3c1.png";
+assets.fenceTileR3C3.src = "assets/outdoor/fence_tiles/r3c3.png";
+assets.fenceTileR3C4.src = "assets/outdoor/fence_tiles/r3c4.png";
+assets.fenceTileR4C0.src = "assets/outdoor/fence_tiles/r4c0.png";
+assets.fenceTileR4C1.src = "assets/outdoor/fence_tiles/r4c1.png";
+assets.fenceTileR4C2.src = "assets/outdoor/fence_tiles/r4c2.png";
+assets.fenceTileR4C3.src = "assets/outdoor/fence_tiles/r4c3.png";
+assets.floorBrownTileR0C1.src = "assets/interior/floorbrown_tiles/r0c1.png";
+assets.floorBrownTileR0C2.src = "assets/interior/floorbrown_tiles/r0c2.png";
+assets.floorBrownTileR0C3.src = "assets/interior/floorbrown_tiles/r0c3.png";
+assets.floorBrownTileR1C0.src = "assets/interior/floorbrown_tiles/r1c0.png";
+assets.floorBrownTileR1C1.src = "assets/interior/floorbrown_tiles/r1c1.png";
+assets.floorBrownTileR1C2.src = "assets/interior/floorbrown_tiles/r1c2.png";
+assets.floorBrownTileR1C3.src = "assets/interior/floorbrown_tiles/r1c3.png";
+assets.floorBrownTileR1C4.src = "assets/interior/floorbrown_tiles/r1c4.png";
+assets.floorBrownTileR2C0.src = "assets/interior/floorbrown_tiles/r2c0.png";
+assets.floorBrownTileR2C1.src = "assets/interior/floorbrown_tiles/r2c1.png";
+assets.floorBrownTileR2C2.src = "assets/interior/floorbrown_tiles/r2c2.png";
+assets.floorBrownTileR2C3.src = "assets/interior/floorbrown_tiles/r2c3.png";
+assets.floorBrownTileR2C4.src = "assets/interior/floorbrown_tiles/r2c4.png";
+assets.floorBrownTileR3C0.src = "assets/interior/floorbrown_tiles/r3c0.png";
+assets.floorBrownTileR3C1.src = "assets/interior/floorbrown_tiles/r3c1.png";
+assets.floorBrownTileR3C2.src = "assets/interior/floorbrown_tiles/r3c2.png";
+assets.floorBrownTileR3C3.src = "assets/interior/floorbrown_tiles/r3c3.png";
+assets.floorBrownTileR3C4.src = "assets/interior/floorbrown_tiles/r3c4.png";
+assets.floorBrownTileR4C1.src = "assets/interior/floorbrown_tiles/r4c1.png";
+assets.floorBrownTileR4C2.src = "assets/interior/floorbrown_tiles/r4c2.png";
+assets.floorBrownTileR4C3.src = "assets/interior/floorbrown_tiles/r4c3.png";
+assets.floorDarkGreenTileR0C0.src = "assets/interior/floordarkgreen_tiles/r0c0.png";
+assets.floorDarkGreenTileR0C1.src = "assets/interior/floordarkgreen_tiles/r0c1.png";
+assets.floorDarkGreenTileR0C2.src = "assets/interior/floordarkgreen_tiles/r0c2.png";
+assets.floorDarkGreenTileR1C0.src = "assets/interior/floordarkgreen_tiles/r1c0.png";
+assets.floorDarkGreenTileR1C1.src = "assets/interior/floordarkgreen_tiles/r1c1.png";
+assets.floorDarkGreenTileR1C2.src = "assets/interior/floordarkgreen_tiles/r1c2.png";
+assets.floorDarkGreenTileR2C0.src = "assets/interior/floordarkgreen_tiles/r2c0.png";
+assets.floorDarkGreenTileR2C1.src = "assets/interior/floordarkgreen_tiles/r2c1.png";
+assets.floorDarkGreenTileR2C2.src = "assets/interior/floordarkgreen_tiles/r2c2.png";
+assets.floorGreenTileR0C0.src = "assets/interior/floorgreen_tiles/r0c0.png";
+assets.floorGreenTileR0C1.src = "assets/interior/floorgreen_tiles/r0c1.png";
+assets.floorGreenTileR0C2.src = "assets/interior/floorgreen_tiles/r0c2.png";
+assets.floorGreenTileR1C0.src = "assets/interior/floorgreen_tiles/r1c0.png";
+assets.floorGreenTileR1C1.src = "assets/interior/floorgreen_tiles/r1c1.png";
+assets.floorGreenTileR1C2.src = "assets/interior/floorgreen_tiles/r1c2.png";
+assets.floorGreenTileR2C0.src = "assets/interior/floorgreen_tiles/r2c0.png";
+assets.floorGreenTileR2C1.src = "assets/interior/floorgreen_tiles/r2c1.png";
+assets.floorGreenTileR2C2.src = "assets/interior/floorgreen_tiles/r2c2.png";

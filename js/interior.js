@@ -57,6 +57,70 @@
 ================================================================= */
 
 const INTERIOR_ROOMS = {
+  // A small one-room interior (assets/interior/asesprite/smallinterior.png,
+  // 300x300) — House's interior. Every number below was measured off the
+  // exported PNG rather than guessed:
+  //   - floor runs x 7-281 (black frame at x 6 and x 282) and starts at
+  //     y 103, under the cream upper wall and its dark trim band.
+  //   - the doormat is the green rug at x 129-158, y 279-292.
+  smallInterior: {
+    image: assets.interiorSmall,
+    width: 300,
+    height: 300,
+    // Centred on the doorway (the mat's own centre is x 143.5) and a
+    // clear step above the exit zone below, so walking in doesn't
+    // immediately re-trigger walking straight back out.
+    spawnX: 143,
+    spawnY: 240,
+    // Walking DOWN onto this rectangle exits back outside. minY is
+    // pulled in from the mat's true top (279) to 262 for the same reason
+    // sharedHouse's is: movement clamps the player's CENTER to
+    // `height - DRAW_SIZE/2` = 276, so anything at or past that would be
+    // geometrically unreachable. 262 leaves a walkable band the player
+    // can actually enter, while their feet — drawn below centre — reach
+    // visibly onto the mat itself. minX/maxX are the mat's 129-158 with
+    // a few px of slack each side so the exit isn't pixel-fussy.
+    // The mat is the doorway's floor, so the exit rectangle is the
+    // doorway's own opening (x 123-163) rather than a guess around the
+    // rug. minY is pulled in from the mat's true top (279) to 262
+    // because movement clamps the player's CENTER to
+    // `height - DRAW_SIZE/2` = 276 — anything at or past that would be
+    // geometrically unreachable. 262 leaves a walkable band the player
+    // can actually enter, while their feet, drawn below centre, land
+    // visibly on the mat.
+    exitZone: { minX: 123, maxX: 163, minY: 262, maxY: 300 },
+    // The room's permanent architecture — per request ("lagyan mo na ng
+    // collision yung pinto para di tumagos"). Measured off the art: the
+    // floor is x 7-281, y 103-278, and below y=279 the ONLY thing that
+    // isn't outside the building is the doorway at x 123-163. Without
+    // these you could walk up into the back wall and straight out
+    // through the bottom of the house either side of the door.
+    //
+    // Kept here rather than in `collisions` on purpose — see
+    // isInteriorWallAt() for why that map can't hold them.
+    // Outer edges run well past the room on purpose: these are inclusive
+    // bounds tested against a feet POINT, so a point a hair outside the
+    // room would otherwise miss every rect and read as clear floor. The
+    // inner edges meet the floor exactly (103 and 278) with no sliver of
+    // gap between "wall" and "floor" for the feet to sit in.
+    walls: [
+      { minX: -999, minY: -999, maxX: 999, maxY: 103 }, // back wall, its trim and the shelf band
+      { minX: -999, minY: -999, maxX: 6, maxY: 999 },   // left frame
+      { minX: 282, minY: -999, maxX: 999, maxY: 999 },  // right frame
+      { minX: -999, minY: 278, maxX: 122, maxY: 999 },  // bottom wall, left of the doorway
+      { minX: 164, minY: 278, maxX: 999, maxY: 999 },   // bottom wall, right of the doorway
+    ],
+    collisions: new Map(),
+    decor: new Map(),
+    // No second room to warp to, so all four lists stay empty — the
+    // warp simply never triggers (see checkIndoorWarpDoor()).
+    indoorWarp: {
+      forwardPortal: [],
+      forwardSpawn: [],
+      returnPortal: [],
+      returnSpawn: [],
+    },
+  },
   sharedHouse: {
     image: assets.interiorHouse,
     width: 416,
@@ -365,7 +429,28 @@ function interiorFeetTileAt(x, y) {
   return { col: Math.floor(x / TILE), row: Math.floor(feetY / TILE) };
 }
 
+// The room's OWN walls, from `room.walls` — world-space rectangles the
+// feet can't enter. Deliberately separate from `room.collisions`: that
+// map holds the player's hand-placed Collision Blocks and is wiped and
+// rebuilt from the save on every load (applySaveData(), js/save.js), so
+// a room's permanent architecture can't live there — it would vanish the
+// first time the game was reopened. This is part of the room definition
+// instead, so it's always true.
+//
+// Tested against the feet POINT rather than a tile, because a room's
+// walls follow the art, not the 16px grid (smallInterior is 300px — 18.75
+// tiles — so its walls don't land on tile boundaries at all).
+function isInteriorWallAt(room, x, y) {
+  if (!room.walls) return false;
+  const feetY = y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+  for (const w of room.walls) {
+    if (x >= w.minX && x <= w.maxX && feetY >= w.minY && feetY <= w.maxY) return true;
+  }
+  return false;
+}
+
 function isInteriorBodyBlockedAt(room, x, y) {
+  if (isInteriorWallAt(room, x, y)) return true;
   const t = interiorFeetTileAt(x, y);
   return isInteriorTileBlocked(room, t.col, t.row);
 }

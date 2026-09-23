@@ -113,8 +113,36 @@ function visibleWorldRect() {
 }
 
 // --- Rain -----------------------------------------------------------
+// Drawn entirely by code (see drawRain() below) rather than blitted from
+// assets/particles/Rain.png — per request. The ground splash still uses
+// its sprite (assets.rainOnFloor), untouched.
+//
+// "Rainy" and "Thunderstorm" share every bit of this; the storm just
+// runs it harder (more drops, faster fall, longer streaks) and adds
+// lightning on top — see rainIntensity() and the lightning block below.
 const rainDrops = [];
 const splashes = [];
+
+function isRaining(name) {
+  return name === "Rainy" || name === "Thunderstorm";
+}
+
+// Multipliers for the CURRENT weather: plain rain is 1x across the
+// board, a thunderstorm scales up.
+function rainIntensity() {
+  if (getCurrentWeather().name === "Thunderstorm") {
+    return { drops: STORM_DROP_MULT, speed: STORM_SPEED_MULT, length: STORM_LENGTH_MULT };
+  }
+  return { drops: 1, speed: 1, length: 1 };
+}
+
+// How many of the pooled drops are live right now. The pool is always
+// allocated at the storm-sized maximum (RAIN_DROP_COUNT_MAX) and plain
+// rain simply uses the first RAIN_DROP_COUNT of them, so switching
+// weather never has to allocate or discard anything mid-game.
+function activeRainDropCount() {
+  return Math.min(rainDrops.length, Math.round(RAIN_DROP_COUNT * rainIntensity().drops));
+}
 
 function spawnRainDrop(atInit) {
   const rect = visibleWorldRect();
@@ -124,16 +152,22 @@ function spawnRainDrop(atInit) {
     wy: atInit ? weatherRand(camY - rect.h, camY + rect.h) : camY - m - weatherRand(0, 40),
     landY: camY + rect.h * weatherRand(0.4, 0.98),
     fallSpeed: weatherRand(RAIN_FALL_SPEED_MIN, RAIN_FALL_SPEED_MAX),
-    frame: Math.floor(weatherRand(0, RAIN_FRAME_COUNT)),
+    // Per-drop streak length and opacity — the variation is what keeps a
+    // field of identical 1px lines from reading as a flat screen door.
+    len: weatherRand(RAIN_LENGTH_MIN, RAIN_LENGTH_MAX),
+    alpha: weatherRand(RAIN_ALPHA_MIN, RAIN_ALPHA_MAX),
   };
 }
 
 function updateRain(dt) {
   const rect = visibleWorldRect();
   const m = WEATHER_SPAWN_MARGIN;
+  const speedMult = rainIntensity().speed;
+  const active = activeRainDropCount();
 
-  for (const d of rainDrops) {
-    d.wy += d.fallSpeed * dt;
+  for (let i = 0; i < active; i++) {
+    const d = rainDrops[i];
+    d.wy += d.fallSpeed * speedMult * dt;
 
     if (d.wy >= d.landY) {
       splashes.push({ wx: d.wx, wy: d.landY, t: 0 });
@@ -152,18 +186,27 @@ function updateRain(dt) {
 }
 
 function drawRain() {
-  const size = RAIN_WORLD_SIZE * zoom;
+  const lengthMult = rainIntensity().length;
+  const active = activeRainDropCount();
+  // 1px wide in WORLD units, so it scales with zoom exactly like every
+  // other world-space sprite instead of staying a hairline when zoomed
+  // in. fillRect (not a stroked line) keeps the edges crisp and
+  // pixel-aligned, matching the game's art rather than anti-aliasing
+  // into a smear.
+  const w = Math.max(1, RAIN_DROP_WIDTH * zoom);
 
   ctx.save();
-  ctx.globalAlpha = 0.85;
-  for (const d of rainDrops) {
+  for (let i = 0; i < active; i++) {
+    const d = rainDrops[i];
     const screenX = (d.wx - camX) * zoom;
     const screenY = (d.wy - camY) * zoom;
-    const sx = d.frame * RAIN_FRAME_W;
-    ctx.drawImage(assets.rain, sx, 0, RAIN_FRAME_W, RAIN_FRAME_H, screenX - size / 2, screenY - size / 2, size, size);
+    ctx.globalAlpha = d.alpha;
+    ctx.fillStyle = "rgb(" + RAIN_COLOR_RGB + ")";
+    ctx.fillRect(screenX - w / 2, screenY, w, d.len * lengthMult * zoom);
   }
   ctx.restore();
 
+  // Ground splashes — unchanged, still the RainOnFloor.png frames.
   const splashSize = SPLASH_WORLD_SIZE * zoom;
   ctx.save();
   for (const s of splashes) {
@@ -174,6 +217,118 @@ function drawRain() {
     const sx = frame * SPLASH_FRAME_W;
     ctx.globalAlpha = 1 - progress * 0.6;
     ctx.drawImage(assets.rainOnFloor, sx, 0, SPLASH_FRAME_W, SPLASH_FRAME_H, screenX - splashSize / 2, screenY - splashSize / 2, splashSize, splashSize);
+  }
+  ctx.restore();
+}
+
+// --- Lightning (Thunderstorm only) -----------------------------------
+// A full-screen flash on a random timer. Real lightning flickers rather
+// than fading smoothly, so the alpha below is a decaying envelope cut by
+// a fast strobe — one strike reads as two or three quick stabs of light,
+// not a single soft pulse.
+let lightningCountdown = weatherRand(LIGHTNING_GAP_MIN, LIGHTNING_GAP_MAX);
+let lightningFlash = 0; // seconds of flicker left in the current strike
+
+function updateLightning(dt) {
+  if (getCurrentWeather().name !== "Thunderstorm") {
+    lightningFlash = 0;
+    lightningBolt = null;
+    return;
+  }
+  if (lightningFlash > 0) lightningFlash = Math.max(0, lightningFlash - dt);
+  lightningCountdown -= dt;
+  if (lightningCountdown <= 0) {
+    lightningFlash = LIGHTNING_FLASH_DURATION;
+    lightningCountdown = weatherRand(LIGHTNING_GAP_MIN, LIGHTNING_GAP_MAX);
+    lightningBolt = buildLightningBolt();
+  }
+}
+
+// The bolt itself — a jagged line from the top of the screen down to a
+// random point, with a couple of shorter branches forking off it. Built
+// ONCE per strike and then just redrawn, so it flickers in place like a
+// real bolt instead of writhing around during its own flash.
+//
+// Screen-space on purpose: a strike is lightning somewhere over the
+// scene, not an object standing in the world, so it shouldn't scroll
+// with the camera.
+let lightningBolt = null;
+
+function buildLightningBolt() {
+  const vw = view.width, vh = view.height;
+  const main = [];
+  let x = weatherRand(vw * 0.15, vw * 0.85);
+  let y = 0;
+  const endY = weatherRand(vh * 0.45, vh * 0.8); // stops partway down, behind the treeline
+  const steps = Math.round(weatherRand(7, 11));
+  const stepY = endY / steps;
+  main.push({ x, y });
+  for (let i = 0; i < steps; i++) {
+    y += stepY;
+    x += weatherRand(-LIGHTNING_JAG_PX, LIGHTNING_JAG_PX);
+    main.push({ x, y });
+  }
+
+  // A branch or two, forking off a mid-point and dying out quickly.
+  const branches = [];
+  const branchCount = Math.round(weatherRand(1, 2.49));
+  for (let b = 0; b < branchCount; b++) {
+    const from = Math.floor(weatherRand(1, main.length - 2));
+    const pts = [main[from]];
+    let bx = main[from].x, by = main[from].y;
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const n = Math.round(weatherRand(2, 4));
+    for (let i = 0; i < n; i++) {
+      by += stepY * 0.7;
+      bx += dir * weatherRand(6, LIGHTNING_JAG_PX * 1.3);
+      pts.push({ x: bx, y: by });
+    }
+    branches.push(pts);
+  }
+  return { main, branches };
+}
+
+function strokeBoltPath(pts, width, alpha) {
+  if (pts.length < 2) return;
+  ctx.globalAlpha = Math.min(1, alpha);
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+}
+
+function drawLightning() {
+  if (lightningFlash <= 0) return;
+  const t = lightningFlash / LIGHTNING_FLASH_DURATION; // 1 -> 0 over the strike
+  const strobe = 0.55 + 0.45 * Math.abs(Math.sin(t * Math.PI * 5)); // the flicker
+  const alpha = LIGHTNING_FLASH_ALPHA * t * t * strobe;             // t*t = fast decay
+  if (alpha <= 0.004) return;
+  ctx.save();
+  // the sky lighting up
+  ctx.globalAlpha = Math.min(1, alpha);
+  ctx.fillStyle = "rgb(" + LIGHTNING_COLOR_RGB + ")";
+  ctx.fillRect(0, 0, view.width, view.height);
+
+  // ...and the bolt drawn over it. Only for the first part of the
+  // strike — the bolt itself is gone long before the sky finishes
+  // fading, which is what makes the afterglow read as an afterglow.
+  if (lightningBolt && t > 0.45) {
+    const boltFade = (t - 0.45) / 0.55; // 1 at the strike, 0 as it dies
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    // Wide soft halo first, then the hot white core on top — that
+    // pairing is what stops a bolt reading as a plain drawn line.
+    ctx.strokeStyle = "rgb(" + LIGHTNING_COLOR_RGB + ")";
+    strokeBoltPath(lightningBolt.main, LIGHTNING_BOLT_WIDTH * 4, boltFade * 0.45 * strobe);
+    for (const b of lightningBolt.branches) {
+      strokeBoltPath(b, LIGHTNING_BOLT_WIDTH * 2.5, boltFade * 0.3 * strobe);
+    }
+    ctx.strokeStyle = "#ffffff";
+    strokeBoltPath(lightningBolt.main, LIGHTNING_BOLT_WIDTH, boltFade * strobe);
+    for (const b of lightningBolt.branches) {
+      strokeBoltPath(b, LIGHTNING_BOLT_WIDTH * 0.6, boltFade * 0.8 * strobe);
+    }
   }
   ctx.restore();
 }
@@ -666,7 +821,10 @@ function drawSunRays(camX, camY) {
 function initWeatherFX() {
   computeSun();
   buildCloudShadowImages();
-  for (let i = 0; i < RAIN_DROP_COUNT; i++) rainDrops.push(spawnRainDrop(true));
+  // Pool at the STORM-sized maximum; plain rain just leaves the tail of
+  // it idle (activeRainDropCount()), so switching weather never has to
+  // allocate or throw away drops mid-game.
+  for (let i = 0; i < RAIN_DROP_COUNT_MAX; i++) rainDrops.push(spawnRainDrop(true));
   for (let i = 0; i < SNOW_FLAKE_COUNT; i++) {
     const f = spawnSnowFlake(true);
     f.baseX = f.wx;
@@ -688,17 +846,20 @@ function updateWeatherFX(dt) {
   // out of position while their weather isn't active, so they don't pop
   // in mid-fall the moment it switches back on.
   const weatherName = getCurrentWeather().name;
-  if (weatherName === "Rainy") updateRain(dt);
+  if (isRaining(weatherName)) updateRain(dt); // "Rainy" and "Thunderstorm" both
   if (weatherName === "Snow") updateSnow(dt);
+  updateLightning(dt);
   updateClouds(dt);
   updateFog(dt);
 }
 
 // Rain/snow, drawn as the topmost world-space overlay (call last in
-// render()) — only one (or neither, on a Sunny day) actually renders,
-// picked by js/calendar.js's getCurrentWeather().
+// render()) — only one (or neither, on a Sunny or Cloudy day) actually
+// renders, picked by js/calendar.js's getCurrentWeather(). The
+// thunderstorm's lightning flash goes on last of all, over the rain.
 function drawWeatherOverlayFX() {
   const weatherName = getCurrentWeather().name;
-  if (weatherName === "Rainy") drawRain();
+  if (isRaining(weatherName)) drawRain();
   else if (weatherName === "Snow") drawSnow();
+  drawLightning();
 }

@@ -752,6 +752,7 @@ const itemDefs = {
     unlimited: true,
     flat: true,
     layer: "decor",
+    castsLightShadow: true,
   },
   decoFlower2: {
     id: "decoFlower2",
@@ -760,6 +761,7 @@ const itemDefs = {
     unlimited: true,
     flat: true,
     layer: "decor",
+    castsLightShadow: true,
   },
 
   // --- wild grass — renamed from "decoGrass"/"Grass Tuft" per request,
@@ -1144,6 +1146,19 @@ const itemDefs = {
     footprintExcludeBackRows: 2,
     fadeOnlyWhenBehind: true,
     buildSeconds: 10,
+    // House's own interior — the small one-room art (js/interior.js's
+    // `smallInterior`). Unlike house2/house3 this has no
+    // `wallColliderPx`, so entry uses the plain door-TILE check in
+    // checkInteriorEntry(): stand on the door tile and press up.
+    //
+    // `doorOffset: { col: 0, row: 0 }` means that tile is the placement
+    // tile itself, which is exactly right here — the art is 130x126 and
+    // drawn bottom-centre anchored, so the placement tile covers art
+    // x 57-72, y 110-125: the doorway's threshold, dead centre under the
+    // door. That same tile is also carved out of the collision footprint
+    // (getObjectFootprintBlockedTiles(), inventory.js), so it's walkable
+    // rather than a solid wall you could never reach.
+    interior: { roomId: "smallInterior", doorOffset: { col: 0, row: 0 } },
   },
 
   // --- wood tools/weapons. 14 are real equippable weapons (`equipSlot` +
@@ -1227,96 +1242,112 @@ const itemDefs = {
     name: "Big Green Bush",
     icon: assets.bushBigGreen,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushBigLightGreen: {
     id: "bushBigLightGreen",
     name: "Big Light Green Bush",
     icon: assets.bushBigLightGreen,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushBigRed: {
     id: "bushBigRed",
     name: "Big Red Bush",
     icon: assets.bushBigRed,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushBigYellow: {
     id: "bushBigYellow",
     name: "Big Yellow Bush",
     icon: assets.bushBigYellow,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushMediumGreen: {
     id: "bushMediumGreen",
     name: "Medium Green Bush",
     icon: assets.bushMediumGreen,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushMediumLightGreen: {
     id: "bushMediumLightGreen",
     name: "Medium Light Green Bush",
     icon: assets.bushMediumLightGreen,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushMediumRed: {
     id: "bushMediumRed",
     name: "Medium Red Bush",
     icon: assets.bushMediumRed,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushMediumYellow: {
     id: "bushMediumYellow",
     name: "Medium Yellow Bush",
     icon: assets.bushMediumYellow,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushSmallGreen: {
     id: "bushSmallGreen",
     name: "Small Green Bush",
     icon: assets.bushSmallGreen,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushSmallLightGreen: {
     id: "bushSmallLightGreen",
     name: "Small Light Green Bush",
     icon: assets.bushSmallLightGreen,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushSmallRed: {
     id: "bushSmallRed",
     name: "Small Red Bush",
     icon: assets.bushSmallRed,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushSmallYellow: {
     id: "bushSmallYellow",
     name: "Small Yellow Bush",
     icon: assets.bushSmallYellow,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushXSGreen: {
     id: "bushXSGreen",
     name: "XS Green Bush",
     icon: assets.bushXSGreen,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushXSLightGreen: {
     id: "bushXSLightGreen",
     name: "XS Light Green Bush",
     icon: assets.bushXSLightGreen,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushXSRed: {
     id: "bushXSRed",
     name: "XS Red Bush",
     icon: assets.bushXSRed,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushXSYellow: {
     id: "bushXSYellow",
     name: "XS Yellow Bush",
     icon: assets.bushXSYellow,
     unlimited: true,
+    castsLightShadow: true,
   },
   bushFlowerA: {
     id: "bushFlowerA",
@@ -1356,6 +1387,7 @@ const itemDefs = {
     icon: assets.bushMushroom1,
     unlimited: true,
     noOcclusionFade: true,
+    castsLightShadow: true,
   },
   bushMushroom2: {
     id: "bushMushroom2",
@@ -1364,6 +1396,7 @@ const itemDefs = {
     unlimited: true,
     noOcclusionFade: true,
     alwaysBehindPlayer: true,
+    castsLightShadow: true,
   },
   leavesFloor: {
     id: "leavesFloor",
@@ -1469,27 +1502,14 @@ const itemDefs = {
     buildSeconds: 10,
     interior: { roomId: "sharedHouse", doorOffset: { col: 0, row: 0 } },
   },
-  floorBrown: {
-    id: "floorBrown",
-    name: "Floor (Brown)",
-    icon: assets.floorBrown,
-    unlimited: true,
-    flat: true,
-  },
-  floorDarkGreen: {
-    id: "floorDarkGreen",
-    name: "Floor (Dark Green)",
-    icon: assets.floorDarkGreen,
-    unlimited: true,
-    flat: true,
-  },
-  floorGreen: {
-    id: "floorGreen",
-    name: "Floor (Green)",
-    icon: assets.floorGreen,
-    unlimited: true,
-    flat: true,
-  },
+  // NOTE: the whole-sheet "Floor (Brown)/(Dark Green)/(Green)" and
+  // "Fence" items that used to live here are gone — per request
+  // ("may duplicate mga yan sa inventory, erase mo na lang"). They've
+  // been replaced by their sliced 16x16 tile families further down
+  // (floorBrownTile*/floorDarkGreenTile*/floorGreenTile*/fenceTile*),
+  // which cover the same art one placeable tile at a time. Any old
+  // save that still has one placed simply drops it on load —
+  // applySaveData() (js/save.js) skips types that no longer exist.
   interiorWall: {
     id: "interiorWall",
     name: "Interior Wall",
@@ -1758,6 +1778,14 @@ const itemDefs = {
     icon: assets.meatItem,
     unlimited: true,
     flat: true,
+    // Edible — per request ("may meat sa inventory, kapag na-use ko yun,
+    // dagdag ng 20+ para sa food duration, tyaka health 20% ng health").
+    // `food` is a flat number of food points; `healthPercent` is a
+    // percentage of maxHealth (NOT of current health), so a 20 here heals
+    // the same 20 points whether you're nearly dead or nearly full —
+    // healing a percentage of CURRENT health would make the item
+    // near-useless exactly when you need it most. See consumeItem().
+    consumable: { food: 20, healthPercent: 20 },
   },
   chairFront: {
     id: "chairFront",
@@ -1771,6 +1799,17 @@ const itemDefs = {
     id: "chairRight",
     name: "Chair (Side-facing)",
     icon: assets.chairRight,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+  },
+  // The left-facing counterpart — per request ("kung may right dapat may
+  // left din"). Its art (assets/interior/leftchair.png) was already in
+  // the project, just never registered as an item.
+  chairLeft: {
+    id: "chairLeft",
+    name: "Chair (Side-facing, Left)",
+    icon: assets.chairLeft,
     unlimited: true,
     collides: true,
     multiTileFootprint: true,
@@ -2005,7 +2044,17 @@ const itemDefs = {
     collides: true,
     multiTileFootprint: true,
   },
-  fence: { id: "fence", name: "Fence", icon: assets.fence, unlimited: true, collides: true, multiTileFootprint: true },
+  // Same rule for the outdoor chair. This one had no left art at all, so
+  // it's a horizontal mirror of chairside.png, generated into
+  // assets/outdoor/chairside_left.png.
+  chairOutdoorSideLeft: {
+    id: "chairOutdoorSideLeft",
+    name: "Outdoor Chair (Side, Left)",
+    icon: assets.chairOutdoorSideLeft,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+  },
   floorMat: {
     id: "floorMat",
     name: "Floor Mat",
@@ -2095,13 +2144,80 @@ const itemDefs = {
     collides: true,
     multiTileFootprint: true,
   },
+  // Lamp post. Treated like a TREE, not a building — per request ("yung
+  // pinaka root niya yun lang yung may collission, para lang siyang
+  // noLeave na tree"): no `multiTileFootprint`, so exactly one tile
+  // blocks, the tile it was placed on, and the tall art simply hangs
+  // above/beside it.
+  //
+  // `artRoot` is what makes that tile the POST'S FOOT rather than the
+  // middle of its bounding box. Measured off the PNGs: the foot sits at
+  // x 7.5 / row 45 in the 32x48 unlit art and x 8.5 / row 75 in the
+  // 64x80 lit one, both given here as an offset from each art's own
+  // bottom-centre. Without it the pole drew about a tile and a half left
+  // of the tile you clicked (see objectArtRect(), js/camera.js).
   postLight: {
     id: "postLight",
     name: "Lamp Post",
     icon: assets.postLight,
     unlimited: true,
     collides: true,
-    multiTileFootprint: true,
+    groupIcon: true, // stands in for the whole lamp family in the inventory — per request, "postlight gamitin mong icon"
+    artRoot: { x: -23.5, y: -4 },
+    // Swaps to the lit art after dark and back at sunrise, crossfading
+    // both ways — per request ("postlight sa umaga, postlight-light sa
+    // gabi... pa-fade yung entrance ng pag-transition").
+    nightIcon: assets.postLightLit,
+    // Which mask the occlusion fade tests against once the lit art is
+    // the one on screen — per request ("yung mismong deadspace is wala
+    // mag-opacity, tapos kapag na-reach lang yung mismong object tyaka
+    // lang mag-opacity... check mo yung logic ng trees"). That's exactly
+    // what a tree does, and it only works from a real per-pixel mask; the
+    // lit art is a different shape and size from the unlit one, so it
+    // needs its own (generated into js/objectAlphaMasks.js).
+    nightMaskType: "postLightLit",
+    // The glow sits on the bulb (measured at 40, 22.5 in the lit art),
+    // expressed from the tile's bottom-centre once root anchoring has
+    // shifted the art into place.
+    lightGlow: { offsetX: 31.5, offsetY: -53.5 },
+  },
+  // The lit lamp as its OWN placeable item — per request ("yung
+  // postlight/postlight-light is na hold din"). Permanently lit, so no
+  // `nightIcon`; same root anchoring and same single-tile collision.
+  postLightLit: {
+    id: "postLightLit",
+    name: "Lamp Post (Lit)",
+    icon: assets.postLightLit,
+    unlimited: true,
+    collides: true,
+    artRoot: { x: -23.5, y: -4 },
+    lightGlow: { offsetX: 31.5, offsetY: -53.5 },
+  },
+  // Left-facing mirrors of the two lamps above — per request ("original
+  // kasi diba right side lang, gusto ko rin sana magka left side"). The
+  // art is generated by flipping the originals
+  // (assets/outdoor/postlight_left.png and postlight-light_left.png), so
+  // every measurement mirrors too: the post's foot moves from x 8.5 to
+  // x 54.5, and the bulb's glow from +31.5 to -31.5.
+  postLightLeft: {
+    id: "postLightLeft",
+    name: "Lamp Post (Left)",
+    icon: assets.postLightLeft,
+    unlimited: true,
+    collides: true,
+    artRoot: { x: 22.5, y: -4 },
+    nightIcon: assets.postLightLitLeft,
+    nightMaskType: "postLightLitLeft",
+    lightGlow: { offsetX: -31.5, offsetY: -53.5 },
+  },
+  postLightLitLeft: {
+    id: "postLightLitLeft",
+    name: "Lamp Post (Lit, Left)",
+    icon: assets.postLightLitLeft,
+    unlimited: true,
+    collides: true,
+    artRoot: { x: 22.5, y: -4 },
+    lightGlow: { offsetX: -31.5, offsetY: -53.5 },
   },
   postHandleLight: {
     id: "postHandleLight",
@@ -2310,6 +2426,429 @@ const itemDefs = {
     collides: true,
     interiorOnly: true,
   },
+
+  // --- fence / floor sheets sliced into single 16x16 game tiles ---
+  // Per request ("meron akong object na fence, floor brown, darkgreen at
+  // green sa inventory, gawin mo hatiin mo sa tiles yun"). Each source
+  // sprite was one whole bordered object; these are its individual
+  // cells, so a border/floor can be built piece by piece instead of
+  // dropped as one fixed block. Fully-transparent cells are skipped
+  // (fence's hollow middle, floorbrown's rounded corners), which is why
+  // the counts are 19/21/9/9 rather than 25/25/9/9.
+  //
+  // They consolidate into one inventory slot each via TILE_GROUP_META
+  // below, the same way the grass/dirt/water/port families do —
+  // `groupIcon: true` marks the centre tile that represents the family.
+  fenceTileR0C0: {
+    id: "fenceTileR0C0",
+    name: "Fence Tile (R1C1)",
+    icon: assets.fenceTileR0C0,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR0C1: {
+    id: "fenceTileR0C1",
+    name: "Fence Tile (R1C2)",
+    icon: assets.fenceTileR0C1,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR0C2: {
+    id: "fenceTileR0C2",
+    name: "Fence Tile (R1C3)",
+    icon: assets.fenceTileR0C2,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR0C3: {
+    id: "fenceTileR0C3",
+    name: "Fence Tile (R1C4)",
+    icon: assets.fenceTileR0C3,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR0C4: {
+    id: "fenceTileR0C4",
+    name: "Fence Tile (R1C5)",
+    icon: assets.fenceTileR0C4,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR1C0: {
+    id: "fenceTileR1C0",
+    name: "Fence Tile (R2C1)",
+    icon: assets.fenceTileR1C0,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR1C1: {
+    id: "fenceTileR1C1",
+    name: "Fence Tile (R2C2)",
+    icon: assets.fenceTileR1C1,
+    unlimited: true,
+    collides: true,
+    groupIcon: true, // the dead-centre tile — stands in for the whole family in the inventory
+  },
+  fenceTileR1C3: {
+    id: "fenceTileR1C3",
+    name: "Fence Tile (R2C4)",
+    icon: assets.fenceTileR1C3,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR1C4: {
+    id: "fenceTileR1C4",
+    name: "Fence Tile (R2C5)",
+    icon: assets.fenceTileR1C4,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR2C0: {
+    id: "fenceTileR2C0",
+    name: "Fence Tile (R3C1)",
+    icon: assets.fenceTileR2C0,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR2C4: {
+    id: "fenceTileR2C4",
+    name: "Fence Tile (R3C5)",
+    icon: assets.fenceTileR2C4,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR3C0: {
+    id: "fenceTileR3C0",
+    name: "Fence Tile (R4C1)",
+    icon: assets.fenceTileR3C0,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR3C1: {
+    id: "fenceTileR3C1",
+    name: "Fence Tile (R4C2)",
+    icon: assets.fenceTileR3C1,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR3C3: {
+    id: "fenceTileR3C3",
+    name: "Fence Tile (R4C4)",
+    icon: assets.fenceTileR3C3,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR3C4: {
+    id: "fenceTileR3C4",
+    name: "Fence Tile (R4C5)",
+    icon: assets.fenceTileR3C4,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR4C0: {
+    id: "fenceTileR4C0",
+    name: "Fence Tile (R5C1)",
+    icon: assets.fenceTileR4C0,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR4C1: {
+    id: "fenceTileR4C1",
+    name: "Fence Tile (R5C2)",
+    icon: assets.fenceTileR4C1,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR4C2: {
+    id: "fenceTileR4C2",
+    name: "Fence Tile (R5C3)",
+    icon: assets.fenceTileR4C2,
+    unlimited: true,
+    collides: true,
+  },
+  fenceTileR4C3: {
+    id: "fenceTileR4C3",
+    name: "Fence Tile (R5C4)",
+    icon: assets.fenceTileR4C3,
+    unlimited: true,
+    collides: true,
+  },
+  floorBrownTileR0C1: {
+    id: "floorBrownTileR0C1",
+    name: "Brown Floor Tile (R1C2)",
+    icon: assets.floorBrownTileR0C1,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR0C2: {
+    id: "floorBrownTileR0C2",
+    name: "Brown Floor Tile (R1C3)",
+    icon: assets.floorBrownTileR0C2,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR0C3: {
+    id: "floorBrownTileR0C3",
+    name: "Brown Floor Tile (R1C4)",
+    icon: assets.floorBrownTileR0C3,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR1C0: {
+    id: "floorBrownTileR1C0",
+    name: "Brown Floor Tile (R2C1)",
+    icon: assets.floorBrownTileR1C0,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR1C1: {
+    id: "floorBrownTileR1C1",
+    name: "Brown Floor Tile (R2C2)",
+    icon: assets.floorBrownTileR1C1,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR1C2: {
+    id: "floorBrownTileR1C2",
+    name: "Brown Floor Tile (R2C3)",
+    icon: assets.floorBrownTileR1C2,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR1C3: {
+    id: "floorBrownTileR1C3",
+    name: "Brown Floor Tile (R2C4)",
+    icon: assets.floorBrownTileR1C3,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR1C4: {
+    id: "floorBrownTileR1C4",
+    name: "Brown Floor Tile (R2C5)",
+    icon: assets.floorBrownTileR1C4,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR2C0: {
+    id: "floorBrownTileR2C0",
+    name: "Brown Floor Tile (R3C1)",
+    icon: assets.floorBrownTileR2C0,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR2C1: {
+    id: "floorBrownTileR2C1",
+    name: "Brown Floor Tile (R3C2)",
+    icon: assets.floorBrownTileR2C1,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR2C2: {
+    id: "floorBrownTileR2C2",
+    name: "Brown Floor Tile (R3C3)",
+    icon: assets.floorBrownTileR2C2,
+    unlimited: true,
+    flat: true,
+    groupIcon: true, // the dead-centre tile — stands in for the whole family in the inventory
+  },
+  floorBrownTileR2C3: {
+    id: "floorBrownTileR2C3",
+    name: "Brown Floor Tile (R3C4)",
+    icon: assets.floorBrownTileR2C3,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR2C4: {
+    id: "floorBrownTileR2C4",
+    name: "Brown Floor Tile (R3C5)",
+    icon: assets.floorBrownTileR2C4,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR3C0: {
+    id: "floorBrownTileR3C0",
+    name: "Brown Floor Tile (R4C1)",
+    icon: assets.floorBrownTileR3C0,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR3C1: {
+    id: "floorBrownTileR3C1",
+    name: "Brown Floor Tile (R4C2)",
+    icon: assets.floorBrownTileR3C1,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR3C2: {
+    id: "floorBrownTileR3C2",
+    name: "Brown Floor Tile (R4C3)",
+    icon: assets.floorBrownTileR3C2,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR3C3: {
+    id: "floorBrownTileR3C3",
+    name: "Brown Floor Tile (R4C4)",
+    icon: assets.floorBrownTileR3C3,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR3C4: {
+    id: "floorBrownTileR3C4",
+    name: "Brown Floor Tile (R4C5)",
+    icon: assets.floorBrownTileR3C4,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR4C1: {
+    id: "floorBrownTileR4C1",
+    name: "Brown Floor Tile (R5C2)",
+    icon: assets.floorBrownTileR4C1,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR4C2: {
+    id: "floorBrownTileR4C2",
+    name: "Brown Floor Tile (R5C3)",
+    icon: assets.floorBrownTileR4C2,
+    unlimited: true,
+    flat: true,
+  },
+  floorBrownTileR4C3: {
+    id: "floorBrownTileR4C3",
+    name: "Brown Floor Tile (R5C4)",
+    icon: assets.floorBrownTileR4C3,
+    unlimited: true,
+    flat: true,
+  },
+  floorDarkGreenTileR0C0: {
+    id: "floorDarkGreenTileR0C0",
+    name: "Dark Green Floor Tile (R1C1)",
+    icon: assets.floorDarkGreenTileR0C0,
+    unlimited: true,
+    flat: true,
+  },
+  floorDarkGreenTileR0C1: {
+    id: "floorDarkGreenTileR0C1",
+    name: "Dark Green Floor Tile (R1C2)",
+    icon: assets.floorDarkGreenTileR0C1,
+    unlimited: true,
+    flat: true,
+  },
+  floorDarkGreenTileR0C2: {
+    id: "floorDarkGreenTileR0C2",
+    name: "Dark Green Floor Tile (R1C3)",
+    icon: assets.floorDarkGreenTileR0C2,
+    unlimited: true,
+    flat: true,
+  },
+  floorDarkGreenTileR1C0: {
+    id: "floorDarkGreenTileR1C0",
+    name: "Dark Green Floor Tile (R2C1)",
+    icon: assets.floorDarkGreenTileR1C0,
+    unlimited: true,
+    flat: true,
+  },
+  floorDarkGreenTileR1C1: {
+    id: "floorDarkGreenTileR1C1",
+    name: "Dark Green Floor Tile (R2C2)",
+    icon: assets.floorDarkGreenTileR1C1,
+    unlimited: true,
+    flat: true,
+    groupIcon: true, // the dead-centre tile — stands in for the whole family in the inventory
+  },
+  floorDarkGreenTileR1C2: {
+    id: "floorDarkGreenTileR1C2",
+    name: "Dark Green Floor Tile (R2C3)",
+    icon: assets.floorDarkGreenTileR1C2,
+    unlimited: true,
+    flat: true,
+  },
+  floorDarkGreenTileR2C0: {
+    id: "floorDarkGreenTileR2C0",
+    name: "Dark Green Floor Tile (R3C1)",
+    icon: assets.floorDarkGreenTileR2C0,
+    unlimited: true,
+    flat: true,
+  },
+  floorDarkGreenTileR2C1: {
+    id: "floorDarkGreenTileR2C1",
+    name: "Dark Green Floor Tile (R3C2)",
+    icon: assets.floorDarkGreenTileR2C1,
+    unlimited: true,
+    flat: true,
+  },
+  floorDarkGreenTileR2C2: {
+    id: "floorDarkGreenTileR2C2",
+    name: "Dark Green Floor Tile (R3C3)",
+    icon: assets.floorDarkGreenTileR2C2,
+    unlimited: true,
+    flat: true,
+  },
+  floorGreenTileR0C0: {
+    id: "floorGreenTileR0C0",
+    name: "Green Floor Tile (R1C1)",
+    icon: assets.floorGreenTileR0C0,
+    unlimited: true,
+    flat: true,
+  },
+  floorGreenTileR0C1: {
+    id: "floorGreenTileR0C1",
+    name: "Green Floor Tile (R1C2)",
+    icon: assets.floorGreenTileR0C1,
+    unlimited: true,
+    flat: true,
+  },
+  floorGreenTileR0C2: {
+    id: "floorGreenTileR0C2",
+    name: "Green Floor Tile (R1C3)",
+    icon: assets.floorGreenTileR0C2,
+    unlimited: true,
+    flat: true,
+  },
+  floorGreenTileR1C0: {
+    id: "floorGreenTileR1C0",
+    name: "Green Floor Tile (R2C1)",
+    icon: assets.floorGreenTileR1C0,
+    unlimited: true,
+    flat: true,
+  },
+  floorGreenTileR1C1: {
+    id: "floorGreenTileR1C1",
+    name: "Green Floor Tile (R2C2)",
+    icon: assets.floorGreenTileR1C1,
+    unlimited: true,
+    flat: true,
+    groupIcon: true, // the dead-centre tile — stands in for the whole family in the inventory
+  },
+  floorGreenTileR1C2: {
+    id: "floorGreenTileR1C2",
+    name: "Green Floor Tile (R2C3)",
+    icon: assets.floorGreenTileR1C2,
+    unlimited: true,
+    flat: true,
+  },
+  floorGreenTileR2C0: {
+    id: "floorGreenTileR2C0",
+    name: "Green Floor Tile (R3C1)",
+    icon: assets.floorGreenTileR2C0,
+    unlimited: true,
+    flat: true,
+  },
+  floorGreenTileR2C1: {
+    id: "floorGreenTileR2C1",
+    name: "Green Floor Tile (R3C2)",
+    icon: assets.floorGreenTileR2C1,
+    unlimited: true,
+    flat: true,
+  },
+  floorGreenTileR2C2: {
+    id: "floorGreenTileR2C2",
+    name: "Green Floor Tile (R3C3)",
+    icon: assets.floorGreenTileR2C2,
+    unlimited: true,
+    flat: true,
+  },
 };
 
 /* ---------------- tile groups (consolidated inventory slots) ----------------
@@ -2351,7 +2890,26 @@ const TILE_GROUP_META = {
   // Every tree/stump variant (living, bare, and cut-stump alike) — no
   // exclusions needed, `woodLog`/`woodPlank`/`woodStick` etc. are a
   // separate "wood" prefix, not "tree".
-  tree: { name: "Trees", match: (t) => t.startsWith("tree") },
+  tree: { name: "Trees", match: (t) => t.startsWith("tree") },
+  // All six chairs share one inventory slot — per request ("may mag-appear
+  // na pop up may hold tapos 1-7 hotkey na lilitaw kapag click sa
+  // inventory"). Clicking it opens the variant picker, and picking one
+  // from there opens the same Hold + 1-7 menu every other item uses.
+  // Multi-icon preview rather than `singleIcon`, since a front chair, a
+  // side chair and an outdoor one genuinely look different from each
+  // other — the same reason Trees and Stones keep theirs.
+  chair: { name: "Chairs", match: (t) => t.startsWith("chair") },
+  // The four lamp posts (right/left, unlit/lit) share one slot — per
+  // request ("pag-sama-samahin mo na sa isang icon, postlight gamitin
+  // mong icon, tapos pag-click at nakapili na, may popup na hold at
+  // hotkey 1-7"). `singleIcon` shows just the plain right-facing lamp
+  // rather than a packed grid, since at preview size the four are near
+  // enough identical that a grid reads as mush.
+  postLight: { name: "Lamp Posts", match: (t) => t.startsWith("postLight"), singleIcon: true },
+  fenceTile: { name: "Fence Tiles", match: (t) => t.startsWith("fenceTile"), singleIcon: true },
+  floorBrownTile: { name: "Brown Floor Tiles", match: (t) => t.startsWith("floorBrownTile"), singleIcon: true },
+  floorDarkGreenTile: { name: "Dark Green Floor Tiles", match: (t) => t.startsWith("floorDarkGreenTile"), singleIcon: true },
+  floorGreenTile: { name: "Green Floor Tiles", match: (t) => t.startsWith("floorGreenTile"), singleIcon: true },
 };
 
 function tileGroupIdForType(type) {
@@ -2488,6 +3046,39 @@ function isWithinPlacementRange(col, row) {
   );
 }
 
+/* ---------------- eating (consumables) ---------------- */
+
+// Eats one of whatever's in `slotIndex`, if its itemDefs entry has a
+// `consumable` block (right now: Meat). Restores food and health, then
+// runs the SAME bookkeeping tail placing an item does
+// (commitPlacementUse() — hotbar highlight, decrement unless
+// `unlimited`, save, re-render), so eating and placing can never drift
+// apart on how a stack is spent.
+//
+// Both bars are clamped to their maximum, and the whole thing is a no-op
+// when you're already completely full — otherwise a click would silently
+// burn an item for nothing.
+function consumeItem(slotIndex) {
+  const slot = inventory[slotIndex];
+  if (!slot) return false;
+  const def = itemDefs[slot.type];
+  if (!def || !def.consumable) return false;
+
+  const { food = 0, healthPercent = 0 } = def.consumable;
+  const healthGain = (healthPercent / 100) * player.maxHealth;
+
+  const foodRoom = player.maxFood - player.food;
+  const healthRoom = player.maxHealth - player.health;
+  if (foodRoom <= 0.001 && healthRoom <= 0.001) return false; // already full — don't waste it
+
+  player.food = Math.min(player.maxFood, player.food + food);
+  player.health = Math.min(player.maxHealth, player.health + healthGain);
+
+  commitPlacementUse(slotIndex); // shared spend/save/re-render tail
+  updateStatsHUD();              // reflect the new bars immediately, don't wait a frame
+  return true;
+}
+
 /* ---------------- holding / placing ---------------- */
 
 function holdSlot(slotIndex) {
@@ -2509,12 +3100,21 @@ function cancelHeldItem() {
 // Clicking a slot (inventory or hotbar) "uses" whatever's in it — for a
 // weapon that means equipping it directly (no more hold-to-place step for
 // weapons, per request: they're not something you plant on the ground),
-// for anything else it's the existing hold-to-place flow.
+// for a consumable it means eating it, and for anything else it's the
+// existing hold-to-place flow.
+//
+// A consumable is still PLACEABLE — Meat is decor as well as food — so
+// eating deliberately doesn't replace holding, it just takes the
+// left-click/hotkey slot. "Hold" stays available on the right-click
+// action menu (openItemActionMenu()), the same way weapons keep their
+// Equip there.
 function useOrHoldSlot(slotIndex) {
   const slot = inventory[slotIndex];
   if (!slot) return;
   if (itemDefs[slot.type].equipSlot === "weapon") {
     equipWeapon(slot.type);
+  } else if (itemDefs[slot.type].consumable) {
+    consumeItem(slotIndex);
   } else {
     holdSlot(slotIndex);
   }
@@ -3246,11 +3846,8 @@ function openEquipmentWeaponPicker() {
     equipmentPickerEl.appendChild(btn);
   });
 
-  // position it right next to the slot that was clicked
-  const rect = equipmentSlotWeaponEl.getBoundingClientRect();
-  equipmentPickerEl.style.left = rect.right + 8 + "px";
-  equipmentPickerEl.style.top = rect.top + "px";
-  equipmentPickerEl.classList.remove("hidden");
+  // beside the slot, nudged back on-screen if it would overflow
+  positionPopupNear(equipmentPickerEl, equipmentSlotWeaponEl);
 }
 
 equipmentSlotWeaponEl.addEventListener("click", () => {
@@ -3387,24 +3984,49 @@ function buildTileGroupSlotBox(group) {
   if (heldItem && tileGroupByType[heldItem.type] === group)
     box.classList.add("held");
 
-  const preview = document.createElement("div");
-  preview.className = "inv-group-preview";
-  const shown = group.members.slice(0, 9);
-  const cols = shown.length <= 3 ? shown.length : 3;
-  preview.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  shown.forEach((type) => {
-    const img = document.createElement("img");
-    img.src = itemDefs[type].icon.src;
-    img.alt = itemDefs[type].name;
-    preview.appendChild(img);
-  });
-  box.appendChild(preview);
+  // Two ways a family can present itself in its one slot:
+  //
+  //  - `singleIcon` groups (the sliced fence/floor sheets) show ONE icon,
+  //    the member flagged `groupIcon: true` in itemDefs — the sheet's
+  //    dead-centre tile. Per request ("lagay ka lang ng isang icon nila,
+  //    siguro lagay mo yung pinaka inner mid na tile"): these families
+  //    run to 19-21 members whose cells are near-identical at preview
+  //    size, so the packed grid below turned into unreadable mush. One
+  //    clean tile reads far better, and the picker is one click away.
+  //
+  //  - everything else (grass/dirt/water/port/stone/tree) keeps the
+  //    packed multi-icon preview, which suits families whose members
+  //    genuinely look different from one another.
+  const meta = TILE_GROUP_META[group.id];
+  const iconType = meta && meta.singleIcon
+    ? group.members.find((t) => itemDefs[t].groupIcon) || group.members[0]
+    : null;
 
-  if (group.members.length > shown.length) {
-    const more = document.createElement("span");
-    more.className = "inv-group-more";
-    more.textContent = "+" + (group.members.length - shown.length);
-    box.appendChild(more);
+  if (iconType) {
+    const img = document.createElement("img");
+    img.src = itemDefs[iconType].icon.src;
+    img.alt = group.name;
+    box.appendChild(img);
+  } else {
+    const preview = document.createElement("div");
+    preview.className = "inv-group-preview";
+    const shown = group.members.slice(0, 9);
+    const cols = shown.length <= 3 ? shown.length : 3;
+    preview.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    shown.forEach((type) => {
+      const img = document.createElement("img");
+      img.src = itemDefs[type].icon.src;
+      img.alt = itemDefs[type].name;
+      preview.appendChild(img);
+    });
+    box.appendChild(preview);
+
+    if (group.members.length > shown.length) {
+      const more = document.createElement("span");
+      more.className = "inv-group-more";
+      more.textContent = "+" + (group.members.length - shown.length);
+      box.appendChild(more);
+    }
   }
 
   box.addEventListener("click", () => openTileVariantPicker(group, box));
@@ -3421,6 +4043,49 @@ function toggleInventory() {
   inventoryOverlayEl.classList.toggle("hidden", !inventoryOpen);
   closeItemActionMenu();
   closeTileVariantPicker();
+}
+
+/* ---------------- UI: popup placement (shared by all three popups) ----------------
+   Every popup in here — the tile-variant picker, the item action menu and
+   the equipment picker — opens beside the slot that was clicked. Placing
+   it at the slot's own top is fine near the top of the inventory, but a
+   slot far down the grid put the popup's top near the bottom of the
+   screen, so most of it hung off the edge and the Hold button and the 1-7
+   hotkey row were unreachable. Per request ("kapag medyo mababa na yung
+   item sa inventory, yung popup medyo taasan mo lang").
+
+   So: show it first (a hidden element measures as 0x0, so its real height
+   can't be known until it's visible), then slide it back inside the
+   viewport if it would overflow — upward if it runs off the bottom, and
+   flipped to the slot's other side if it runs off the right. It only ever
+   moves as much as it has to, so a popup that already fits stays exactly
+   where it was. */
+const POPUP_VIEWPORT_MARGIN = 8;
+
+function positionPopupNear(popupEl, anchorEl) {
+  popupEl.classList.remove("hidden"); // must be visible before it can be measured
+
+  const rect = anchorEl.getBoundingClientRect();
+  const w = popupEl.offsetWidth;
+  const h = popupEl.offsetHeight;
+  const m = POPUP_VIEWPORT_MARGIN;
+
+  let left = rect.right + m;
+  // Off the right edge? Put it on the slot's left instead, and if there's
+  // no room there either, just clamp inside the window.
+  if (left + w > window.innerWidth - m) {
+    left = rect.left - w - m;
+    if (left < m) left = Math.max(m, window.innerWidth - w - m);
+  }
+
+  let top = rect.top;
+  // Off the bottom? Lift it just enough to fit, never past the top edge.
+  if (top + h > window.innerHeight - m) {
+    top = Math.max(m, window.innerHeight - h - m);
+  }
+
+  popupEl.style.left = left + "px";
+  popupEl.style.top = top + "px";
 }
 
 /* ---------------- UI: tile variant picker (tile-group slots only) ---------------- */
@@ -3475,11 +4140,8 @@ function openTileVariantPicker(group, anchorEl) {
   });
   tileVariantPickerEl.appendChild(grid);
 
-  // position it right next to the group slot that was clicked
-  const rect = anchorEl.getBoundingClientRect();
-  tileVariantPickerEl.style.left = rect.right + 8 + "px";
-  tileVariantPickerEl.style.top = rect.top + "px";
-  tileVariantPickerEl.classList.remove("hidden");
+  // beside the group slot, nudged back on-screen if it would overflow
+  positionPopupNear(tileVariantPickerEl, anchorEl);
 }
 
 // Close on click-outside, same pattern as the item action menu/equipment
@@ -3519,10 +4181,30 @@ function openItemActionMenu(slotIndex, anchorEl) {
   actionMenuEl.appendChild(label);
 
   const isWeapon = itemDefs[slot.type].equipSlot === "weapon";
+  const isConsumable = !!itemDefs[slot.type].consumable;
+
+  // Eat — only for items with a `consumable` block (Meat). Listed FIRST
+  // since it's what left-click does too, so the menu's top entry always
+  // matches the item's primary action.
+  if (isConsumable) {
+    const eatBtn = document.createElement("button");
+    eatBtn.className = "action-menu-hold";
+    const c = itemDefs[slot.type].consumable;
+    eatBtn.textContent = "Eat";
+    eatBtn.title = "+" + c.food + " food, +" + c.healthPercent + "% health";
+    eatBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      consumeItem(slotIndex);
+      closeItemActionMenu();
+    });
+    actionMenuEl.appendChild(eatBtn);
+  }
 
   // Hold is only offered for non-weapons — a weapon is used/equipped
   // directly (see useOrHoldSlot()), not placed on the ground, so "Hold"
-  // doesn't apply to it anymore.
+  // doesn't apply to it anymore. A consumable DOES still get it: Meat is
+  // decor too, and left-click now eats instead of holding, so this is
+  // the only way left to place one.
   if (!isWeapon) {
     const holdBtn = document.createElement("button");
     holdBtn.className = "action-menu-hold";
@@ -3569,11 +4251,8 @@ function openItemActionMenu(slotIndex, anchorEl) {
   }
   actionMenuEl.appendChild(hotkeyRow);
 
-  // position it right next to the slot that was clicked
-  const rect = anchorEl.getBoundingClientRect();
-  actionMenuEl.style.left = rect.right + 8 + "px";
-  actionMenuEl.style.top = rect.top + "px";
-  actionMenuEl.classList.remove("hidden");
+  // beside the slot, nudged back on-screen if it would overflow
+  positionPopupNear(actionMenuEl, anchorEl);
 }
 
 // close the menu if you click anywhere outside it. Opening happens on
