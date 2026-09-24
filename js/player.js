@@ -19,10 +19,22 @@ const player = {
   harvestTarget: null,  // { col, row, type } while action is an attack — which tile the hit resolves against (if any)
   equippedWeapon: null, // null | an itemDefs type with equipSlot === "weapon" (see equipWeapon(), inventory.js)
   grabbedType: null, // null | an itemDefs type — the world object (wild grass/flower/stone/tree) currently held via the E-key grab/place mechanic (tryGrabOrPlaceInFront(), inventory.js). Distinct from `heldItem` (the inventory-based hold-to-place system) — this one is pulled directly OUT of the world, not out of a slot, so unlike heldItem it IS saved (save.js) — losing track of it on reload would silently delete whatever was grabbed, since it's already removed from the world the moment it's picked up.
+  // --- sleeping in a Big Bed (js/resources.js's trySleepInBed()/updateSleeping()) ---
+  sleeping: false,       // true for the whole 20-frame sleep animation, freezing movement (same idea as sceneFade) until it hands off to the fade+wake-up
+  sleepFrame: 0,
+  sleepFrameTimer: 0,
+  sleepFadeStarted: false, // true once the frame reaches SLEEP_FADE_START_FRAME and beginSceneFade() has fired (js/resources.js's updateSleeping()) — frozen on that frame, still drawn as "lying in bed" through the whole fade-out/black/fade-in, not switched back to the normal standing sprite until the fade fully finishes
+  sleepBedCol: 0, sleepBedRow: 0, // the specific placed bed's own anchor tile (findNearbyBigBed(), js/resources.js) — used to draw the sleep animation AT the bed instead of at the player, and to hide that one bed's normal art while it plays (see camera.js)
+  // --- sitting on a bench (js/furniture.js's trySitOnBench()/standUpFromBench()) ---
+  sitting: false,     // freezes normal movement/actions (see updatePlayer() below), same idea as `sleeping` — cleared by pressing any movement key (updateSitting(), js/furniture.js)
+  sitPreX: 0, sitPreY: 0, // exactly where the player was standing right before they clicked to sit — restored on standing up, which is also "the front tile" since that's where they had to be to click the seat in the first place
+  sitAnchorCol: 0, sitAnchorRow: 0, // the sat-on furniture's own anchor tile — camera.js forces that ONE item to draw behind the player, so a bench whose bottom row sorts in front can't hide a character seated on its upper rows
+  sitSeatX: 0, sitSeatY: 0, // the seat's own spot (js/furniture.js's trySitOnBench())
+  sitDrawOffsetX: 0, sitDrawOffsetY: 0, // per-seat nudge for the DRAWN seated sprite only (itemDefs' `poseOffsetX`/`poseOffsetY`) — never moves the player herself
   // --- interior scenes (js/interior.js) ---
   scene: "outside", // "outside" | "inside" — which coordinate space x/y are currently in
-  activeInteriorType: null, // itemDefs type (e.g. "house2") of the interior currently inside, or null while outside
-  activeRoomId: null, // INTERIOR_ROOMS key (e.g. "sharedHouse") the above type's `interior.roomId` resolved to — what rendering/collision actually look the room up by
+  activeInteriorType: null, // itemDefs type (e.g. "tavern") of the interior currently inside, or null while outside
+  activeRoomId: null, // INTERIOR_ROOMS key (e.g. "tavern_room@40,22") the above type's `interior.roomId` resolved to — what rendering/collision actually look the room up by
   outsideReturn: null, // { x, y } saved the moment they entered — restored on exit so they come back exactly where they left off
   gold: 100, // currency, spent at the NPC shop (js/npc.js) — starts with a small amount so there's something to shop with right away
   frame: 0,
@@ -110,13 +122,16 @@ function feetTileAt(x, y) {
 // js/npc.js) checks before taking a step, though, so while the NPC
 // itself isn't a solid obstacle, it still can't walk through anything
 // that actually collides (trees, stones, the house, etc.).
-function isTileBlocked(col, row) {
+// `skipWallColliders`: leave out `wallColliderPx` items (tavern/abandonHouse) —
+// isBodyBlockedAt() below tests those pixel-accurately on its own.
+function isTileBlocked(col, row, skipWallColliders = false) {
   if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return false; // clamp() already keeps the player on the map; nothing to block here
 
-  const layers = [terrainLayer, groundLayer, decorLayer, objectLayer];
+  const layers = ALL_LAYERS;
   for (const layer of layers) {
     for (const [key, type] of layer) {
       if (!itemDefs[type].collides) continue;
+      if (skipWallColliders && itemDefs[type].wallColliderPx) continue;
       const [placedCol, placedRow] = key.split(",").map(Number);
       const blockedTiles = getObjectFootprintBlockedTiles(type, placedCol, placedRow);
       for (let i = 0; i < blockedTiles.length; i++) {
@@ -127,6 +142,41 @@ function isTileBlocked(col, row) {
   return false;
 }
 
+// The check the player's and the NPC's movement actually use: everything
+// tile-based goes through isTileBlocked() exactly as before, EXCEPT items
+// with `wallColliderPx` (tavern/abandonHouse), which are skipped there and
+// tested pixel-accurately instead — the body's real width against the
+// house's real wall columns (isBlockedByHouseWalls(), inventory.js).
+function isBodyBlockedAt(x, y) {
+  const feetY = y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+  const col = Math.floor(x / TILE);
+  const row = Math.floor(feetY / TILE);
+  if (isTileBlocked(col, row, true)) return true;
+  for (const [key, type] of objectLayer) {
+    if (!itemDefs[type].wallColliderPx) continue;
+    const [placedCol, placedRow] = key.split(",").map(Number);
+    if (isBlockedByHouseWalls(type, placedCol, placedRow, x, feetY)) return true;
+  }
+  return false;
+}
+
+// Moves from (x0,y0) toward (x1,y1) — one axis at a time, see the caller
+// — and if the destination is blocked, stops FLUSH against whatever
+// blocks it (binary search between the free start and the blocked end)
+// instead of refusing the whole step. Without this the character stopped
+// up to one frame's worth of movement (a few px when running) short of a
+// wall, so the collision never looked like it lined up with the art.
+function sweepBodyTo(x0, y0, x1, y1) {
+  if (!isBodyBlockedAt(x1, y1)) return { x: x1, y: y1 };
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 6; i++) {
+    const mid = (lo + hi) / 2;
+    if (isBodyBlockedAt(x0 + (x1 - x0) * mid, y0 + (y1 - y0) * mid)) hi = mid;
+    else lo = mid;
+  }
+  return { x: x0 + (x1 - x0) * lo, y: y0 + (y1 - y0) * lo };
+}
+
 function updatePlayer(dt) {
   // Frozen for the entire fade-out -> switch -> fade-in sequence
   // (js/interior.js) — nothing should move, and neither
@@ -134,12 +184,44 @@ function updatePlayer(dt) {
   // retrigger, while the screen is transitioning.
   if (typeof sceneFade !== "undefined" && sceneFade) return;
 
+  // Playing through the Big Bed's 20-frame sleep animation (js/
+  // resources.js's trySleepInBed()/updateSleeping()) — frozen the same
+  // way, until it hands off to beginSceneFade() above at the end.
+  if (player.sleeping) {
+    updateSleeping(dt);
+    return;
+  }
+
+  // Sitting on a placed bench (js/furniture.js) — frozen the same way,
+  // until a movement key stands the player back up.
+  if (player.sitting) {
+    updateSitting(dt);
+    return;
+  }
+
   // Interior scenes (js/interior.js) are a completely separate movement/
   // collision space — branch off immediately, before any of the outdoor
   // collect/throw/harvest/movement logic below (none of which means
   // anything indoors: no world objects in there to grab or harvest).
   if (player.scene === "inside") {
     updatePlayerInsideInterior(dt);
+    // E/T/R for a placed Collision Block (js/interior.js) — the same
+    // one-shot flags input.js already tracks for the outdoor versions,
+    // just resolved immediately instead of waiting on a "collect"
+    // wind-up animation (this scene doesn't have one — see
+    // updatePlayerInsideInterior()'s simpler movement, interior.js).
+    if (collectRequested) {
+      collectRequested = false;
+      tryGrabOrPlaceIndoorItemInFront();
+    }
+    if (throwRequested) {
+      throwRequested = false;
+      tryThrowGrabbedInteriorItem();
+    }
+    if (keepRequested) {
+      keepRequested = false;
+      tryKeepGrabbedItem(); // scene-agnostic already (js/inventory.js) — just grantItem() + clear grabbedType
+    }
     return;
   }
 
@@ -180,7 +262,10 @@ function updatePlayer(dt) {
   // there if so (resolved once the animation finishes —
   // tryGrabOrPlaceInFront(), js/inventory.js — same "resolve at the end
   // of the swing" pattern the F-key attack below uses). Consumes the
-  // one-shot flag from input.js.
+  // one-shot flag from input.js. Per request, "E" is ALWAYS this — even
+  // at a Big Bed (grab/hold it like any other object); sleeping there is
+  // left-click ONLY (trySleepInBed(), js/resources.js's
+  // setupBedClickHandler()), never this key.
   if (collectRequested) {
     collectRequested = false;
     player.action = "collect";
@@ -279,11 +364,18 @@ function updatePlayer(dt) {
     // than as one combined step, so bumping into a tree/rock on one axis
     // doesn't also cancel movement on the other — you can slide along the
     // side of an obstacle instead of getting fully stuck on it.
-    const stepX = feetTileAt(wantX, player.y);
-    if (!isTileBlocked(stepX.col, stepX.row)) player.x = wantX;
-
-    const stepY = feetTileAt(player.x, wantY); // uses the (possibly just-updated) player.x
-    if (!isTileBlocked(stepY.col, stepY.row)) player.y = wantY;
+    //
+    // Escape hatch: if the player is ALREADY overlapping something (e.g. a
+    // save from before a collision change put them right against a wall
+    // that's now a few px wider), let them walk freely until they're out,
+    // instead of every direction being refused forever.
+    if (isBodyBlockedAt(player.x, player.y)) {
+      player.x = wantX;
+      player.y = wantY;
+    } else {
+      player.x = sweepBodyTo(player.x, player.y, wantX, player.y).x;
+      player.y = sweepBodyTo(player.x, player.y, player.x, wantY).y; // uses the (possibly just-updated) player.x
+    }
 
     // Any horizontal input at all (including diagonals like top-left,
     // top-right, bottom-left, bottom-right) uses the left/right side
@@ -302,7 +394,7 @@ function updatePlayer(dt) {
     // than falling through to the animation-frame update below, which
     // would otherwise clobber the fresh idle state enterInterior() just
     // set using this frame's now-stale OUTDOOR `nextAnim`.
-    checkInteriorEntry();
+    checkInteriorEntry(vy);
     if (player.scene === "inside") return;
   }
 

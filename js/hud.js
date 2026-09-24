@@ -103,45 +103,149 @@ function updateStatsHUD() {
   weatherHudEl.textContent = w.icon + " " + w.name;
 }
 
-/* ---------------- minimap ---------------- */
+/* ---------------- minimap ----------------
+   A round dial showing the real map, zoomed in around the player — per
+   request ("gawin mong circle", then "i-zoom in mo, yung kitang kita na
+   yung bahay").
 
-// Draws a scaled-down overview of the WHOLE map (not just what the
-// camera currently sees) — a flat background rect standing in for the
-// terrain (actual per-tile detail would be far too fine-grained to read
-// at this size, so it's intentionally simplified), a dot for the player,
-// a dot for the NPC, and a stroked rectangle outlining the camera's
-// current viewport, so "naka-zoom" (what's actually zoomed into right
-// now) is visible against the whole-map overview. Called every frame
-// from render() (camera.js) — cheap enough at this scale not to need
-// throttling.
+   It used to fit the WHOLE 3000x1640 world into a 110px circle. At that
+   scale a house was about 7px across and a tile was half a pixel, so the
+   dial was a green smudge that told you nothing. Now it covers a fixed
+   MINIMAP_WORLD_SPAN window centred on the player, which puts a house at
+   a third of the dial's width — actually recognisable.
+
+   Being zoomed in is also what lets it draw straight from the sources
+   every frame instead of from a cached thumbnail: the ground comes from
+   world.js's full-resolution `worldCanvas` (one drawImage, cropped to
+   the window), and only the handful of placed items inside that window
+   are drawn on top. A cache would just be a blurrier copy of the same
+   thing, since the window is now higher-resolution than any thumbnail
+   worth keeping in memory. */
+const MINIMAP_WORLD_SPAN = 640; // world px across the dial — 40 tiles; lower = more zoomed in
+// Standing objects (houses, trees, stones) are drawn oversized on the
+// dial — per request ("medyo lakihan mo pa yung mga bahay at objects sa
+// minimap, mga trees"). At true scale a house is only a third of the
+// dial and a tree half that, so they read as specks rather than the
+// landmarks you actually navigate by.
+//
+// Done as an icon multiplier rather than by zooming the dial in further:
+// zooming would have pushed the camera-viewport box past the rim at zoom
+// 4 (the main view is 480 world px wide there, already three quarters of
+// the window) and shown less of your surroundings. This keeps the same
+// area visible and just draws the landmarks bigger on top of it.
+//
+// FLAT items are deliberately excluded. Ground tiles — paths, dirt,
+// water, floor — butt up against each other seamlessly, so scaling each
+// one up would make a laid path overlap itself into a lumpy, misplaced
+// smear. Only things that stand up get the boost.
+const MINIMAP_ITEM_SCALE = 1.5;
+
 function drawMinimap() {
   const w = minimapCanvas.width;
   const h = minimapCanvas.height;
-  const scaleX = w / MAP_W;
-  const scaleY = h / MAP_H;
+  const radius = Math.min(w, h) / 2;
+
+  // World window the dial covers, centred on the player. Height follows
+  // the canvas's own proportions so nothing is stretched.
+  const spanW = MINIMAP_WORLD_SPAN;
+  const spanH = (spanW * h) / w;
+  const originX = player.x - spanW / 2;
+  const originY = player.y - spanH / 2;
+  const scale = w / spanW; // world px -> minimap px
+  const toX = (wx) => (wx - originX) * scale;
+  const toY = (wy) => (wy - originY) * scale;
 
   minimapCtx.clearRect(0, 0, w, h);
-  minimapCtx.fillStyle = "#2f5233"; // a flat stand-in for the map's general grass tone
+  minimapCtx.save();
+  // Round dial: the map, the items, the viewport box and the dots are
+  // all clipped to the circle together, so they stop at the rim as one.
+  minimapCtx.beginPath();
+  minimapCtx.arc(w / 2, h / 2, radius, 0, Math.PI * 2);
+  minimapCtx.clip();
+
+  minimapCtx.fillStyle = "#14100a"; // shows through past the map edges
   minimapCtx.fillRect(0, 0, w, h);
 
-  // Camera viewport outline — what the main view is currently "zoomed"
-  // into, against the whole-map overview.
+  // Baked ground, cropped to the window. A source rect that runs off the
+  // edge of the map is fine — the browser draws the overlapping part and
+  // scales the destination to match, which is exactly the "dark past the
+  // border" look we want near a map edge.
+  minimapCtx.imageSmoothingEnabled = false;
+  minimapCtx.drawImage(worldCanvas, originX, originY, spanW, spanH, 0, 0, w, h);
+
+  // Everything placed on top of it — same bottom-centre anchor
+  // camera.js draws the real thing with, so the dial lines up with what
+  // you actually see. Only tiles inside the window are considered, so
+  // this stays cheap however much has been built elsewhere.
+  const margin = 8; // tiles — big sprites anchor well below/right of where their art starts
+  const minCol = Math.floor(originX / TILE) - margin;
+  const maxCol = Math.ceil((originX + spanW) / TILE) + margin;
+  const minRow = Math.floor(originY / TILE) - margin;
+  const maxRow = Math.ceil((originY + spanH) / TILE) + margin;
+
+  for (const layer of ALL_LAYERS) {
+    for (const [key, type] of layer) {
+      const comma = key.indexOf(",");
+      const col = +key.slice(0, comma);
+      const row = +key.slice(comma + 1);
+      if (col < minCol || col > maxCol || row < minRow || row > maxRow) continue;
+      const def = itemDefs[type];
+      if (!def || !def.icon || !def.icon.width) continue; // stale/removed type, or art not loaded yet
+      const icon = def.icon;
+      // Grown from the BASE of the tile it stands on, not from its
+      // middle — so an enlarged house/tree still sits exactly where it
+      // really is and only gets taller, the same way the real sprite is
+      // anchored. Scaling about the centre would drift everything
+      // down-right of its true spot.
+      const bump = def.flat ? 1 : MINIMAP_ITEM_SCALE;
+      const dw = icon.width * scale * bump;
+      const dh = icon.height * scale * bump;
+      // `artRoot` items (lamp posts) hang off to one side of their tile
+      // rather than sitting centred on it, so the dial has to apply the
+      // same shift the world does or they'd show up a tile or two out.
+      const root = def.artRoot;
+      const dx = toX((col + 0.5) * TILE) - dw / 2 - (root ? root.x * scale : 0);
+      const dy = toY((row + 1) * TILE) - dh - (root ? root.y * scale : 0);
+      minimapCtx.drawImage(icon, dx, dy, dw, dh);
+    }
+  }
+
+  // Camera viewport outline — the slice of this window the main view is
+  // currently showing.
   const viewWorldW = view.width / zoom;
   const viewWorldH = view.height / zoom;
   minimapCtx.strokeStyle = "rgba(255,255,255,0.8)";
   minimapCtx.lineWidth = 1;
-  minimapCtx.strokeRect(camX * scaleX, camY * scaleY, viewWorldW * scaleX, viewWorldH * scaleY);
+  minimapCtx.strokeRect(toX(camX), toY(camY), viewWorldW * scale, viewWorldH * scale);
 
-  // NPC dot
-  minimapCtx.fillStyle = "#e0c56c";
-  minimapCtx.beginPath();
-  minimapCtx.arc(npc.x * scaleX, npc.y * scaleY, 2.5, 0, Math.PI * 2);
-  minimapCtx.fill();
+  // NPC dot (only when they're actually inside the window)
+  const npcX = toX(npc.x), npcY = toY(npc.y);
+  if (npcX >= 0 && npcX <= w && npcY >= 0 && npcY <= h) {
+    minimapCtx.fillStyle = "#e0c56c";
+    minimapCtx.beginPath();
+    minimapCtx.arc(npcX, npcY, 2.5, 0, Math.PI * 2);
+    minimapCtx.fill();
+  }
 
-  // Player dot (drawn last/on top, and a little bigger, so it's always
-  // the easiest of the two to spot)
+  // Player dot — always dead centre now, drawn last so nothing covers it.
   minimapCtx.fillStyle = "#ffffff";
+  minimapCtx.strokeStyle = "rgba(0,0,0,0.6)";
+  minimapCtx.lineWidth = 1;
   minimapCtx.beginPath();
-  minimapCtx.arc(player.x * scaleX, player.y * scaleY, 3.5, 0, Math.PI * 2);
+  minimapCtx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
   minimapCtx.fill();
+  minimapCtx.stroke();
+
+  minimapCtx.restore();
+
+  // Rim, drawn outside the clip so it isn't shaved in half by it.
+  minimapCtx.save();
+  minimapCtx.beginPath();
+  minimapCtx.arc(w / 2, h / 2, radius - 0.5, 0, Math.PI * 2);
+  minimapCtx.strokeStyle = "rgba(255,255,255,0.3)";
+  minimapCtx.lineWidth = 1;
+  minimapCtx.stroke();
+  minimapCtx.restore();
 }
+
+

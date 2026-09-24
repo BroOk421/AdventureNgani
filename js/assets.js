@@ -98,6 +98,17 @@ const assets = {
   wateringUp: new Image(),
   wateringSide: new Image(),
 
+  // Seated idle loops (assets/sprites/Sit/) — played while
+  // `player.sitting` (js/furniture.js) instead of the normal idle sheet.
+  // Ordinary 64x64 frame strips exactly like every sheet above (384x64 =
+  // 6 frames each), drawn by the same math at the same DRAW_SIZE, so a
+  // seated character is the same size as a walking/running/idle one.
+  //   - sitFront (sith.png): facing the viewer — front-facing seats
+  //   - sitSide  (sitv.png): side profile facing RIGHT; flipped in code
+  //     for LEFT, same convention as every *Side sheet above
+  sitFront: new Image(),
+  sitSide: new Image(),
+
   carryIdleDown: new Image(),
   carryIdleUp: new Image(),
   carryIdleSide: new Image(),
@@ -163,15 +174,25 @@ const assets = {
   treeThinOrange: new Image(),
 
   // --- house (assets/items/house/) ---
-  house1: new Image(),
+  house: new Image(),
   // Interior scene art (assets/interior/asesprite/interior.ase, exported
   // to .png alongside it) — the one interior room layout that currently
-  // exists, entered by walking onto house2's/house3's front-door tile.
+  // exists, entered by walking onto tavern's/abandonHouse's front-door tile.
   // See js/interior.js.
-  interiorHouse: new Image(),
+  // One image per interior layout (js/interior.js's
+  // INTERIOR_ROOM_BLUEPRINTS). Named after the room, not the
+  // building, since a building just points at one of these.
+  houseRoom: new Image(),    // House's own small one-room interior
+  tavernRoom: new Image(),   // the Tavern's two-part interior
+  abandonRoom: new Image(),  // the Abandoned House's single room
+  // Dev/level-design-only marker (no source art — drawn on a throwaway
+  // canvas below, same pattern as camera.js's silhouetteCanvas) for the
+  // interior collision-block item (js/interior.js's `room.collisions`) —
+  // a plain hazard-striped square just so it's visible both in the
+  // inventory and sitting on the floor while placing it.
+  collisionMarker: new Image(),
 
   // --- weather FX particles (assets/particles/), see js/weatherfx.js ---
-  rain: new Image(),
   rainOnFloor: new Image(),
   snow: new Image(),
   clouds: new Image(),
@@ -237,11 +258,8 @@ const assets = {
   treeMediumYellow: new Image(),
   treeMediumGreenTrunk: new Image(),
   treeMediumRedYellowTrunk: new Image(),
-  house2: new Image(),
-  house3: new Image(),
-  floorBrown: new Image(),
-  floorDarkGreen: new Image(),
-  floorGreen: new Image(),
+  tavern: new Image(),
+  abandonHouse: new Image(),
   interiorWall: new Image(),
   ceilingTile: new Image(),
   windowPlain1: new Image(),
@@ -277,6 +295,7 @@ const assets = {
   meatItem: new Image(),
   chairFront: new Image(),
   chairRight: new Image(),
+  chairLeft: new Image(),  // the mirror of chairRight — art was already on disk, just unused
   cabinetBaseA: new Image(),
   cabinetBaseB: new Image(),
   cabinetBaseC: new Image(),
@@ -284,6 +303,12 @@ const assets = {
   basket1: new Image(),
   basket2: new Image(),
   bedBig: new Image(),
+  // 20-frame sleep animation for the Big Bed (assets/interior/
+  // asesprite/bigbed-sheet.png — 1380x54 = 20 frames of 69x54 each,
+  // laid out horizontally), played while `player.sleeping` (js/
+  // resources.js's trySleepInBed()/updateSleeping()) instead of the
+  // normal `assets.bedBig` icon.
+  bedBigSleep: new Image(),
   bedSmall: new Image(),
   tableBig: new Image(),
   tableBig1: new Image(),
@@ -305,7 +330,7 @@ const assets = {
   benchVertical: new Image(),
   chairOutdoorFront: new Image(),
   chairOutdoorSide: new Image(),
-  fence: new Image(),
+  chairOutdoorSideLeft: new Image(), // generated mirror of chairside.png
   floorMat: new Image(),
   longTableHorizontal: new Image(),
   longTableVertical: new Image(),
@@ -319,6 +344,9 @@ const assets = {
   portBridgeWall2: new Image(),
   postPlain: new Image(),
   postLight: new Image(),
+  postLightLit: new Image(), // the lit-at-night version of the lamp post
+  postLightLeft: new Image(),    // generated mirrors of the two above, for a left-facing lamp
+  postLightLitLeft: new Image(),
   postHandleLight: new Image(),
   tableOutdoorSmall: new Image(),
   vegOnion: new Image(),
@@ -345,6 +373,69 @@ const assets = {
   waterCrateHorizontal: new Image(),
   waterCrateVertical: new Image(),
 
+
+  // Fence Tiles — fence sliced into 16px tiles (see itemDefs' fenceTile* entries)
+  fenceTileR0C0: new Image(),
+  fenceTileR0C1: new Image(),
+  fenceTileR0C2: new Image(),
+  fenceTileR0C3: new Image(),
+  fenceTileR0C4: new Image(),
+  fenceTileR1C0: new Image(),
+  fenceTileR1C1: new Image(),
+  fenceTileR1C3: new Image(),
+  fenceTileR1C4: new Image(),
+  fenceTileR2C0: new Image(),
+  fenceTileR2C4: new Image(),
+  fenceTileR3C0: new Image(),
+  fenceTileR3C1: new Image(),
+  fenceTileR3C3: new Image(),
+  fenceTileR3C4: new Image(),
+  fenceTileR4C0: new Image(),
+  fenceTileR4C1: new Image(),
+  fenceTileR4C2: new Image(),
+  fenceTileR4C3: new Image(),
+  // Brown Floor Tiles — floorBrown sliced into 16px tiles (see itemDefs' floorBrownTile* entries)
+  floorBrownTileR0C1: new Image(),
+  floorBrownTileR0C2: new Image(),
+  floorBrownTileR0C3: new Image(),
+  floorBrownTileR1C0: new Image(),
+  floorBrownTileR1C1: new Image(),
+  floorBrownTileR1C2: new Image(),
+  floorBrownTileR1C3: new Image(),
+  floorBrownTileR1C4: new Image(),
+  floorBrownTileR2C0: new Image(),
+  floorBrownTileR2C1: new Image(),
+  floorBrownTileR2C2: new Image(),
+  floorBrownTileR2C3: new Image(),
+  floorBrownTileR2C4: new Image(),
+  floorBrownTileR3C0: new Image(),
+  floorBrownTileR3C1: new Image(),
+  floorBrownTileR3C2: new Image(),
+  floorBrownTileR3C3: new Image(),
+  floorBrownTileR3C4: new Image(),
+  floorBrownTileR4C1: new Image(),
+  floorBrownTileR4C2: new Image(),
+  floorBrownTileR4C3: new Image(),
+  // Dark Green Floor Tiles — floorDarkGreen sliced into 16px tiles (see itemDefs' floorDarkGreenTile* entries)
+  floorDarkGreenTileR0C0: new Image(),
+  floorDarkGreenTileR0C1: new Image(),
+  floorDarkGreenTileR0C2: new Image(),
+  floorDarkGreenTileR1C0: new Image(),
+  floorDarkGreenTileR1C1: new Image(),
+  floorDarkGreenTileR1C2: new Image(),
+  floorDarkGreenTileR2C0: new Image(),
+  floorDarkGreenTileR2C1: new Image(),
+  floorDarkGreenTileR2C2: new Image(),
+  // Green Floor Tiles — floorGreen sliced into 16px tiles (see itemDefs' floorGreenTile* entries)
+  floorGreenTileR0C0: new Image(),
+  floorGreenTileR0C1: new Image(),
+  floorGreenTileR0C2: new Image(),
+  floorGreenTileR1C0: new Image(),
+  floorGreenTileR1C1: new Image(),
+  floorGreenTileR1C2: new Image(),
+  floorGreenTileR2C0: new Image(),
+  floorGreenTileR2C1: new Image(),
+  floorGreenTileR2C2: new Image(),
 };
 
 assets.dirt1.src = "assets/items/tile/dirt1.png";
@@ -435,6 +526,8 @@ assets.pierceSide.src = "assets/sprites/Pierce/Pierce_Side-Sheet.png"; // faces 
 assets.wateringDown.src = "assets/sprites/Watering/Watering_Down-Sheet.png";
 assets.wateringUp.src = "assets/sprites/Watering/Watering_Up-Sheet.png";
 assets.wateringSide.src = "assets/sprites/Watering/Watering_Side-Sheet.png"; // faces RIGHT; flipped in code for LEFT
+assets.sitFront.src = "assets/sprites/Sit/sith.png";
+assets.sitSide.src = "assets/sprites/Sit/sitv.png"; // faces RIGHT; flipped in code for LEFT
 
 // used instead of the normal idle/walk/run sheets while player.mode === "carrying"
 assets.carryIdleDown.src = "assets/sprites/Carry_Idle/Carry_Idle_Down-Sheet.png";
@@ -522,10 +615,11 @@ assets.treeBigOrange.src = "assets/items/trees/orange/bigtree_orange.png";
 assets.treeThinOrange.src = "assets/items/trees/orange/thintree_orange.png";
 
 // --- house. Decorative only (no collision) — not asked for, not added.
-assets.house1.src = "assets/items/house/house1.png";
+assets.house.src = "assets/items/house/house1.png";        // file name kept; only the item id was renamed
 
 // --- weather FX particles — rain, drifting clouds, low fog (js/weatherfx.js) ---
-assets.rain.src = "assets/particles/Rain.png";
+// Rain.png is no longer loaded — rain is drawn by code now (js/weatherfx.js's
+// drawRain()). RainOnFloor.png below is still used for the ground splash.
 assets.rainOnFloor.src = "assets/particles/RainOnFloor.png";
 assets.snow.src = "assets/particles/Snow.png";
 assets.clouds.src = "assets/particles/Clouds.png";
@@ -562,6 +656,33 @@ assets.woodShieldLarge.src = "assets/items/wood/wood_shield_large.png";
 assets.woodLog.src = "assets/items/wood_drops/wood_log.png";
 assets.woodPlank.src = "assets/items/wood_drops/wood_plank.png";
 assets.woodStick.src = "assets/items/wood_drops/wood_stick.png";
+
+// Draws the collision-marker icon on a throwaway canvas instead of
+// loading a file — it's a dev/level-design tool, not real game art (see
+// the `collisionMarker` key above). A red hazard-striped square with a
+// yellow "X" through it, easy to spot both in the inventory grid and
+// sitting on an interior room's floor.
+(function generateCollisionMarkerIcon() {
+  const size = 16;
+  const c = document.createElement("canvas");
+  c.width = size;
+  c.height = size;
+  const cx = c.getContext("2d");
+  cx.fillStyle = "rgba(200, 30, 30, 0.65)";
+  cx.fillRect(0, 0, size, size);
+  cx.strokeStyle = "#ffd83d";
+  cx.lineWidth = 2;
+  cx.strokeRect(1, 1, size - 2, size - 2);
+  cx.beginPath();
+  cx.moveTo(2, 2);
+  cx.lineTo(size - 2, size - 2);
+  cx.moveTo(size - 2, 2);
+  cx.lineTo(2, size - 2);
+  cx.strokeStyle = "#ffd83d";
+  cx.lineWidth = 1.5;
+  cx.stroke();
+  assets.collisionMarker.src = c.toDataURL();
+})();
 
 let assetsLoadedCount = 0;
 const assetsNeededCount = Object.keys(assets).length;
@@ -611,12 +732,11 @@ assets.treeMediumRed.src = "assets/items/trees/red/mediumredtree.png";
 assets.treeMediumYellow.src = "assets/items/trees/yellow/mediumyellowtree.png";
 assets.treeMediumGreenTrunk.src = "assets/items/trees/trunks/mediumgreentrunk.png";
 assets.treeMediumRedYellowTrunk.src = "assets/items/trees/trunks/mediumredyellowtrunk.png";
-assets.house2.src = "assets/items/house/house2.png";
-assets.house3.src = "assets/items/house/house3.png";
-assets.interiorHouse.src = "assets/interior/asesprite/interior.png";
-assets.floorBrown.src = "assets/interior/floorbrown.png";
-assets.floorDarkGreen.src = "assets/interior/floordarkgreen.png";
-assets.floorGreen.src = "assets/interior/floorgreen.png";
+assets.tavern.src = "assets/items/house/house2.png";       // file name kept; only the item id was renamed
+assets.abandonHouse.src = "assets/items/house/house3.png"; // file name kept; only the item id was renamed
+assets.houseRoom.src = "assets/interior/asesprite/smallinterior.png";
+assets.tavernRoom.src = "assets/interior/asesprite/tavern_room.png";
+assets.abandonRoom.src = "assets/interior/asesprite/abandon_room.png";
 assets.interiorWall.src = "assets/interior/interior_wall.png";
 assets.ceilingTile.src = "assets/interior/ceiling.png";
 assets.windowPlain1.src = "assets/interior/window.png";
@@ -652,6 +772,7 @@ assets.plateFood.src = "assets/interior/plate_food.png";
 assets.meatItem.src = "assets/interior/meat.png";
 assets.chairFront.src = "assets/interior/frontchair.png";
 assets.chairRight.src = "assets/interior/rightchair.png";
+assets.chairLeft.src = "assets/interior/leftchair.png";
 assets.cabinetBaseA.src = "assets/interior/base.png";
 assets.cabinetBaseB.src = "assets/interior/base2.png";
 assets.cabinetBaseC.src = "assets/interior/base3.png";
@@ -659,6 +780,7 @@ assets.cabinetBaseD.src = "assets/interior/base5.png";
 assets.basket1.src = "assets/interior/basket.png";
 assets.basket2.src = "assets/interior/basket2.png";
 assets.bedBig.src = "assets/interior/bigbed.png";
+assets.bedBigSleep.src = "assets/interior/asesprite/bigbed-sheet.png";
 assets.bedSmall.src = "assets/interior/smallbed.png";
 assets.tableBig.src = "assets/interior/bigtable.png";
 assets.tableBig1.src = "assets/interior/bigtable1.png";
@@ -680,7 +802,7 @@ assets.benchHorizontal.src = "assets/outdoor/benchh.png";
 assets.benchVertical.src = "assets/outdoor/benchv.png";
 assets.chairOutdoorFront.src = "assets/outdoor/chairfront.png";
 assets.chairOutdoorSide.src = "assets/outdoor/chairside.png";
-assets.fence.src = "assets/outdoor/fence.png";
+assets.chairOutdoorSideLeft.src = "assets/outdoor/chairside_left.png";
 assets.floorMat.src = "assets/outdoor/floormat.png";
 assets.longTableHorizontal.src = "assets/outdoor/longtableh.png";
 assets.longTableVertical.src = "assets/outdoor/longtablev.png";
@@ -694,6 +816,9 @@ assets.portBridgeWall1.src = "assets/outdoor/port_bridge_wall.png";
 assets.portBridgeWall2.src = "assets/outdoor/port_bridge_wall2.png";
 assets.postPlain.src = "assets/outdoor/post.png";
 assets.postLight.src = "assets/outdoor/postlight.png";
+assets.postLightLit.src = "assets/outdoor/postlight-light.png";
+assets.postLightLeft.src = "assets/outdoor/postlight_left.png";
+assets.postLightLitLeft.src = "assets/outdoor/postlight-light_left.png";
 assets.postHandleLight.src = "assets/outdoor/posthandlelight.png";
 assets.tableOutdoorSmall.src = "assets/outdoor/table.png";
 assets.vegOnion.src = "assets/items/vegetables/onion/onion_mature.png";
@@ -719,3 +844,63 @@ assets.plotSocketOpen.src = "assets/items/vegetables/socketopen.png";
 assets.plotSocketClosed.src = "assets/items/vegetables/socketclose.png";
 assets.waterCrateHorizontal.src = "assets/items/vegetables/waterboxh.png";
 assets.waterCrateVertical.src = "assets/items/vegetables/waterboxv.png";
+
+// --- fence / floor sheets sliced into 16px tiles (js/inventory.js tile groups) ---
+assets.fenceTileR0C0.src = "assets/outdoor/fence_tiles/r0c0.png";
+assets.fenceTileR0C1.src = "assets/outdoor/fence_tiles/r0c1.png";
+assets.fenceTileR0C2.src = "assets/outdoor/fence_tiles/r0c2.png";
+assets.fenceTileR0C3.src = "assets/outdoor/fence_tiles/r0c3.png";
+assets.fenceTileR0C4.src = "assets/outdoor/fence_tiles/r0c4.png";
+assets.fenceTileR1C0.src = "assets/outdoor/fence_tiles/r1c0.png";
+assets.fenceTileR1C1.src = "assets/outdoor/fence_tiles/r1c1.png";
+assets.fenceTileR1C3.src = "assets/outdoor/fence_tiles/r1c3.png";
+assets.fenceTileR1C4.src = "assets/outdoor/fence_tiles/r1c4.png";
+assets.fenceTileR2C0.src = "assets/outdoor/fence_tiles/r2c0.png";
+assets.fenceTileR2C4.src = "assets/outdoor/fence_tiles/r2c4.png";
+assets.fenceTileR3C0.src = "assets/outdoor/fence_tiles/r3c0.png";
+assets.fenceTileR3C1.src = "assets/outdoor/fence_tiles/r3c1.png";
+assets.fenceTileR3C3.src = "assets/outdoor/fence_tiles/r3c3.png";
+assets.fenceTileR3C4.src = "assets/outdoor/fence_tiles/r3c4.png";
+assets.fenceTileR4C0.src = "assets/outdoor/fence_tiles/r4c0.png";
+assets.fenceTileR4C1.src = "assets/outdoor/fence_tiles/r4c1.png";
+assets.fenceTileR4C2.src = "assets/outdoor/fence_tiles/r4c2.png";
+assets.fenceTileR4C3.src = "assets/outdoor/fence_tiles/r4c3.png";
+assets.floorBrownTileR0C1.src = "assets/interior/floorbrown_tiles/r0c1.png";
+assets.floorBrownTileR0C2.src = "assets/interior/floorbrown_tiles/r0c2.png";
+assets.floorBrownTileR0C3.src = "assets/interior/floorbrown_tiles/r0c3.png";
+assets.floorBrownTileR1C0.src = "assets/interior/floorbrown_tiles/r1c0.png";
+assets.floorBrownTileR1C1.src = "assets/interior/floorbrown_tiles/r1c1.png";
+assets.floorBrownTileR1C2.src = "assets/interior/floorbrown_tiles/r1c2.png";
+assets.floorBrownTileR1C3.src = "assets/interior/floorbrown_tiles/r1c3.png";
+assets.floorBrownTileR1C4.src = "assets/interior/floorbrown_tiles/r1c4.png";
+assets.floorBrownTileR2C0.src = "assets/interior/floorbrown_tiles/r2c0.png";
+assets.floorBrownTileR2C1.src = "assets/interior/floorbrown_tiles/r2c1.png";
+assets.floorBrownTileR2C2.src = "assets/interior/floorbrown_tiles/r2c2.png";
+assets.floorBrownTileR2C3.src = "assets/interior/floorbrown_tiles/r2c3.png";
+assets.floorBrownTileR2C4.src = "assets/interior/floorbrown_tiles/r2c4.png";
+assets.floorBrownTileR3C0.src = "assets/interior/floorbrown_tiles/r3c0.png";
+assets.floorBrownTileR3C1.src = "assets/interior/floorbrown_tiles/r3c1.png";
+assets.floorBrownTileR3C2.src = "assets/interior/floorbrown_tiles/r3c2.png";
+assets.floorBrownTileR3C3.src = "assets/interior/floorbrown_tiles/r3c3.png";
+assets.floorBrownTileR3C4.src = "assets/interior/floorbrown_tiles/r3c4.png";
+assets.floorBrownTileR4C1.src = "assets/interior/floorbrown_tiles/r4c1.png";
+assets.floorBrownTileR4C2.src = "assets/interior/floorbrown_tiles/r4c2.png";
+assets.floorBrownTileR4C3.src = "assets/interior/floorbrown_tiles/r4c3.png";
+assets.floorDarkGreenTileR0C0.src = "assets/interior/floordarkgreen_tiles/r0c0.png";
+assets.floorDarkGreenTileR0C1.src = "assets/interior/floordarkgreen_tiles/r0c1.png";
+assets.floorDarkGreenTileR0C2.src = "assets/interior/floordarkgreen_tiles/r0c2.png";
+assets.floorDarkGreenTileR1C0.src = "assets/interior/floordarkgreen_tiles/r1c0.png";
+assets.floorDarkGreenTileR1C1.src = "assets/interior/floordarkgreen_tiles/r1c1.png";
+assets.floorDarkGreenTileR1C2.src = "assets/interior/floordarkgreen_tiles/r1c2.png";
+assets.floorDarkGreenTileR2C0.src = "assets/interior/floordarkgreen_tiles/r2c0.png";
+assets.floorDarkGreenTileR2C1.src = "assets/interior/floordarkgreen_tiles/r2c1.png";
+assets.floorDarkGreenTileR2C2.src = "assets/interior/floordarkgreen_tiles/r2c2.png";
+assets.floorGreenTileR0C0.src = "assets/interior/floorgreen_tiles/r0c0.png";
+assets.floorGreenTileR0C1.src = "assets/interior/floorgreen_tiles/r0c1.png";
+assets.floorGreenTileR0C2.src = "assets/interior/floorgreen_tiles/r0c2.png";
+assets.floorGreenTileR1C0.src = "assets/interior/floorgreen_tiles/r1c0.png";
+assets.floorGreenTileR1C1.src = "assets/interior/floorgreen_tiles/r1c1.png";
+assets.floorGreenTileR1C2.src = "assets/interior/floorgreen_tiles/r1c2.png";
+assets.floorGreenTileR2C0.src = "assets/interior/floorgreen_tiles/r2c0.png";
+assets.floorGreenTileR2C1.src = "assets/interior/floorgreen_tiles/r2c1.png";
+assets.floorGreenTileR2C2.src = "assets/interior/floorgreen_tiles/r2c2.png";

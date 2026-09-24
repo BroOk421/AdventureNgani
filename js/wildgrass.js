@@ -5,7 +5,7 @@
    flowers, which share the same "decor" layer/treatment — see
    layerForType() in inventory.js) sways as the player passes through it.
 
-   - `decorLayer` (declared in js/inventory.js, alongside groundLayer/
+   - `wildgrassLayer` (declared in js/inventory.js, alongside groundLayer/
      objectLayer) holds wild grass placements — its own layer so placing
      grass never replaces the ground tile underneath (see layerForType()
      in inventory.js).
@@ -47,14 +47,19 @@ const WILDGRASS_MAX_SKEW_PX = 5;       // world px the very tip leans at full (a
 // standing on gets pushed (a real "target" lean); every other tile with
 // an in-progress sway just keeps springing back toward upright.
 function updateWildgrassSway(dt) {
-  if (decorLayer.size === 0 && wildgrassSway.size === 0) return;
+  if (wildgrassLayer.size === 0 && wildgrassSway.size === 0) return;
 
   const playerTile = getPlayerTile();
   const playerKey = tileKey(playerTile.col, playerTile.row);
 
   // Only the player's own tile can get a nonzero target, so we only need
-  // to look up itemDefs/facing once, not per grass tile.
-  const playerOnGrass = decorLayer.has(playerKey);
+  // to look up itemDefs/facing once, not per grass tile. `noSway` items
+  // sharing this same wildgrassLayer (XXS Stone, Pebbles 1-5 — per request,
+  // "dapat mas angat sila ng layer sa grass" — placed here just so they
+  // can sit on top of a Ground tile instead of fighting it for the same
+  // groundLayer slot, itemDefs) never count as "on grass" for this: real
+  // pebbles don't bend in the wind the way wild grass/flowers do.
+  const playerOnGrass = wildgrassLayer.has(playerKey) && !itemDefs[wildgrassLayer.get(playerKey)].noSway;
   let target = 0;
   if (playerOnGrass) {
     if (player.facing === "left") target = -1;

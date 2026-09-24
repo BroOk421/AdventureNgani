@@ -141,14 +141,22 @@ html, body {
 
 /* ---------------- minimap (top-right) ---------------- */
 
+/* Round minimap, sitting below the Save/Export/Import toolbar — per
+   request ("gawin mong circle, tapos medyo ibaba mo lang ng konti").
+   `top` clears the toolbar (12px offset + ~34px tall) so the two no
+   longer sit on top of each other in the corner. The canvas clips its
+   own contents to the same circle (drawMinimap(), js/hud.js) and draws
+   its own rim, so the square border here is gone — a 1px square border
+   around a round dial reads as a bug. */
 #minimap {
   position: fixed;
-  top: 12px;
+  top: 58px;
   right: 12px;
   z-index: 30;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 6px;
+  border: none;
+  border-radius: 50%;
   background: #14100a;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2), 0 2px 8px rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
 
@@ -230,8 +238,10 @@ html, body {
 }
 
 .hotbar-slot img {
-  width: 30px;
-  height: 30px;
+  max-width: 30px;
+  max-height: 30px;
+  width: auto;
+  height: auto;
   image-rendering: pixelated;
   pointer-events: none;
 }
@@ -360,9 +370,18 @@ html, body {
   box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
 }
 
+/* Icons keep their OWN proportions — per request ("yung mga icon na
+   object or item na nasa inventory, wag mo i-stretch, yung saktong icon
+   lang"). These used to be hard-set to a square width AND height, which
+   squashed every non-square sprite: a tall tree got shortened, a wide
+   fence got pinched. Capping with max-width/max-height instead lets the
+   browser keep the aspect ratio — small icons draw at their true pixel
+   size, oversized ones scale down whole. */
 .inv-slot img {
-  width: 28px;
-  height: 28px;
+  max-width: 28px;
+  max-height: 28px;
+  width: auto;
+  height: auto;
   image-rendering: pixelated;
   pointer-events: none;
 }
@@ -383,8 +402,10 @@ html, body {
 }
 
 .inv-group-preview img {
-  width: 10px;
-  height: 10px;
+  max-width: 10px;
+  max-height: 10px;
+  width: auto;
+  height: auto;
   image-rendering: pixelated;
   pointer-events: none;
 }
@@ -446,8 +467,10 @@ html, body {
 }
 
 .tile-variant-item img {
-  width: 22px;
-  height: 22px;
+  max-width: 22px;
+  max-height: 22px;
+  width: auto;
+  height: auto;
   image-rendering: pixelated;
   pointer-events: none;
 }

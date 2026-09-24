@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RPG Prototype</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=20260924g">
 </head>
 <body>
   <canvas id="view"></canvas>
@@ -139,30 +139,34 @@
        other popups in this project. -->
   <div id="npc-shop-overlay" class="hidden">
     <div id="npc-shop-panel">
-      <div id="npc-shop-title">Traveling Merchant <span class="hint">(click outside to close)</span></div>
+      <div id="npc-shop-title"><span id="npc-shop-title-name">Maria</span> <span class="hint">(click outside to close)</span></div>
       <div id="npc-shop-gold">Your gold: <span id="npc-shop-gold-amount">0</span> 💰</div>
       <div id="npc-shop-grid"></div>
     </div>
   </div>
 
   <!-- Load order matters: each file depends on the ones before it -->
-  <script src="js/config.js"></script>
-  <script src="js/objectAlphaMasks.js"></script>
-  <script src="js/daynight.js"></script>
-  <script src="js/calendar.js"></script>
-  <script src="js/assets.js"></script>
-  <script src="js/input.js"></script>
-  <script src="js/inventory.js"></script>
-  <script src="js/resources.js"></script>
-  <script src="js/interior.js"></script>
-  <script src="js/wildgrass.js"></script>
-  <script src="js/save.js"></script>
-  <script src="js/world.js"></script>
-  <script src="js/player.js"></script>
-  <script src="js/npc.js"></script>
-  <script src="js/hud.js"></script>
-  <script src="js/camera.js"></script>
-  <script src="js/weatherfx.js"></script>
-  <script src="js/main.js"></script>
+  <!-- ?v=... is a cache buster: browsers hang on to js/*.js and style.css
+       hard, so an update can look like nothing changed at all. Bump this
+       string whenever a file here changes and every client reloads them. -->
+  <script src="js/config.js?v=20260924g"></script>
+  <script src="js/objectAlphaMasks.js?v=20260924g"></script>
+  <script src="js/daynight.js?v=20260924g"></script>
+  <script src="js/calendar.js?v=20260924g"></script>
+  <script src="js/assets.js?v=20260924g"></script>
+  <script src="js/input.js?v=20260924g"></script>
+  <script src="js/inventory.js?v=20260924g"></script>
+  <script src="js/resources.js?v=20260924g"></script>
+  <script src="js/interior.js?v=20260924g"></script>
+  <script src="js/furniture.js?v=20260924g"></script>
+  <script src="js/wildgrass.js?v=20260924g"></script>
+  <script src="js/save.js?v=20260924g"></script>
+  <script src="js/world.js?v=20260924g"></script>
+  <script src="js/player.js?v=20260924g"></script>
+  <script src="js/npc.js?v=20260924g"></script>
+  <script src="js/hud.js?v=20260924g"></script>
+  <script src="js/camera.js?v=20260924g"></script>
+  <script src="js/weatherfx.js?v=20260924g"></script>
+  <script src="js/main.js?v=20260924g"></script>
 </body>
 </html>

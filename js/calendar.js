@@ -2,7 +2,7 @@
 
 /* =================================================================
    CALENDAR — Jan-Dec months grouped into 4 seasons, plus the weather
-   system (Sunny/Rainy/Snow).
+   system (Sunny/Cloudy/Rainy/Thunderstorm/Snow).
 
    Built entirely on top of js/daynight.js's existing getGameDay() (a
    plain 1-indexed day counter, already persisted/derived from the
@@ -13,10 +13,11 @@
 
    Weather is re-rolled once per in-game day (not every frame, not on a
    real-time timer like the old cosmetic HUD rotation this replaces),
-   weighted by the CURRENT season via js/config.js's
-   SEASON_WEATHER_WEIGHTS — e.g. Winter mostly rolls Snow, Summer mostly
-   rolls Sunny. js/weatherfx.js reads getCurrentWeather() to decide
-   whether to actually render rain, snow, or neither.
+   weighted by the CURRENT MONTH via js/config.js's
+   MONTH_WEATHER_WEIGHTS — snow only falls in November and January, and
+   most days land on Sunny or Cloudy. js/weatherfx.js reads
+   getCurrentWeather() to decide whether to render rain (Rainy and
+   Thunderstorm, the storm heavier and with lightning), snow, or neither.
 
    Entry points:
      getCalendarDate()   -> { year, monthIndex, monthName, monthAbbr,
@@ -54,16 +55,20 @@ function getCurrentSeason() {
   return getCalendarDate().season;
 }
 
-// --- Weather: rerolled once per in-game day, weighted by season --------
-function pickWeightedWeather(season) {
-  const weights = SEASON_WEATHER_WEIGHTS[season];
+// --- Weather: rerolled once per in-game day, weighted by MONTH ---------
+// Keyed by month rather than season — per request, snow has to land in
+// November and January specifically, which a season-wide table can't
+// express (Winter would drag December in with them). See
+// MONTH_WEATHER_WEIGHTS in js/config.js for the actual odds.
+function pickWeightedWeather(monthIndex) {
+  const weights = MONTH_WEATHER_WEIGHTS[monthIndex] || MONTH_WEATHER_WEIGHTS[0];
   const roll = Math.random();
   let acc = 0;
   for (const state of WEATHER_STATES) {
     acc += weights[state.name] || 0;
     if (roll < acc) return state;
   }
-  return WEATHER_STATES[0]; // fallback in case a season's weights don't sum to exactly 1
+  return WEATHER_STATES[0]; // fallback in case a month's weights don't sum to exactly 1
 }
 
 let currentWeather = WEATHER_STATES[0]; // placeholder — corrected by the forced first roll below
@@ -76,7 +81,7 @@ function updateWeather() {
   const day = getGameDay();
   if (day === lastWeatherRollDay) return;
   lastWeatherRollDay = day;
-  currentWeather = pickWeightedWeather(getCurrentSeason());
+  currentWeather = pickWeightedWeather(getCalendarDate().monthIndex);
 }
 
 function getCurrentWeather() {

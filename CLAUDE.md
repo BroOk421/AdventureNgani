@@ -2965,6 +2965,182 @@ not part of the running game.
       exclusion, construction save/load, interior save/load) still
       passes.
 
+### Sitting on furniture (benches, chairs, the couch)
+
+- **`sittable` in itemDefs + js/furniture.js (new file).** Hovering a seat
+  highlights it, left-clicking sits the player on it, and any WASD/arrow
+  key stands them back up, landing them exactly where they were standing
+  when they clicked (`player.sitPreX/Y`) — which IS "the front tile",
+  since that's where they had to be to click it. Works indoors and out:
+  `sittableLayer()` picks `objectLayer` outside or the current room's
+  `decor` map inside.
+- **Seats are per-tile, not per-item.** `sittable.seats` is a list of
+  `{ col, row, facing }` offsets, so a 4-seat bench really has four
+  separate spots. Hovering highlights only the one tile under the cursor
+  (`drawSitHighlight()`, camera.js) — no tile-grid square is drawn, just
+  the seat's own pixels tinted. A footprint tile that isn't a listed seat
+  (benchVertical's 5th/top tile, its backrest post) doesn't respond at
+  all.
+- **The highlight has to be baked offscreen.** `source-atop` directly on
+  the main canvas tints the whole rectangle, because the opaque world is
+  already drawn underneath by then. `getSitHighlightArt()` pre-tints a
+  copy of the icon instead, so only the furniture's real pixels light up.
+- **The sat-on item is forced behind the player** (`sortY = -Infinity`,
+  renderWorldObjectsSorted) — a bench sorts by its bottom row, so a
+  player seated on an upper row would otherwise be drawn behind it.
+- **Sit art:** `assets/sprites/Sit/sith.png` (front) and `sitv.png`
+  (side, mirrored for left) — ordinary 384x64 six-frame character sheets,
+  drawn through the exact same path as idle/walk, which is what keeps a
+  seated character the same size as a standing one. The code adds no
+  animation of its own; the breathing is in the sheet.
+  - *Gotcha worth remembering:* a 64px frame is four 16px cells wide, so
+    the frame's centre falls on a CELL BOUNDARY. Centring the character
+    inside a cell puts it 8px off-centre (= 6 world px in game). Centre
+    on the frame's middle line instead, or set the Aseprite grid to 32.
+
+### Bench footprints and art alignment
+
+- **`footprintHeightTiles: 1` on benchHorizontal** — its 64x32 art was
+  deriving a 4x2 = 8-tile footprint, the upper row being backrest nothing
+  stands on. A bench occupies one row of ground; the backrest hangs off
+  the top like a tree canopy.
+- **`artRoot: { x: -8 }` on benchHorizontal** — 64px is an EVEN four
+  tiles, and art is centred on the placement tile's CENTRE, so it sat
+  half a tile left of its own footprint, spilling into a fifth column.
+  This slides it onto its four tiles. `computeFootprintOpacityGrid()` was
+  taught about `artRoot` too, or collision would be sampled from where
+  the art no longer is. Odd-width art (benchVertical) needs none of this.
+- **`poseOffsetX`** (per seat) still exists for a seat whose art genuinely
+  isn't tile-centred, but nothing uses it now — the code adds no shift, so
+  where the character lands is decided purely by the sprite sheet.
+
+### E-grab reaches multi-tile items
+
+- `findFootprintCoveringTile()` searched only `fixedFootprint` items, so a
+  bench answered on its anchor tile and nowhere else. It now does a second
+  pass over `multiTileFootprint` items, using
+  `getObjectFootprintBlockedTiles()` — the same list movement collides
+  against — so "can I grab it here" matches "does it block me here".
+  `fixedFootprint` keeps a first pass of its own so the Big Bed lookups
+  (which take one hit and test its type) can't be shadowed.
+- **Grab priority:** the tile the player is FACING is checked across every
+  layer first, and only then the tile underfoot. The old order asked each
+  layer "here, then front", so the floor you stood on always beat the
+  bench you were nose-to-nose with. Houses stay un-grabbable, now keyed on
+  `buildSeconds` rather than `multiTileFootprint` (which had swept up all
+  the multi-tile furniture with them).
+
+### Maria: light, name, pathfinding, nightly schedule
+
+- **Same candle circle as the player.** `drawPlayerGlow()` was split into
+  `drawCharacterGlow(px, py, size, worldX, worldY)`; both call it, so the
+  colours, radius, night ramp and wall shadows are literally one function.
+- **Name lives only in the shop popup** (`NPC_NAME` -> `#npc-shop-title-name`).
+  No floating label over her head.
+- **Real pathfinding** (`findNpcTilePath()`): A* over the tile grid with a
+  binary min-heap, 4-way only (a diagonal hop can clip a solid corner).
+  Takes an `isBlocked` callback + bounds, so the same search serves the
+  outdoor map and the inside of a room. `buildNpcBlockedTiles()` walks the
+  placed layers ONCE per plan rather than testing per tile. An unreachable
+  goal returns a best-effort route to the closest tile reached.
+- **Nightly schedule:** at `NPC_SLEEP_HOUR` (20:00) she walks to a door,
+  goes in, crosses the room to a Big Bed and sleeps until `NPC_WAKE_HOUR`
+  (06:00), then walks back out through the exit mat.
+  - `findNpcHomeDoor()` accepts both door kinds the player can use — a
+    building's baked-in door (`interior.doorOffset`) and a standalone
+    Door (A)/(B)/(C) (`interior.doorSpanCols`). Her own house
+    (`NPC_HOUSE_TYPE`, now `"tavern"`) wins if placed.
+  - Indoors she respects `isInteriorBodyBlockedAt()`/`sweepInteriorBodyTo()`
+    — the player's own collision — and uses the room's `indoorWarp` door
+    when the bed or the exit is walled off from her.
+  - *Gotcha:* a Big Bed is SOLID indoors, so she walks to a free tile
+    BESIDE it (`npcBedApproachTile()`) and lies down from there. Walking
+    at the bed itself just wedged her against its edge forever.
+  - `inPathFailed` throttles the retry, or a walled-off bed would re-run a
+    room-wide A* 60 times a second.
+- Her sleep uses the player's `bedBigSleep` sheet, so the figure in the
+  bed isn't her own sprite. There's no NPC sleep art in the project.
+
+### One interior per building
+
+- `INTERIOR_ROOMS` used to be one entry per LAYOUT, shared by every copy
+  of a building — furnish one tavern and every tavern had the furniture.
+  It's now split: `INTERIOR_ROOM_BLUEPRINTS` holds the fixed layout, and
+  `INTERIOR_ROOMS` is a live registry of one room per placed building,
+  keyed `blueprint@col,row` (`interiorRoomId()`).
+- An instance copies the blueprint's fixed parts by reference and gets
+  FRESH `collisions`/`decor` Maps — the only per-room state there is, and
+  exactly what save.js already persisted per room id.
+- `getOrCreateInteriorRoom()` rebuilds a room from its id alone, which is
+  what the `blueprint@col,row` format is for: on load no instance exists
+  yet, so without it every house's contents would be dropped.
+
+### Buildings renamed, third interior added
+
+- `house1 -> house`, `house2 -> tavern`, `house3 -> abandonHouse` (ids,
+  asset keys and alpha-mask keys all move together — the mask table is
+  keyed by item id). PNG filenames on disk were NOT renamed.
+- `smallInterior -> house_room`; the shared layout split into
+  `tavern_room` (pixel-identical to the old interior.png, so all its
+  numbers carried over) and a new `abandon_room` (416x304, measured off
+  the PNG: floor x 24-391 / y 89-293, doorway x 177-206).
+- **Save migration** in save.js: `RENAMED_ITEM_TYPES` + `migrateItemType()`
+  applied to layers, respawn/construction timers, inventory counts, hotbar
+  slots and the grabbed item; `migrateRoomBlueprintId()` for room ids. The
+  awkward case is old `sharedHouse` rooms — one layout used by two
+  buildings — resolved by looking at what actually stands on that tile.
+
+### Six layers
+
+- Was four (`terrainLayer`/`groundLayer`/`decorLayer`/`objectLayer`), now:
+  1 `dirtLayer`, 2 `groundLayer` (grass/water/port), 3 `objectLayer`,
+  4 `upperLayer` (things on top of furniture), 5 `wallLayer`,
+  6 `ceilingLayer`. `ALL_LAYERS` / `ALL_LAYERS_TOP_FIRST` are the single
+  place a sweep over "every placed item" is defined.
+- **`groundOverlayLayer`** is layer 2 that does NOT replace the ground
+  tile: mushrooms, flowers, fallen leaves and the lit-window glow lie ON
+  the floor rather than being the floor, so a mushroom and the grass under
+  it both exist on one tile.
+- **`wildgrassLayer`** is layer 3 kept in its own map, because wild grass
+  isn't just a z-order — it's walkable, it bends as you walk through it,
+  and the tile the player stands on is drawn split around them. It
+  Y-sorts with `objectLayer`, so the two read as one layer.
+- **`ITEM_LAYER_RULES`** is one explicit ordered table (first match wins)
+  rather than flags, because the grouping is a design decision: a floor
+  tileset and a mushroom are both `flat`, but one IS the ground.
+- **Save format is now layer-agnostic** — a single `placedItems` list, with
+  the layer re-derived from the type on load. That's also why 4-layer
+  saves still load: their entries just re-sort into today's layers.
+
+### Layer 3 can't be placed on a wall
+
+- Rooms describe their solid parts two ways now: `walls` (world-space
+  rects — house_room, abandon_room) and `tileMap` (a per-tile `#`/`.`
+  grid — the tavern, whose two halves and doorway don't reduce to a few
+  rectangles). `isInteriorWallTile()` checks both.
+- `isInteriorPlacementBlocked()` refuses layer-3-and-below on a wall tile
+  and lets layers 4/5/6 through; the indoor placement grid reds out the
+  same tiles, so the preview and the click can't disagree.
+- The tavern's `tileMap` deliberately leaves column 19 open from row 11 to
+  17 — that's the doorway `indoorWarp` leads through, and walling it off
+  would make the upper half unreachable.
+
+#### Still open on the layer work
+- Asset folders are NOT reorganised yet (`assets/inner/...`,
+  `assets/outer/...` was requested).
+- Layer 4 has no height rule yet (floor + 3 tiles), and barrel/box don't
+  auto-pick a layer based on whether furniture is under them.
+- `base1`-`base5` art doesn't exist yet; add them to `ITEM_LAYER_RULES`
+  layer 4 when it does.
+- Tavern wall tiles block PLACEMENT only — the player can still walk
+  through them.
+
+### Cache busting
+
+- Every `<script>`/`<link>` in index.html carries `?v=YYYYMMDDx`. Browsers
+  hold onto these files hard enough that an update can look like nothing
+  changed at all. Bump the string whenever a file changes.
+
 ## Known trade-offs / things worth knowing if you keep tweaking
 
 - **Item action menu doesn't clamp to the screen edge.** `openItemActionMenu()`
@@ -2991,6 +3167,81 @@ not part of the running game.
 - **`COLS`/`ROWS`/tile loop in `world.js` runs once at startup** (roughly
   188×103 ≈ 19k `drawImage` calls to lay the random tiles) — a one-time
   cost at load, not per-frame, so it doesn't affect runtime performance.
+
+90. **house2/house3 (now 192x192) — pixel-accurate side-wall collision;
+    stale alpha masks regenerated.** Per request: after resizing both PNGs
+    to 192x192 the character still walked into the left AND right walls
+    (screenshots), and switching the footprint 11 -> 12 tiles didn't fix
+    it. Three separate causes, all fixed:
+    - **The walls don't sit on the tile grid.** Measured from both PNGs:
+      walls span art x 6..186 (180px = 11.25 tiles; roof eaves overhang
+      to 2..190). The art is centered on the placement tile's CENTER, so
+      in world space the walls are [P*16-82, P*16+98) — 2px into the
+      neighbouring column on each side. No whole-tile width can match
+      that (11 = 2px short each side; 12 = 2px short left, 14px of
+      invisible wall right). New `wallColliderPx: { left: 6, right: 186 }`
+      on both itemDefs; `getHouseWallRect()` / `isBlockedByHouseWalls()`
+      (inventory.js) test against those exact columns, placed with the
+      same anchor math as drawGroundItemAt(). Rows are still whole tiles:
+      12-row footprint, `footprintExcludeBackRows: 5` kept (top 5 rows
+      walkable, bottom 7 block). Door tile stays walkable. The front edge
+      deliberately stays the straight tile-row line (not the stepped
+      wing bottoms) — the house is one sprite with one Y-sort line, so
+      letting the player into the recess under a wing would draw them
+      behind that wing. `footprintWidthTiles` back to 11 (only affects the
+      placement preview / area-clear now — closest tile fit, symmetric).
+    - **The player collided as a single feet point.** Half the body
+      (~6 world px) always slid into a side wall before the point hit it.
+      New `BODY_COLLISION_HALF_W = 6` (config.js — sprite body columns
+      24..40 of 64, x0.75); `isBodyBlockedAt()` (player.js) tests a
+      segment that wide for wallColliderPx houses. Everything else still
+      goes through the unchanged `isTileBlocked()` (which now skips
+      wallColliderPx items when called from isBodyBlockedAt()). The NPC
+      uses isBodyBlockedAt() too.
+    - **Stopping short.** A blocked step used to be refused whole, leaving
+      up to a frame's movement (a few px running) of gap. `sweepBodyTo()`
+      binary-searches to stop flush. Escape hatch: if the player is
+      already overlapping (old save next to a now-wider wall), movement is
+      free until they're out, so nobody gets stuck.
+    - `js/objectAlphaMasks.js` still had house2/house3 at 182x182 (the old
+      size) — the fade test was reading a mask offset from the 192px art.
+      Regenerated with tools/generate_alpha_masks.py; only those two
+      entries changed. Re-run it whenever a PNG is resized.
+    - Trap checks (`canPlaceHouseFootprint()`, `updateConstructions()`)
+      now go through `wouldObjectTrapPlayer()`, which uses the same
+      precise test for wallColliderPx houses.
+    - Verified with a Node harness running the real functions: walking in
+      from either side at every depth, the body edge stops at exactly art
+      x 6.0 / 186.0; from below it stops at the bottom tile line except in
+      the door column (reaches the door tile); from behind it stops at
+      art y 80.
+
+91. **house2/house3's door is now solid too — entry triggers on contact,
+    not on standing inside the tile.** Per request: "yung sa door ng
+    bahay kahit lagyan na lang din ng collisions tapos makakapasok parin
+    pumapasok kasi sa loob e" — the door tile used to be fully carved
+    out of collision (a plain gap you could walk straight through); now
+    it collides exactly like the rest of the front wall.
+    - `isBlockedByHouseWalls()` (inventory.js): the door-tile exception
+      removed — the whole front wall (door column included) is solid.
+    - New `isTouchingHouseDoor()` (inventory.js): true once the player's
+      feet are within `DOOR_TOUCH_SLACK_PX` (3px) of the wall's front
+      line AND in the door's tile column — i.e. exactly the spot the now-
+      solid door stops them at (from either side of that line —
+      sweepBodyTo() lands them a hair on the free side of it, not
+      inside).
+    - `checkInteriorEntry()` (interior.js): for `wallColliderPx` houses,
+      swapped the old "feet tile === door tile" check (impossible now
+      that the tile is solid) for `isTouchingHouseDoor()` — entry fires
+      the instant the player bumps into the door, like a real door
+      instead of an open gap. Non-wallColliderPx houses (none exist yet,
+      kept for forward-compat) still use the old exact-tile check.
+    - Verified with the same Node harness as entry 90: walking straight
+      into the door column stops flush and reports touching=true, at
+      both normal and running speed; walking into any other wall column
+      (even one tile off from the door) stops flush too but reports
+      touching=false; the side-wall stop position from entry 90 is
+      unaffected.
 
 ## Possible next steps (not done yet, just noted)
 

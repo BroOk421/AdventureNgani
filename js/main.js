@@ -35,6 +35,7 @@ function loop(now) {
   updateSceneFade(); // js/interior.js — advances the enter/exit fade-to-black, before movement reads its frozen state
   updatePlayer(dt);
   updateHeldItemPlacement(); // keeps placing while the mouse is held (js/inventory.js)
+  updateBenchHover(); // which sittable item (if any) the cursor is over right now (js/furniture.js) — before render() so the highlight is current this frame
   render();
   updateClockHUD();
   updateStatsHUD(); // health/stamina/food/exp bars, duration, col/row, day, calendar date/season, weather (js/hud.js)
@@ -48,6 +49,8 @@ function start() {
   loadGame(); // restore placed items / inventory / position from last time, if any
   setupPlacementClickHandler();
   setupNpcClickHandler(); // left-click-the-shopkeeper-to-shop (js/npc.js)
+  setupBedClickHandler(); // left-click a placed Big Bed at night to sleep (js/resources.js)
+  setupBenchClickHandler(); // left-click a placed bench to sit (js/furniture.js)
   renderGoldDisplays(); // shows the starting/restored gold total right away, not just after the first purchase
   updateStatsHUD(); // shows the starting/restored stat values right away too, same reasoning
   last = performance.now();
