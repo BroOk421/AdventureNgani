@@ -330,6 +330,42 @@ function applySaveData(data) {
     });
   }
 
+  // Every interior room's Collision Block placements (js/interior.js) —
+  // restored per-room by roomId, same defensive "drop it if the type no
+  // longer exists" treatment as every other layer above. Always clears
+  // every known room first (even one with nothing saved for it), so an
+  // old save made before this feature existed just leaves every room
+  // with an empty map instead of crashing on a missing key.
+  Object.keys(INTERIOR_ROOMS).forEach((roomId) => {
+    INTERIOR_ROOMS[roomId].collisions.clear();
+  });
+  if (data.interiorCollisions && typeof data.interiorCollisions === "object") {
+    Object.entries(data.interiorCollisions).forEach(([roomId, entries]) => {
+      const room = INTERIOR_ROOMS[roomId];
+      if (!room || !Array.isArray(entries)) return;
+      entries.forEach(([key, type]) => {
+        if (itemDefs[type]) room.collisions.set(key, type);
+      });
+    });
+  }
+
+  // Same restore, same defensive treatment, for the interior `decor` map
+  // (ordinary items placed indoors — js/interior.js's
+  // placeInteriorDecorAt()) — independent of collisions above, so it
+  // gets its own clear + restore pass.
+  Object.keys(INTERIOR_ROOMS).forEach((roomId) => {
+    INTERIOR_ROOMS[roomId].decor.clear();
+  });
+  if (data.interiorDecor && typeof data.interiorDecor === "object") {
+    Object.entries(data.interiorDecor).forEach(([roomId, entries]) => {
+      const room = INTERIOR_ROOMS[roomId];
+      if (!room || !Array.isArray(entries)) return;
+      entries.forEach(([key, type]) => {
+        if (itemDefs[type]) room.decor.set(key, type);
+      });
+    });
+  }
+
   // Always rebuild the inventory fresh from the CURRENT itemDefs first —
   // never from whatever shape/length an old save's array says — then
   // layer saved counts on top by item type. This is what stops an old
