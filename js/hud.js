@@ -96,7 +96,7 @@ function updateStatsHUD() {
   dayHudNumberEl.textContent = getGameDay();
 
   const date = getCalendarDate(); // js/calendar.js
-  calendarHudDateEl.textContent = date.monthAbbr + " " + date.dayOfMonth;
+  calendarHudDateEl.textContent = date.weekdayAbbr + ", " + date.monthAbbr + " " + date.dayOfMonth; // weekday shown so Maria's work/weekend schedule (js/npc.js) is readable
   seasonHudEl.textContent = date.seasonIcon + " " + date.season;
 
   const w = getCurrentWeather(); // js/calendar.js
@@ -210,13 +210,8 @@ function drawMinimap() {
     }
   }
 
-  // Camera viewport outline — the slice of this window the main view is
-  // currently showing.
-  const viewWorldW = view.width / zoom;
-  const viewWorldH = view.height / zoom;
-  minimapCtx.strokeStyle = "rgba(255,255,255,0.8)";
-  minimapCtx.lineWidth = 1;
-  minimapCtx.strokeRect(toX(camX), toY(camY), viewWorldW * scale, viewWorldH * scale);
+  // (The white camera-viewport box that used to be drawn here was
+  // removed per request — "alisin mo na yung mismong border na white".)
 
   // NPC dot (only when they're actually inside the window)
   const npcX = toX(npc.x), npcY = toY(npc.y);
@@ -238,14 +233,99 @@ function drawMinimap() {
 
   minimapCtx.restore();
 
-  // Rim, drawn outside the clip so it isn't shaved in half by it.
-  minimapCtx.save();
-  minimapCtx.beginPath();
-  minimapCtx.arc(w / 2, h / 2, radius - 0.5, 0, Math.PI * 2);
-  minimapCtx.strokeStyle = "rgba(255,255,255,0.3)";
-  minimapCtx.lineWidth = 1;
-  minimapCtx.stroke();
-  minimapCtx.restore();
+  // (The white rim that used to be stroked around the dial was removed
+  // per request, along with the viewport box above.)
 }
 
 
+
+/* ---------------- full world map (click the minimap) ----------------
+   Per request ("clickable mag appear yung buong map"): clicking the
+   minimap opens the WHOLE world, scaled to fit the screen — the same
+   baked ground and placed items the dial draws, plus where you and Maria
+   are. Click anywhere, press Esc or M to close it. The ground and items
+   are drawn once when it opens; only the two dots are refreshed while
+   it's open, so it costs nothing to leave up. */
+const fullMapOverlayEl = document.createElement("div");
+fullMapOverlayEl.id = "fullmap-overlay";
+fullMapOverlayEl.className = "hidden";
+fullMapOverlayEl.innerHTML =
+  '<div id="fullmap-panel"><div id="fullmap-title">World Map <span class="hint">(click anywhere or press Esc to close)</span></div>' +
+  '<div id="fullmap-stack"><canvas id="fullmap-base"></canvas><canvas id="fullmap-dots"></canvas></div></div>';
+document.body.appendChild(fullMapOverlayEl);
+const fullMapBaseEl = fullMapOverlayEl.querySelector("#fullmap-base");
+const fullMapDotsEl = fullMapOverlayEl.querySelector("#fullmap-dots");
+let fullMapScale = 1;
+let fullMapTimer = null;
+
+function isFullMapOpen() {
+  return !fullMapOverlayEl.classList.contains("hidden");
+}
+
+function drawFullMapBase() {
+  const s = Math.min((window.innerWidth * 0.9) / MAP_W, (window.innerHeight * 0.8) / MAP_H);
+  fullMapScale = s;
+  const w = Math.max(1, Math.round(MAP_W * s));
+  const h = Math.max(1, Math.round(MAP_H * s));
+  for (const c of [fullMapBaseEl, fullMapDotsEl]) { c.width = w; c.height = h; }
+  const g = fullMapBaseEl.getContext("2d");
+  g.imageSmoothingEnabled = true;
+  g.fillStyle = "#14100a";
+  g.fillRect(0, 0, w, h);
+  g.drawImage(worldCanvas, 0, 0, MAP_W, MAP_H, 0, 0, w, h);
+  for (const layer of ALL_LAYERS) {
+    for (const [key, type] of layer) {
+      const def = itemDefs[type];
+      if (!def || !def.icon || !def.icon.width) continue;
+      const comma = key.indexOf(",");
+      const col = +key.slice(0, comma), row = +key.slice(comma + 1);
+      const bump = def.flat ? 1 : MINIMAP_ITEM_SCALE; // same landmark boost the dial uses
+      const dw = def.icon.width * s * bump, dh = def.icon.height * s * bump;
+      const root = def.artRoot;
+      const dx = (col + 0.5) * TILE * s - dw / 2 - (root ? root.x * s : 0);
+      const dy = (row + 1) * TILE * s - dh - (root ? root.y * s : 0);
+      g.drawImage(def.icon, dx, dy, dw, dh);
+    }
+  }
+}
+
+function drawFullMapDots() {
+  const g = fullMapDotsEl.getContext("2d");
+  const s = fullMapScale;
+  g.clearRect(0, 0, fullMapDotsEl.width, fullMapDotsEl.height);
+  const dot = (x, y, r, fill) => {
+    g.beginPath();
+    g.arc(x * s, y * s, r, 0, Math.PI * 2);
+    g.fillStyle = fill;
+    g.fill();
+    g.lineWidth = 1.5;
+    g.strokeStyle = "rgba(0,0,0,0.7)";
+    g.stroke();
+  };
+  if (npc.scene === "outside") dot(npc.x, npc.y, 4, "#e0c56c");
+  // Indoors, player.x/y are room coordinates — show where they went in.
+  const p = player.scene === "inside" && player.outsideReturn ? player.outsideReturn : player;
+  dot(p.x, p.y, 5, "#ffffff");
+}
+
+function openFullMap() {
+  drawFullMapBase();
+  drawFullMapDots();
+  fullMapOverlayEl.classList.remove("hidden");
+  clearInterval(fullMapTimer);
+  fullMapTimer = setInterval(drawFullMapDots, 200);
+}
+
+function closeFullMap() {
+  fullMapOverlayEl.classList.add("hidden");
+  clearInterval(fullMapTimer);
+  fullMapTimer = null;
+}
+
+minimapCanvas.addEventListener("click", openFullMap);
+fullMapOverlayEl.addEventListener("click", closeFullMap);
+window.addEventListener("keydown", (e) => {
+  if (!isFullMapOpen()) return;
+  if (e.key === "Escape" || e.key === "m" || e.key === "M") closeFullMap();
+});
+window.addEventListener("resize", () => { if (isFullMapOpen()) { drawFullMapBase(); drawFullMapDots(); } });

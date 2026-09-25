@@ -154,6 +154,37 @@ function updateBenchHover() {
 // js/inventory.js's setupPlacementClickHandler() (empty-handed here,
 // holding-something there), same split as js/npc.js's
 // setupNpcClickHandler().
+/* ---------------- reach: only from the next tile ----------------
+   Per request ("dapat 1 tile para ang pagitan para makaupo kasi ngayon
+   kahit malayo nakakaupo"): clicking a chair, bench or bed used to work
+   from anywhere on screen. Now the player has to be right beside it —
+   their feet within 1 tile of the seat (or of any tile of the bed),
+   including diagonally. Which way they're facing doesn't matter. */
+const FURNITURE_REACH_TILES = 1;
+
+// The tile(s) the player's feet are on — their body is 12px wide, so it
+// can straddle two columns (bodyFeetCols(), js/player.js).
+function playerFeetTiles() {
+  const row = player.scene === "inside"
+    ? interiorFeetTileAt(player.x, player.y).row
+    : getPlayerTile().row;
+  return bodyFeetCols(player.x).map((col) => ({ col, row }));
+}
+
+function isPlayerWithinReachOfTiles(tiles) {
+  const feet = playerFeetTiles();
+  return tiles.some((t) => feet.some((f) =>
+    Math.abs(f.col - t.col) <= FURNITURE_REACH_TILES && Math.abs(f.row - t.row) <= FURNITURE_REACH_TILES));
+}
+
+let tooFarToastAt = 0;
+function showTooFarToast(message) {
+  const now = Date.now();
+  if (now - tooFarToastAt < 1500) return;
+  tooFarToastAt = now;
+  showToast(message); // js/save.js
+}
+
 function setupBenchClickHandler() {
   view.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return; // left button only
@@ -162,6 +193,10 @@ function setupBenchClickHandler() {
     const { col, row } = screenToTile(e.clientX, e.clientY);
     const seat = findSeatAt(col, row);
     if (!seat) return; // not a seat tile (or not furniture at all) — ignore
+    if (!isPlayerWithinReachOfTiles([{ col: seat.seatCol, row: seat.seatRow }])) {
+      showTooFarToast("Get closer to sit down.");
+      return;
+    }
     trySitOnBench(seat);
   });
 }

@@ -293,6 +293,16 @@ const assets = {
   plateEmpty: new Image(),
   plateFood: new Image(),
   meatItem: new Image(),
+  foodBeer: new Image(),   // assets/foods/ — Maria's shop (js/npc.js NPC_SHOP_STOCK)
+  // Tavern customers (js/customers.js): each food's full->empty strip
+  // (the "eating" animation on the table) and its order bubble.
+  stripGrilledMeat: new Image(),
+  stripSalad: new Image(),
+  stripBeer: new Image(),
+  orderGrilledMeat: new Image(),
+  orderSalad: new Image(),
+  orderBeer: new Image(),
+  foodSalad: new Image(),
   chairFront: new Image(),
   chairRight: new Image(),
   chairLeft: new Image(),  // the mirror of chairRight — art was already on disk, just unused
@@ -332,6 +342,13 @@ const assets = {
   chairOutdoorSide: new Image(),
   chairOutdoorSideLeft: new Image(), // generated mirror of chairside.png
   floorMat: new Image(),
+  tableLong: new Image(), // assets/interior/longtable.png — the indoor long table
+  // Bartender table: the whole piece (its inventory icon) and the three
+  // parts it's built from (tools/slice_bartender_table.py).
+  bartenderTable: new Image(),
+  bartenderLeft: new Image(),
+  bartenderCenter: new Image(),
+  bartenderRight: new Image(),
   longTableHorizontal: new Image(),
   longTableVertical: new Image(),
   portBridge: new Image(),
@@ -692,15 +709,49 @@ function whenAssetsReady(callback) {
   onAssetsReadyCallback = callback;
 }
 
+// A file that fails to load used to leave the counter short forever, so
+// the game never started at all. Now a missing image first tries its
+// `fallbackSrc` (if it has one — see the foods below), and failing that
+// still counts as "done" so one missing picture can't freeze the game.
+function markAssetDone() {
+  assetsLoadedCount++;
+  if (assetsLoadedCount === assetsNeededCount && onAssetsReadyCallback) {
+    onAssetsReadyCallback();
+  }
+}
 Object.values(assets).forEach((img) => {
-  img.onload = () => {
-    assetsLoadedCount++;
-    if (assetsLoadedCount === assetsNeededCount && onAssetsReadyCallback) {
-      onAssetsReadyCallback();
+  img.onload = markAssetDone;
+  img.onerror = () => {
+    if (img.fallbackSrc && img.src.indexOf(img.fallbackSrc) === -1 && !img.triedFallback) {
+      img.triedFallback = true;
+      console.warn("Missing asset, using fallback:", img.src, "->", img.fallbackSrc);
+      img.src = img.fallbackSrc;
+      return;
     }
+    console.error("Failed to load asset:", img.src);
+    markAssetDone();
   };
-  img.onerror = () => console.error("Failed to load asset:", img.src);
 });
+
+// A simple drawn stand-in, used only if a food picture isn't in
+// assets/foods/ yet — so the item still shows up as something.
+function makeFoodPlaceholder(kind) {
+  const c = document.createElement("canvas");
+  c.width = 16; c.height = 16;
+  const g = c.getContext("2d");
+  if (kind === "beer") {
+    g.fillStyle = "#6b4a2b"; g.fillRect(3, 4, 9, 11);      // mug
+    g.fillStyle = "#e0a526"; g.fillRect(4, 6, 7, 8);       // beer
+    g.fillStyle = "#fff6dc"; g.fillRect(3, 2, 9, 3);       // foam
+    g.fillStyle = "#6b4a2b"; g.fillRect(12, 7, 2, 1); g.fillRect(13, 7, 1, 5); g.fillRect(12, 11, 2, 1); // handle
+  } else {
+    g.fillStyle = "#d9d2c3"; g.fillRect(1, 9, 14, 3); g.fillRect(3, 12, 10, 2); // bowl
+    g.fillStyle = "#4f9a3a"; g.fillRect(2, 6, 12, 3);      // greens
+    g.fillStyle = "#79c14f"; g.fillRect(4, 5, 3, 2); g.fillRect(9, 5, 3, 2);
+    g.fillStyle = "#d8402e"; g.fillRect(7, 6, 2, 2);       // tomato
+  }
+  return c.toDataURL();
+}
 
 // ==== added by tools/add_remaining_items.py — new items pass ====
 assets.bushBigGreen.src = "assets/bushes/biggreenbush.png";
@@ -769,7 +820,27 @@ assets.mugFull.src = "assets/interior/mug_drink.png";
 assets.mugEmpty.src = "assets/interior/mug_empty.png";
 assets.plateEmpty.src = "assets/interior/plate_empty.png";
 assets.plateFood.src = "assets/interior/plate_food.png";
-assets.meatItem.src = "assets/interior/meat.png";
+// Foods — per request, from assets/interior/foods/. Each food there is a
+// strip of 16x16 frames going from full to empty; the icon used here is
+// its FIRST (full) frame, cut out to <name>_icon.png by
+// tools/crop_food_icons.py — re-run that after changing a strip.
+// If an icon is missing each falls back: meat to its old picture,
+// beer/salad to a small drawn stand-in (makeFoodPlaceholder() above).
+assets.meatItem.fallbackSrc = "assets/interior/meat.png";
+assets.meatItem.src = "assets/interior/foods/grilled_meat_icon.png"; // renamed from meat — per request, "Grilled Meat"
+assets.foodBeer.fallbackSrc = makeFoodPlaceholder("beer");
+assets.foodBeer.src = "assets/interior/foods/beer_icon.png";
+assets.foodSalad.fallbackSrc = makeFoodPlaceholder("salad");
+assets.foodSalad.src = "assets/interior/foods/salad_icon.png";
+// Tavern customers (js/customers.js) — the whole strips this time (the
+// eating animation plays them left to right, full to empty) plus the
+// order bubbles from assets/interior/foods/order/.
+assets.stripGrilledMeat.src = "assets/interior/foods/grilled_meat.png";
+assets.stripSalad.src = "assets/interior/foods/salad.png";
+assets.stripBeer.src = "assets/interior/foods/beer.png";
+assets.orderGrilledMeat.src = "assets/interior/foods/order/grilled_meat_order.png";
+assets.orderSalad.src = "assets/interior/foods/order/salad_order.png";
+assets.orderBeer.src = "assets/interior/foods/order/beer_order.png";
 assets.chairFront.src = "assets/interior/frontchair.png";
 assets.chairRight.src = "assets/interior/rightchair.png";
 assets.chairLeft.src = "assets/interior/leftchair.png";
@@ -804,6 +875,11 @@ assets.chairOutdoorFront.src = "assets/outdoor/chairfront.png";
 assets.chairOutdoorSide.src = "assets/outdoor/chairside.png";
 assets.chairOutdoorSideLeft.src = "assets/outdoor/chairside_left.png";
 assets.floorMat.src = "assets/outdoor/floormat.png";
+assets.tableLong.src = "assets/interior/longtable.png";
+assets.bartenderTable.src = "assets/interior/bartender-table.png";
+assets.bartenderLeft.src = "assets/interior/bartender-table_left.png";
+assets.bartenderCenter.src = "assets/interior/bartender-table_center.png";
+assets.bartenderRight.src = "assets/interior/bartender-table_right.png";
 assets.longTableHorizontal.src = "assets/outdoor/longtableh.png";
 assets.longTableVertical.src = "assets/outdoor/longtablev.png";
 assets.portBridge.src = "assets/outdoor/port_bridge.png";

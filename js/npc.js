@@ -425,6 +425,20 @@ const npc = {
   inGoalX: null, inGoalY: null, // what the indoor route was planned toward
   inPathFailed: false, // last indoor plan came back with no route — throttles the retry
   leaving: false,      // morning: walking to the exit mat to go back out through it
+
+  // --- fixed room route (a room's `npcRoute`, js/interior.js) ---
+  routeSteps: null,    // the steps being walked right now: [{ col, row, warpTo? }]
+  routeIdx: 0,         // how many of them are finished
+  routePhase: null,    // "enter" (on the way to bed) | "leave" (on the way out) | null
+  routeWarpTimer: 0,   // seconds left standing at an inner door before coming out the other side
+
+  // --- weekday schedule inside the tavern (updateNpcWeekdayInside()) ---
+  doorWait: 0,         // seconds left at an inner door before coming out the other side
+  doorWaitDoor: null,  // which door that wait belongs to
+  wanderTarget: null,  // { x, y } in the room, or null
+  wanderPause: 0,      // seconds left standing still before picking the next spot
+  wanderSeconds: 0,    // how long she's been heading for the current spot
+  working: false,      // standing at her work spot
 };
 
 // True from NPC_WALK_START_HOUR up to (not including) NPC_WALK_END_HOUR
@@ -646,8 +660,80 @@ function npcBedApproachTile(room, bed) {
 // Is the tile at (col,row) somewhere she can stand in this room? Tested
 // at the tile's centre through the player's own indoor collision check,
 // so the two can never disagree about what counts as a wall.
-function isNpcInteriorTileBlocked(room, col, row) {
+function isNpcInteriorTileBlocked(room, col, row, ignoreMemory) {
+  // A room drawn as a per-tile '#'/'.' grid (the tavern's `tileMap`) has
+  // its walls there, not in `walls` — count them too, or her route cuts
+  // straight through the wall between the two halves of the tavern.
+  if (room.tileMap && isInteriorWallTile(room, col, row)) return true;
+  // Tiles she has had to give up on — see npcAvoidTiles() below.
+  if (!ignoreMemory && room.npcAvoid && room.npcAvoid.has(col + "," + row)) return true;
+  return isNpcTileSolidNow(room, col, row);
+}
+
+// Is something physically in the way on that tile RIGHT NOW (a Collision
+// Block, solid furniture, the room's walls)? Unlike the check above this
+// ignores her memory and the static tileMap — it's what's used to notice
+// that a collision has just appeared on the route she's walking.
+function isNpcTileSolidNow(room, col, row) {
+  if (npcDecorBlockedTiles(room).has(col + "," + row)) return true;
   return isInteriorBodyBlockedAt(room, (col + 0.5) * TILE, centerYForFeetRow(row));
+}
+
+// Every tile covered by a solid piece of furniture in the room — ANY
+// decor item with `collides` (stoves, tables, chairs, barrels, cabinets,
+// couches, crates...), across its real footprint, using the same
+// footprint math outdoor collision uses (getObjectFootprintBlockedTiles(),
+// js/inventory.js). The room's own collision check only counted the few
+// `fixedFootprint` items (beds), so she used to walk straight through
+// everything else.
+//
+// Rebuilt at most every 200 ms (or at once if something was added or
+// removed), since the pathfinder asks about hundreds of tiles per plan.
+function npcDecorBlockedTiles(room) {
+  const now = Date.now();
+  const c = room.npcDecorCache;
+  if (c && c.size === room.decor.size && now - c.at < 200) return c.tiles;
+  const tiles = new Set();
+  for (const [key, type] of room.decor) {
+    const def = itemDefs[type];
+    if (!def || !def.collides) continue;
+    const [col, row] = key.split(",").map(Number);
+    for (const t of getObjectFootprintBlockedTiles(type, col, row)) tiles.add(t.col + "," + t.row);
+  }
+  room.npcDecorCache = { at: now, size: room.decor.size, tiles };
+  return tiles;
+}
+
+/* ---------------- her memory of blocked tiles ----------------
+   Per request ("kapag nagkaroon ng collissions yung daan niya is
+   mawawala sa record niya yun at di na niya dadaanan"): the moment a
+   collision appears on a tile of the route she's walking, that tile is
+   struck from her record and she plans around it — and she keeps
+   avoiding it from then on, even if the collision is later removed.
+   The one exception is when avoiding her remembered tiles would leave
+   her with NO way to where she has to go: then she's allowed through
+   (only if it's actually clear now), rather than being stuck forever.
+
+   Kept per room (room.npcAvoid, a Set of "col,row") and saved with the
+   game (js/save.js), so she remembers across reloads. */
+function npcAvoidTiles(room) {
+  if (!room.npcAvoid) room.npcAvoid = new Set();
+  return room.npcAvoid;
+}
+
+// Checks the remaining tiles of her current route; any that just became
+// solid are added to her memory. Returns true if the route is now bad.
+function npcRouteHitNewCollision(room) {
+  const tiles = npc.inPath && npc.inPath.tiles;
+  if (!tiles) return false;
+  let hit = false;
+  for (const t of tiles) {
+    if (isNpcTileSolidNow(room, t.col, t.row)) {
+      npcAvoidTiles(room).add(t.col + "," + t.row);
+      hit = true;
+    }
+  }
+  return hit;
 }
 
 // A route through the room to a world point, as waypoints in her indoor
@@ -660,15 +746,25 @@ function findNpcInteriorPath(room, targetX, targetY) {
     minCol: 0, maxCol: Math.ceil(room.width / TILE) - 1,
     minRow: 0, maxRow: Math.ceil(room.height / TILE) - 1,
   };
-  const tiles = findNpcTilePath(from.col, from.row, to.col, to.row,
+  let tiles = findNpcTilePath(from.col, from.row, to.col, to.row,
     (c, r) => isNpcInteriorTileBlocked(room, c, r), bounds);
+  const reachesGoal = (ts) => ts && ts.length && ts[ts.length - 1].col === to.col && ts[ts.length - 1].row === to.row;
+  if (!reachesGoal(tiles) && room.npcAvoid && room.npcAvoid.size) {
+    // Her remembered tiles cut her off completely — only then, allow
+    // them (if they're genuinely clear now) rather than never arriving.
+    const without = findNpcTilePath(from.col, from.row, to.col, to.row,
+      (c, r) => isNpcInteriorTileBlocked(room, c, r, true), bounds);
+    if (reachesGoal(without)) tiles = without;
+  }
   if (tiles === null) return null;
+  const rawTiles = tiles;
   const path = simplifyNpcTilePath(tiles).map((t) => ({
     x: (t.col + 0.5) * TILE,
     y: centerYForFeetRow(t.row),
   }));
   if (path.length) path[path.length - 1] = { x: targetX, y: targetY };
   else path.push({ x: targetX, y: targetY });
+  path.tiles = rawTiles; // every tile of the route, for npcRouteHitNewCollision()
   return path;
 }
 
@@ -712,6 +808,15 @@ function stepNpcInside(room, dt) {
 // "unreachable".
 function npcWalkInsideTo(room, targetX, targetY, dt) {
   if (Math.hypot(targetX - npc.inX, targetY - npc.inY) <= NPC_BED_REACH_DIST) return "arrived";
+
+  // A collision just appeared somewhere on the route she's walking — the
+  // tile goes into her memory and the route is thrown away, so the plan
+  // below goes around it. Checked BEFORE any replan, so it's still
+  // noticed on a frame where her destination also changed.
+  if (npcRouteHitNewCollision(room)) {
+    npc.inPath = null;
+    npc.inPathFailed = false;
+  }
 
   npc.inPathReplanTimer += dt;
   const goalMoved = npc.inGoalX !== targetX || npc.inGoalY !== targetY;
@@ -763,7 +868,10 @@ function npcWarpPortal(room, dir) {
   if (!w) return null;
   const portal = dir === "forward" ? w.forwardPortal : w.returnPortal;
   if (!portal || !portal.length) return null;
-  return centerOfTiles(portal);
+  // centerOfTiles() gives a { col, row } — turn it into the { x, y } she
+  // walks toward. (Using it as-is read .x/.y as undefined, which made
+  // her position NaN and she vanished from the room.)
+  return npcTileCentre(centerOfTiles(portal));
 }
 
 // Steps her through that door, landing on its matching spawn side.
@@ -771,10 +879,122 @@ function npcTakeWarp(room, dir) {
   const w = room.indoorWarp;
   const spawn = dir === "forward" ? w.forwardSpawn : w.returnSpawn;
   if (!spawn || !spawn.length) return;
-  const c = centerOfTiles(spawn);
+  const c = npcTileCentre(centerOfTiles(spawn));
   npc.inX = c.x;
   npc.inY = c.y;
   clearNpcInsidePath();
+}
+
+/* ---------------- fixed room route (`npcRoute`) ----------------
+   Per request: in the tavern she doesn't find her own way — she walks a
+   hand-set list of tiles (INTERIOR_ROOM_BLUEPRINTS.tavern_room.npcRoute,
+   js/interior.js): main door (12,27) -> (17,27) -> inner door (19,15),
+   out at (19,10), then to the bed. In the morning the same list is
+   walked backwards until she's out through the main door. */
+
+const NPC_WARP_WAIT_SECONDS = INDOOR_WARP_WAIT_MS / 1000; // same pause at the inner door the player gets
+
+// The CENTRE point to stand on so her FEET are on (col,row) — the same
+// convention the player's warp landing uses (checkIndoorWarpDoor()).
+function npcTileCentre(t) {
+  return { x: (t.col + 0.5) * TILE, y: centerYForFeetRow(t.row) };
+}
+
+function resetNpcRoute() {
+  npc.routeSteps = null;
+  npc.routeIdx = 0;
+  npc.routePhase = null;
+  npc.routeWarpTimer = 0;
+}
+
+function startNpcEnterRoute(room) {
+  npc.routeSteps = room.npcRoute.map((s) => Object.assign({}, s));
+  npc.routeIdx = 0;
+  npc.routePhase = "enter";
+  npc.routeWarpTimer = 0;
+}
+
+// The way back out from wherever she's got to: the steps she's already
+// finished, in reverse, with each inner door taken the other way round
+// (walk to where it let her out, come out where she went in).
+function startNpcLeaveRoute(room) {
+  // Which of the route's steps are "behind" her depends on where she
+  // actually is: in the upper room she has passed all of them, in the
+  // lower room only the ones before the inner door.
+  let done;
+  if (npc.routePhase === "enter") done = npc.routeIdx;
+  else if (room.npcSchedule && npcSideInRoom(room) === "lower") {
+    done = room.npcRoute.findIndex((s) => s.warpTo);
+    if (done < 0) done = room.npcRoute.length;
+  } else done = room.npcRoute.length;
+  const steps = [];
+  for (let i = done - 1; i >= 0; i--) {
+    const s = room.npcRoute[i];
+    if (s.warpTo) steps.push({ col: s.warpTo.col, row: s.warpTo.row, warpTo: { col: s.col, row: s.row } });
+    else steps.push({ col: s.col, row: s.row });
+  }
+  npc.routeSteps = steps;
+  npc.routeIdx = 0;
+  npc.routePhase = "leave";
+  npc.routeWarpTimer = 0;
+}
+
+// Walk to one point of the route. Uses the normal indoor A* so a
+// Collision Block or a piece of furniture in the way is walked around;
+// if there's genuinely no way through it just heads straight there
+// (still sliding against walls, never through them) rather than
+// freezing on the spot.
+function npcRouteWalkTo(room, x, y, dt) {
+  const r = npcWalkInsideTo(room, x, y, dt);
+  if (r === "arrived") return true;
+  if (r === "unreachable") {
+    const dx = x - npc.inX, dy = y - npc.inY;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= NPC_BED_REACH_DIST) return true;
+    const stepLen = Math.min(dist, NPC_MOVE_SPEED * dt);
+    const want = sweepInteriorBodyTo(room, npc.inX, npc.inY,
+      npc.inX + (dx / dist) * stepLen, npc.inY + (dy / dist) * stepLen);
+    npc.inX = want.x;
+    npc.inY = want.y;
+    npc.isWalking = true;
+    if (dx > 0.05) npc.facing = "right";
+    else if (dx < -0.05) npc.facing = "left";
+  }
+  return false;
+}
+
+// Advances along npc.routeSteps. Returns true once every step is done.
+function followNpcRoomRoute(room, dt) {
+  const steps = npc.routeSteps;
+  if (!steps) return true;
+  while (npc.routeIdx < steps.length) {
+    const s = steps[npc.routeIdx];
+
+    // Standing at an inner door, waiting to go through.
+    if (npc.routeWarpTimer > 0) {
+      npc.isWalking = false;
+      npc.routeWarpTimer -= dt;
+      if (npc.routeWarpTimer > 0) return false;
+      const out = npcTileCentre(s.warpTo);
+      npc.inX = out.x;
+      npc.inY = out.y;
+      npc.routeWarpTimer = 0;
+      npc.routeIdx++;
+      clearNpcInsidePath();
+      return false;
+    }
+
+    const p = npcTileCentre(s);
+    if (!npcRouteWalkTo(room, p.x, p.y, dt)) return false;
+    clearNpcInsidePath();
+    if (s.warpTo) {
+      npc.routeWarpTimer = NPC_WARP_WAIT_SECONDS;
+      npc.isWalking = false;
+      return false;
+    }
+    npc.routeIdx++;
+  }
+  return true;
 }
 
 // Walk to a point in the room, going through the room's indoor door if
@@ -820,6 +1040,19 @@ function enterNpcHouse(door) {
     npc.inX = room.spawnX;
     npc.inY = room.spawnY;
   }
+  resetNpcRoute();
+  npcStopWandering();
+  npc.working = false;
+  npc.doorWait = 0;
+  npc.doorWaitDoor = null;
+  if (room.npcRoute && room.npcRoute.length) {
+    // A room with a fixed route: she always appears on its first tile
+    // (the tavern's main door, 12,27) and walks it from there.
+    const start = npcTileCentre(room.npcRoute[0]);
+    npc.inX = start.x;
+    npc.inY = start.y;
+    startNpcEnterRoute(room);
+  }
   npc.goingHome = false;
   npc.homeGiveUpSeconds = 0;
   npc.sleeping = false;
@@ -843,6 +1076,8 @@ function exitNpcHouse() {
     const spot = npcDoorApproachSpot(door);
     npc.x = spot.x;
     npc.y = spot.y;
+    npc.homeX = spot.x; // her weekend stroll stays around her own house
+    npc.homeY = spot.y;
   } else {
     npc.x = npc.homeX;
     npc.y = npc.homeY;
@@ -858,12 +1093,241 @@ function exitNpcHouse() {
   npc.stuckSeconds = 0;
   clearNpcPath();
   clearNpcInsidePath();
+  resetNpcRoute();
+  npcStopWandering();
+  npc.working = false;
+  npc.doorWait = 0;
+  npc.doorWaitDoor = null;
 }
 
 // Her whole indoor life: cross the room to the bed, lie down, stay there
 // until morning, then walk back out through the exit mat. Every step of
 // it respects the room's walls and furniture, and falls back to the
 // room's indoor door when the bed (or the way out) is walled off.
+/* ---------------- weekday / weekend life inside the tavern ----------------
+   Per request: Maria only goes outside on the weekend. Monday-Friday she
+   stays in the tavern (room.npcSchedule, js/interior.js):
+     06:00        out of bed, through the inner door into the lower room,
+                  walks around
+     before 08:00 sets off for her work spot, timed to be there at 08:00
+     08:00-17:00  works there
+     17:00-18:00  walks around the lower room
+     18:00        back through the inner door and into bed
+   Saturday/Sunday she walks npcRoute out of the main door at 06:00 and
+   comes home at 20:00, exactly as before. */
+
+function isNpcWeekend() {
+  return isWeekendDay(); // js/calendar.js
+}
+
+// "upper" (the bed room) or "lower" (everything from the inner door's
+// passage down), from where her feet are.
+function npcSideInRoom(room) {
+  const t = interiorFeetTileAt(npc.inX, npc.inY);
+  return t.row <= room.npcSchedule.upperMaxRow ? "upper" : "lower";
+}
+
+// Walk up to an inner door, wait there a moment like the player does,
+// then come out on the other side. Returns true on the frame she's through.
+function npcCrossInnerDoor(room, door, dt) {
+  if (npc.doorWaitDoor !== door) { npc.doorWait = 0; npc.doorWaitDoor = door; }
+  if (npc.doorWait > 0) {
+    npc.isWalking = false;
+    npc.doorWait -= dt;
+    if (npc.doorWait > 0) return false;
+    const out = npcTileCentre(door.spawn);
+    npc.inX = out.x;
+    npc.inY = out.y;
+    npc.doorWait = 0;
+    npc.doorWaitDoor = null;
+    clearNpcInsidePath();
+    return true;
+  }
+  const p = npcTileCentre(door.portal);
+  if (npcRouteWalkTo(room, p.x, p.y, dt)) {
+    clearNpcInsidePath();
+    npc.doorWait = NPC_WARP_WAIT_SECONDS;
+    npc.isWalking = false;
+  }
+  return false;
+}
+
+// The tile itself if she can stand on it, otherwise the closest free one
+// around it (e.g. someone put a Collision Block on her work spot).
+function npcFreeTileNear(room, t) {
+  if (!isNpcInteriorTileBlocked(room, t.col, t.row)) return t;
+  for (let r = 1; r <= 3; r++) {
+    for (let dr = -r; dr <= r; dr++) for (let dc = -r; dc <= r; dc++) {
+      if (Math.max(Math.abs(dc), Math.abs(dr)) !== r) continue;
+      if (!isNpcInteriorTileBlocked(room, t.col + dc, t.row + dr)) return { col: t.col + dc, row: t.row + dr };
+    }
+  }
+  return t;
+}
+
+// Roughly how many IN-GAME hours walking to a tile will take from where
+// she is, so she can leave in time to arrive right at 08:00. A little
+// generous (x1.3 for going around things) plus a two-minute buffer.
+function npcTravelGameHoursTo(t) {
+  const from = interiorFeetTileAt(npc.inX, npc.inY);
+  const tiles = (Math.abs(from.col - t.col) + Math.abs(from.row - t.row)) * 1.3;
+  const realSeconds = (tiles * TILE) / NPC_MOVE_SPEED + NPC_WARP_WAIT_SECONDS;
+  return (realSeconds * TIME_SCALE) / 3600 + 2 / 60;
+}
+
+function npcStopWandering() {
+  npc.wanderTarget = null;
+  npc.wanderPause = 0;
+  npc.wanderSeconds = 0;
+}
+
+// Strolls between random free spots in the schedule's wander area,
+// pausing a few seconds at each. Never picks a blocked tile (walls,
+// Collision Blocks, furniture, or a tile in her memory).
+function npcWander(room, dt) {
+  const s = room.npcSchedule;
+  if (npc.wanderPause > 0) {
+    npc.wanderPause -= dt;
+    npc.isWalking = false;
+    return;
+  }
+  if (!npc.wanderTarget) {
+    const a = s.wanderArea;
+    for (let i = 0; i < 20; i++) {
+      const col = a.minCol + Math.floor(Math.random() * (a.maxCol - a.minCol + 1));
+      const row = a.minRow + Math.floor(Math.random() * (a.maxRow - a.minRow + 1));
+      if (isNpcInteriorTileBlocked(room, col, row)) continue;
+      npc.wanderTarget = npcTileCentre({ col, row });
+      npc.wanderSeconds = 0;
+      break;
+    }
+    if (!npc.wanderTarget) { npc.isWalking = false; return; }
+  }
+  npc.wanderSeconds += dt;
+  const arrived = npcRouteWalkTo(room, npc.wanderTarget.x, npc.wanderTarget.y, dt);
+  if (arrived || npc.wanderSeconds > 12) { // 12s: that spot's not worth it, pick another
+    clearNpcInsidePath();
+    npc.wanderTarget = null;
+    npc.wanderPause = 1.5 + Math.random() * 3;
+    npc.isWalking = false;
+  }
+}
+
+function npcGoToWork(room, dt) {
+  npcStopWandering();
+  const p = npcTileCentre(npcFreeTileNear(room, room.npcSchedule.workSpot));
+  if (Math.hypot(p.x - npc.inX, p.y - npc.inY) <= NPC_BED_REACH_DIST) {
+    if (!npc.working) clearNpcInsidePath();
+    npc.working = true; // standing at her spot, idle animation
+    npc.isWalking = false;
+    return;
+  }
+  npc.working = false;
+  npcRouteWalkTo(room, p.x, p.y, dt);
+}
+
+function npcTickSleep(dt) {
+  // Play the tuck-in animation once, then HOLD on its last frame for
+  // the rest of the night.
+  const lastFrame = FRAME_COUNTS.sleep - 1;
+  if (npc.sleepFrame < lastFrame) {
+    npc.sleepFrameTimer += dt;
+    if (npc.sleepFrameTimer >= 1 / NPC_SLEEP_FPS) {
+      npc.sleepFrameTimer = 0;
+      npc.sleepFrame++;
+    }
+  }
+}
+
+// Into bed from wherever she is in the room — through the inner door
+// first if she's on the lower side.
+function npcGoToBed(room, dt) {
+  if (npc.sleeping) { npcTickSleep(dt); return; }
+  npcStopWandering();
+  npc.working = false;
+  if (npcSideInRoom(room) === "lower") {
+    npcCrossInnerDoor(room, room.npcSchedule.toUpper, dt);
+    return;
+  }
+  const bed = findNpcBedInRoom(room);
+  const stand = bed && npcBedApproachTile(room, bed);
+  if (!stand) {
+    npc.isWalking = false; // no bed (or it's walled in) — she just stands in the bed room
+    clearNpcInsidePath();
+    return;
+  }
+  if (npcRouteWalkTo(room, (stand.col + 0.5) * TILE, centerYForFeetRow(stand.row), dt)) {
+    npc.sleeping = true;
+    npc.isWalking = false;
+    npc.sleepBedCol = bed.col;
+    npc.sleepBedRow = bed.row;
+    npc.sleepFrame = 0;
+    npc.sleepFrameTimer = 0;
+    clearNpcInsidePath();
+  }
+}
+
+function updateNpcScheduledInside(room, dt) {
+  const s = room.npcSchedule;
+  const h = getGameHour();
+
+  if (isNpcWeekend()) {
+    if (!isNpcBedtime()) {
+      // Weekend daytime: out through the main door, route in reverse.
+      if (!npc.leaving) {
+        npc.sleeping = false;
+        npc.working = false;
+        npc.leaving = true;
+        npcStopWandering();
+        clearNpcInsidePath();
+        startNpcLeaveRoute(room);
+      }
+      if (!followNpcRoomRoute(room, dt)) return;
+      // Out through the doorway on feet row 30 (room.npcExitTile), the
+      // same row the player's exit triggers on.
+      const exitT = room.npcExitTile || interiorFeetTileAt((room.exitZone.minX + room.exitZone.maxX) / 2, room.exitZone.minY + 4);
+      const ex = npcTileCentre(exitT);
+      if (npcRouteWalkTo(room, ex.x, ex.y, dt)) exitNpcHouse();
+      return;
+    }
+    // Weekend night: finish walking in from the main door, then bed.
+    npc.leaving = false;
+    if (npc.routePhase === "enter" && !followNpcRoomRoute(room, dt)) return;
+    npcGoToBed(room, dt);
+    return;
+  }
+
+  // Monday-Friday.
+  npc.leaving = false;
+  if (npc.routePhase) resetNpcRoute(); // the main-door route is only for weekends
+
+  if (h < s.wakeHour || h >= s.bedHour) {
+    npcGoToBed(room, dt);
+    return;
+  }
+
+  if (npc.sleeping) { // 06:00 — up
+    npc.sleeping = false;
+    clearNpcInsidePath();
+  }
+
+  if (npcSideInRoom(room) === "upper") {
+    npc.working = false;
+    npcStopWandering();
+    npcCrossInnerDoor(room, s.toLower, dt);
+    return;
+  }
+
+  const atWorkHours = h >= s.workStartHour && h < s.workEndHour;
+  const timeToHeadOff = h < s.workStartHour && h + npcTravelGameHoursTo(s.workSpot) >= s.workStartHour;
+  if (atWorkHours || timeToHeadOff) {
+    npcGoToWork(room, dt);
+    return;
+  }
+  npc.working = false;
+  npcWander(room, dt);
+}
+
 function updateNpcInside(dt) {
   const room = INTERIOR_ROOMS[npc.roomId];
   if (!room) {
@@ -871,21 +1335,32 @@ function updateNpcInside(dt) {
     return;
   }
 
+  if (room.npcSchedule) {
+    updateNpcScheduledInside(room, dt);
+    return;
+  }
+
   // Morning: get up and walk to the exit mat, rather than blinking out
   // of the room from wherever she happened to be lying.
-  if (!isNpcBedtime()) {
+  if (!isNpcBedtime() && !npc.leaving) {
     npc.sleeping = false;
     npc.leaving = true;
+    clearNpcInsidePath();
+    // Fixed-route room: walk the same route back, in reverse.
+    if (room.npcRoute && room.npcRoute.length) startNpcLeaveRoute(room);
   }
 
   if (npc.leaving) {
+    if (room.npcRoute && !followNpcRoomRoute(room, dt)) return; // still on the way back to the main door
     const z = room.exitZone;
     // Aim at a point the movement clamp can actually reach — the mat's
     // own top edge, not its middle, for the same reason the player's
     // exit zone starts well above the mat (see INTERIOR_ROOMS).
-    if (npcWalkInsideVia(room, (z.minX + z.maxX) / 2, z.minY + 4, dt, "return")) {
-      exitNpcHouse();
-    }
+    const ex = (z.minX + z.maxX) / 2, ey = z.minY + 4;
+    const out = room.npcRoute
+      ? npcRouteWalkTo(room, ex, ey, dt)
+      : npcWalkInsideVia(room, ex, ey, dt, "return");
+    if (out) exitNpcHouse();
     return;
   }
 
@@ -905,6 +1380,10 @@ function updateNpcInside(dt) {
     return;
   }
 
+  // Fixed-route room: finish the route (main door -> inner door -> upper
+  // room) before heading for the bed.
+  if (room.npcRoute && npc.routePhase === "enter" && !followNpcRoomRoute(room, dt)) return;
+
   const bed = findNpcBedInRoom(room);
   if (!bed) {
     npc.isWalking = false; // no bed placed in there — she just stands around inside for the night
@@ -919,7 +1398,11 @@ function updateNpcInside(dt) {
     return;
   }
 
-  if (npcWalkInsideVia(room, (stand.col + 0.5) * TILE, centerYForFeetRow(stand.row), dt, "forward")) {
+  const standX = (stand.col + 0.5) * TILE, standY = centerYForFeetRow(stand.row);
+  const atBed = room.npcRoute
+    ? npcRouteWalkTo(room, standX, standY, dt)          // route already got her through the inner door
+    : npcWalkInsideVia(room, standX, standY, dt, "forward");
+  if (atBed) {
     npc.sleeping = true;
     npc.isWalking = false;
     npc.sleepBedCol = bed.col;
@@ -1013,8 +1496,10 @@ function updateNPC(dt) {
     return;
   }
 
-  // Bedtime: drop whatever she was doing and head for the door.
-  if (isNpcBedtime()) {
+  // Bedtime — or any time on a weekday, since Monday-Friday she belongs
+  // inside the tavern (updateNpcScheduledInside()) — drop whatever she
+  // was doing and head for the door.
+  if (isNpcBedtime() || !isNpcWeekend()) {
     if (!npc.goingHome) {
       npc.goingHome = true;
       npc.homeGiveUpSeconds = 0;
@@ -1096,15 +1581,11 @@ function isPointOnNPC(worldX, worldY) {
 
 /* ---------------- shop stock (prices decided here, per request "ikaw na bahala sa price") ---------------- */
 
+// Per request: she's a tavern keeper now — food and drink only.
 const NPC_SHOP_STOCK = [
-  { type: "woodSword", price: 15 },
-  { type: "woodDagger", price: 10 },
-  { type: "woodAxe", price: 20 },
-  { type: "woodPickaxe", price: 18 },
-  { type: "woodBow", price: 30 },
-  { type: "woodShieldSmall", price: 12 },
-  { type: "woodLog", price: 3 },
-  { type: "stoneChunk", price: 3 },
+  { type: "meatItem", price: 50 },
+  { type: "foodSalad", price: 20 },
+  { type: "foodBeer", price: 10 },
 ];
 
 /* ---------------- shop UI ---------------- */
@@ -1202,6 +1683,183 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeNpcShop();
 });
 
+/* ---------------- her house, her rules ----------------
+   See the "locked doors" block in js/interior.js for the rules
+   themselves; these are the pieces they're built from. */
+
+// The room id of Maria's own home (her tavern), or null with no home placed.
+// Only a real tavern counts: findNpcHomeDoor() falls back to ANY door so
+// she always has somewhere to sleep, but that fallback must never make
+// the PLAYER'S own house "hers" — with no tavern placed, that locked the
+// player out of their own home.
+function npcHomeRoomId() {
+  const door = findNpcHomeDoor();
+  if (!door || !door.def.interior || door.type !== NPC_HOUSE_TYPE) return null;
+  return interiorRoomId(door.def.interior.roomId, door.col, door.row);
+}
+
+// Permission to go up to her room — "roomId|day", valid until her shift
+// ends that day. Not saved: asking again after a reload is fine.
+let npcRoomPermission = null;
+
+function npcWorkHours(roomId) {
+  const room = INTERIOR_ROOMS[roomId];
+  const s = room && room.npcSchedule;
+  return s ? { start: s.workStartHour, end: s.workEndHour } : { start: 8, end: 17 };
+}
+
+function isNpcWorkingHours(roomId) {
+  if (isNpcWeekend()) return false;
+  const h = getGameHour();
+  const w = npcWorkHours(roomId);
+  return h >= w.start && h < w.end;
+}
+
+function hasNpcRoomPermission(roomId) {
+  if (npcRoomPermission !== roomId + "|" + getGameDay()) return false;
+  return isNpcWorkingHours(roomId); // runs out when her shift does
+}
+
+/* ---------------- talking to her indoors ----------------
+   Per request: instead of walking through her inner door, the player
+   asks her — "Can I go to your room?" — and she only agrees during her
+   working hours. Click her while you're both in the tavern (and she's
+   awake) to talk. Her shop is in the same menu, since on weekdays she
+   never comes outside where it used to be the only way to reach it. */
+const npcTalkOverlayEl = document.getElementById("npc-talk-overlay");
+const npcTalkNameEl = document.getElementById("npc-talk-name");
+const npcTalkTextEl = document.getElementById("npc-talk-text");
+const npcTalkOptionsEl = document.getElementById("npc-talk-options");
+if (npcTalkNameEl) npcTalkNameEl.textContent = NPC_NAME;
+
+function isNpcTalkOpen() {
+  return npcTalkOverlayEl && !npcTalkOverlayEl.classList.contains("hidden");
+}
+
+function setNpcTalk(text, options) {
+  npcTalkTextEl.textContent = text;
+  npcTalkOptionsEl.innerHTML = "";
+  for (const opt of options) {
+    const b = document.createElement("button");
+    b.className = "npc-talk-option";
+    b.textContent = opt.label;
+    b.addEventListener("click", opt.onClick);
+    npcTalkOptionsEl.appendChild(b);
+  }
+}
+
+function npcTalkMainMenu(text) {
+  setNpcTalk(text, [
+    { label: "Can I go to your room?", onClick: askNpcForRoom },
+    { label: "Let me see what you're selling.", onClick: () => { closeNpcTalk(); openNpcShop(); } },
+    { label: "Bye!", onClick: closeNpcTalk },
+  ]);
+}
+
+function askNpcForRoom() {
+  const roomId = npc.roomId;
+  if (hasNpcRoomPermission(roomId)) {
+    npcTalkMainMenu("You already can — go ahead, the door's open.");
+    return;
+  }
+  if (isNpcWorkingHours(roomId)) {
+    npcRoomPermission = roomId + "|" + getGameDay();
+    const end = npcWorkHours(roomId).end;
+    npcTalkMainMenu("Sure, go ahead! The door's open until I finish work at " + end + ":00.");
+  } else {
+    npcTalkMainMenu("Sorry, not right now. Ask me during my working hours.");
+  }
+}
+
+function openNpcTalk() {
+  if (!npcTalkOverlayEl) return;
+  npcTalkMainMenu("Hi there! What can I do for you?");
+  npcTalkOverlayEl.classList.remove("hidden");
+}
+
+function closeNpcTalk() {
+  if (npcTalkOverlayEl) npcTalkOverlayEl.classList.add("hidden");
+}
+
+if (npcTalkOverlayEl) {
+  npcTalkOverlayEl.addEventListener("click", (e) => {
+    if (e.target === npcTalkOverlayEl) closeNpcTalk();
+  });
+}
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeNpcTalk();
+});
+
+// Is a click (room-local coordinates, screenToWorld() indoors) on her?
+function isPointOnNpcInside(x, y) {
+  if (player.scene !== "inside" || npc.scene !== "inside" || npc.roomId !== player.activeRoomId) return false;
+  if (npc.sleeping) return false; // asleep — let her sleep
+  const dx = x - npc.inX, dy = y - npc.inY;
+  return dx * dx + dy * dy <= NPC_CLICK_RADIUS * NPC_CLICK_RADIUS;
+}
+
+/* ---------------- where she is when the game starts ----------------
+   Per request ("yung default spawn niya is dun na sa tile after niyang
+   matulog... every sat at sunday nasa labas lang siya palagi"): instead
+   of always starting in the middle of the map and walking home, she
+   starts exactly where her schedule says she is at this hour —
+     - Sat/Sun daytime: outside, just in front of her door (where she
+       steps out after sleeping), and she strolls around her house
+     - at night: asleep in her bed
+     - Mon-Fri daytime: inside at work, or walking around the lower room
+   Her weekend stroll is also anchored on that door spot now, so she
+   stays around her own house instead of the middle of the map. */
+function placeNpcForCurrentTime() {
+  const door = findNpcHomeDoor();
+  if (!door) return; // no home yet — keep the old default spot
+  const spot = npcDoorApproachSpot(door);
+  npc.homeX = spot.x;
+  npc.homeY = spot.y;
+
+  if (isNpcWeekend() && !isNpcBedtime()) {
+    npc.scene = "outside";
+    npc.x = spot.x;
+    npc.y = spot.y;
+    npc.targetX = null;
+    clearNpcPath();
+    return;
+  }
+
+  enterNpcHouse(door);
+  const room = INTERIOR_ROOMS[npc.roomId];
+  if (!room || npc.scene !== "inside") return;
+  resetNpcRoute(); // she's already where she's going — no walking in from the main door
+  const s = room.npcSchedule;
+  const h = getGameHour();
+  const night = s ? (isNpcWeekend() ? isNpcBedtime() : (h < s.wakeHour || h >= s.bedHour)) : true;
+
+  const put = (t) => { const c = npcTileCentre(t); npc.inX = c.x; npc.inY = c.y; };
+  if (night) {
+    const bed = findNpcBedInRoom(room);
+    const stand = bed && npcBedApproachTile(room, bed);
+    if (stand) {
+      put(stand);
+      npc.sleeping = true;
+      npc.isWalking = false;
+      npc.sleepBedCol = bed.col;
+      npc.sleepBedRow = bed.row;
+      npc.sleepFrame = FRAME_COUNTS.sleep - 1; // already tucked in
+      npc.sleepFrameTimer = 0;
+    } else if (s) {
+      put(s.toUpper.spawn); // no bed — standing in her bedroom
+    }
+    return;
+  }
+  if (!s) return;
+  if (h >= s.workStartHour && h < s.workEndHour) {
+    put(npcFreeTileNear(room, s.workSpot));
+    npc.working = true;
+    npc.isWalking = false;
+  } else {
+    put(s.toLower.spawn); // up and about in the lower room
+  }
+}
+
 // Called once from main.js's start(), after the canvas exists — wires up
 // left-click-the-NPC-to-shop. A separate listener from
 // js/inventory.js's setupPlacementClickHandler() (rather than folding
@@ -1213,6 +1871,7 @@ function setupNpcClickHandler() {
     if (e.button !== 0) return; // left button only
     if (heldItem || player.grabbedType) return; // hands full — a click places/grabs instead, see inventory.js
     const { x, y } = screenToWorld(e.clientX, e.clientY);
+    if (isPointOnNpcInside(x, y)) { openNpcTalk(); return; } // indoors: talk to her
     if (isPointOnNPC(x, y)) openNpcShop();
   });
 }

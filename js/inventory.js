@@ -72,6 +72,10 @@ const ITEM_LAYER_RULES = [
   // light, occlusion fade, the lot) — only WHERE they're filed changes.
   ["overlay", /^(decoFlower|bushMushroom|windowLight)/],
   ["overlay", ["leavesFloor"]],
+  // Floor tiles and mats are FLOOR too — per request, a stove (or any
+  // object) can stand on a mat. They used to fall through to layer 3
+  // (objects), so a mat took the same slot a stove needed.
+  ["overlay", /^(floorMat|floorBrownTile|floorDarkGreenTile|floorGreenTile)/],
 
   // --- 3, but its own map — see wildgrassLayer ---
   ["wildgrass", /^wildGrass/],
@@ -87,7 +91,7 @@ const ITEM_LAYER_RULES = [
   // --- 4. things that sit on top of furniture, not on the ground ---
   // `base1`-`base5` will join this list once that art exists.
   [4, /^(plotSocket|plate|mug|board[AB]|veg)/],
-  [4, ["meatItem"]],
+  [4, ["meatItem", "foodBeer", "foodSalad"]],
 
   // --- 3. everything else stands on the ground ---
 ];
@@ -1607,12 +1611,26 @@ const itemDefs = {
     unlimited: true,
     flat: true,
   },
+  // Windows WITH their light — per request, the window and the patch of
+  // light it throws on the floor are one image now (32x110: window at the
+  // top, light at the bottom; Window B built by tools/combine_window.py).
+  //   - `artRoot` anchors the item on the WINDOW, not the bottom of the
+  //     image: the tile you click (and the one under the cursor while
+  //     holding it) is the window's own bottom tile, and the light falls
+  //     further down the floor below it. root.y = windowBottom - height.
+  //   - `litWindow` splits the art in two when drawn: rows above
+  //     `lightTop` (the window) are always solid; rows from `lightTop`
+  //     down (the light) fade with the daylight, same as the old Lit
+  //     Windows (fadeWithDaylight) — gone at night, back in the morning.
+  // Layer 5 (walls), via the windowPlain prefix in ITEM_LAYER_RULES.
   windowPlain1: {
     id: "windowPlain1",
     name: "Window (A)",
     icon: assets.windowPlain1,
     unlimited: true,
     flat: true,
+    artRoot: { x: 0, y: 25 - 110 },
+    litWindow: { lightTop: 84 },
   },
   windowPlain2: {
     id: "windowPlain2",
@@ -1620,6 +1638,8 @@ const itemDefs = {
     icon: assets.windowPlain2,
     unlimited: true,
     flat: true,
+    artRoot: { x: 0, y: 32 - 110 },
+    litWindow: { lightTop: 60 },
   },
   windowLight1: {
     id: "windowLight1",
@@ -1801,6 +1821,7 @@ const itemDefs = {
   },
   tableFurniture1: {
     id: "tableFurniture1",
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Tabletop Clutter 1",
     icon: assets.tableFurniture1,
     unlimited: true,
@@ -1808,6 +1829,7 @@ const itemDefs = {
   },
   tableFurniture2: {
     id: "tableFurniture2",
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Tabletop Clutter 2",
     icon: assets.tableFurniture2,
     unlimited: true,
@@ -1815,6 +1837,7 @@ const itemDefs = {
   },
   tableFurniture3: {
     id: "tableFurniture3",
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Tabletop Clutter 3",
     icon: assets.tableFurniture3,
     unlimited: true,
@@ -1822,6 +1845,7 @@ const itemDefs = {
   },
   tableFurniture4: {
     id: "tableFurniture4",
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Tabletop Clutter 4",
     icon: assets.tableFurniture4,
     unlimited: true,
@@ -1856,8 +1880,8 @@ const itemDefs = {
     flat: true,
   },
   meatItem: {
-    id: "meatItem",
-    name: "Meat",
+    id: "meatItem", // id kept as-is so existing saves, hotbars and Maria's shop keep working
+    name: "Grilled Meat",
     icon: assets.meatItem,
     unlimited: true,
     flat: true,
@@ -1869,6 +1893,24 @@ const itemDefs = {
     // healing a percentage of CURRENT health would make the item
     // near-useless exactly when you need it most. See consumeItem().
     consumable: { food: 20, healthPercent: 20 },
+  },
+  // Sold by Maria (js/npc.js NPC_SHOP_STOCK), same food setup as Meat —
+  // left-click eats, "Hold" places it (layer 4, on a table).
+  foodBeer: {
+    id: "foodBeer",
+    name: "Beer",
+    icon: assets.foodBeer,
+    unlimited: true,
+    flat: true,
+    consumable: { food: 5, healthPercent: 5 },
+  },
+  foodSalad: {
+    id: "foodSalad",
+    name: "Salad",
+    icon: assets.foodSalad,
+    unlimited: true,
+    flat: true,
+    consumable: { food: 12, healthPercent: 10 },
   },
   // `sittable`/`noOcclusionFade` (js/furniture.js, camera.js): same
   // click-to-sit + no-approach-fade treatment as the outdoor benches
@@ -1992,6 +2034,8 @@ const itemDefs = {
   },
   tableBig: {
     id: "tableBig",
+    isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Big Table (A)",
     icon: assets.tableBig,
     unlimited: true,
@@ -2000,6 +2044,8 @@ const itemDefs = {
   },
   tableBig1: {
     id: "tableBig1",
+    isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Big Table (B)",
     icon: assets.tableBig1,
     unlimited: true,
@@ -2008,6 +2054,8 @@ const itemDefs = {
   },
   tableBig2: {
     id: "tableBig2",
+    isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Big Table (C)",
     icon: assets.tableBig2,
     unlimited: true,
@@ -2016,6 +2064,8 @@ const itemDefs = {
   },
   tableCircle: {
     id: "tableCircle",
+    isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Round Table",
     icon: assets.tableCircle,
     unlimited: true,
@@ -2024,6 +2074,8 @@ const itemDefs = {
   },
   tableKitchen: {
     id: "tableKitchen",
+    isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Kitchen Table",
     icon: assets.tableKitchen,
     unlimited: true,
@@ -2032,11 +2084,68 @@ const itemDefs = {
   },
   tableSmall: {
     id: "tableSmall",
+    isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Small Table",
     icon: assets.tableSmall,
     unlimited: true,
     collides: true,
     multiTileFootprint: true,
+  },
+  // The indoor long table (assets/interior/longtable.png, 240x64 — 15
+  // tiles wide). Its art only fills the BOTTOM 32px; the top half of the
+  // image is empty, so the footprint is pinned to those 2 real rows
+  // (footprintHeightTiles) instead of the full 4-tile image height —
+  // otherwise the empty space above it would block movement.
+  tableLong: {
+    id: "tableLong",
+    noOcclusionFade: true, // tables stay solid over whoever is behind them
+    name: "Long Table",
+    icon: assets.tableLong,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+    footprintHeightTiles: 2,
+    isTable: true,
+  },
+  // Bartender table — the left end. One tile wide and one tall (solid),
+  // so pieces sit side by side: Left + Center x N + Right.
+  bartenderLeft: {
+    id: "bartenderLeft",
+    noOcclusionFade: true, // stays solid over whoever is behind it
+    name: "Bartender Table (Left)",
+    icon: assets.bartenderLeft,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+    footprintHeightTiles: 1, // the art is only ~1 tile tall now (19px) — the empty space above it stays walkable
+    isTable: true, // customers can eat at a seat facing the counter too (js/customers.js)
+  },
+  // Bartender table — the middle — repeat it to make the counter as long as you want. One tile wide and one tall (solid),
+  // so pieces sit side by side: Left + Center x N + Right.
+  bartenderCenter: {
+    id: "bartenderCenter",
+    noOcclusionFade: true, // stays solid over whoever is behind it
+    name: "Bartender Table (Center)",
+    icon: assets.bartenderCenter,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+    footprintHeightTiles: 1, // the art is only ~1 tile tall now (19px) — the empty space above it stays walkable
+    isTable: true, // customers can eat at a seat facing the counter too (js/customers.js)
+  },
+  // Bartender table — the right end. One tile wide and one tall (solid),
+  // so pieces sit side by side: Left + Center x N + Right.
+  bartenderRight: {
+    id: "bartenderRight",
+    noOcclusionFade: true, // stays solid over whoever is behind it
+    name: "Bartender Table (Right)",
+    icon: assets.bartenderRight,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+    footprintHeightTiles: 1, // the art is only ~1 tile tall now (19px) — the empty space above it stays walkable
+    isTable: true, // customers can eat at a seat facing the counter too (js/customers.js)
   },
   cookerStove1: {
     id: "cookerStove1",
@@ -2281,6 +2390,8 @@ const itemDefs = {
   },
   longTableHorizontal: {
     id: "longTableHorizontal",
+    isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Long Table (Horizontal)",
     icon: assets.longTableHorizontal,
     unlimited: true,
@@ -2289,6 +2400,8 @@ const itemDefs = {
   },
   longTableVertical: {
     id: "longTableVertical",
+    isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Long Table (Vertical)",
     icon: assets.longTableVertical,
     unlimited: true,
@@ -2396,7 +2509,7 @@ const itemDefs = {
     // The glow sits on the bulb (measured at 40, 22.5 in the lit art),
     // expressed from the tile's bottom-centre once root anchoring has
     // shifted the art into place.
-    lightGlow: { offsetX: 31.5, offsetY: -53.5 },
+    lightGlow: { offsetX: 31.5, offsetY: -53.5, groundOffsetY: -14, relightRect: { x: 30, y: 12, w: 22, h: 22 } },
   },
   // The lit lamp as its OWN placeable item — per request ("yung
   // postlight/postlight-light is na hold din"). Permanently lit, so no
@@ -2408,7 +2521,7 @@ const itemDefs = {
     unlimited: true,
     collides: true,
     artRoot: { x: -23.5, y: -4 },
-    lightGlow: { offsetX: 31.5, offsetY: -53.5 },
+    lightGlow: { offsetX: 31.5, offsetY: -53.5, groundOffsetY: -14, relightRect: { x: 30, y: 12, w: 22, h: 22 } },
   },
   // Left-facing mirrors of the two lamps above — per request ("original
   // kasi diba right side lang, gusto ko rin sana magka left side"). The
@@ -2425,7 +2538,7 @@ const itemDefs = {
     artRoot: { x: 22.5, y: -4 },
     nightIcon: assets.postLightLitLeft,
     nightMaskType: "postLightLitLeft",
-    lightGlow: { offsetX: -31.5, offsetY: -53.5 },
+    lightGlow: { offsetX: -31.5, offsetY: -53.5, groundOffsetY: -14, relightRect: { x: 12, y: 12, w: 22, h: 22 } },
   },
   postLightLitLeft: {
     id: "postLightLitLeft",
@@ -2434,7 +2547,7 @@ const itemDefs = {
     unlimited: true,
     collides: true,
     artRoot: { x: 22.5, y: -4 },
-    lightGlow: { offsetX: -31.5, offsetY: -53.5 },
+    lightGlow: { offsetX: -31.5, offsetY: -53.5, groundOffsetY: -14, relightRect: { x: 12, y: 12, w: 22, h: 22 } },
   },
   postHandleLight: {
     id: "postHandleLight",
@@ -2445,6 +2558,8 @@ const itemDefs = {
   },
   tableOutdoorSmall: {
     id: "tableOutdoorSmall",
+    isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
+    noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Small Outdoor Table",
     icon: assets.tableOutdoorSmall,
     unlimited: true,
@@ -3115,7 +3230,24 @@ const TILE_GROUP_META = {
   // Multi-icon preview rather than `singleIcon`, since a front chair, a
   // side chair and an outdoor one genuinely look different from each
   // other — the same reason Trees and Stones keep theirs.
-  chair: { name: "Chairs", match: (t) => t.startsWith("chair") },
+  chair: { name: "Chairs", match: (t) => t.startsWith("chair") },
+  // Every INDOOR table in one slot — per request ("pagsama samahin mo yung
+  // interior na tables para isahan lang"). Click it to pick which one.
+  // The outdoor tables and the Tabletop Clutter (things that go ON a
+  // table) keep their own slots. Multi-icon preview, like Chairs, since
+  // the tables look quite different from each other.
+  // The bartender table's three parts share one slot — per request, the
+  // slot shows the WHOLE bartender table (`iconImage`), and clicking it
+  // pops up the three parts (left / center / right) to pick from.
+  bartender: {
+    name: "Bartender Table",
+    match: (t) => t.startsWith("bartender"),
+    iconImage: () => assets.bartenderTable,
+  },
+  interiorTable: {
+    name: "Tables",
+    match: (t) => ["tableBig", "tableBig1", "tableBig2", "tableCircle", "tableKitchen", "tableSmall", "tableLong"].includes(t),
+  },
   // The four lamp posts (right/left, unlit/lit) share one slot — per
   // request ("pag-sama-samahin mo na sa isang icon, postlight gamitin
   // mong icon, tapos pag-click at nakapili na, may popup na hold at
@@ -3539,12 +3671,15 @@ function placeHeldItemAt(col, row) {
   // way out. `PLACEMENT_RANGE`'s highlighted area includes the player's
   // own tile at offset (0,0), so nothing else was stopping a click there.
   const playerTile = getPlayerTile();
-  if (
-    itemDefs[heldItem.type].collides &&
-    col === playerTile.col &&
-    row === playerTile.row
-  )
-    return;
+  if (itemDefs[heldItem.type].collides) {
+    // The body is 12px wide now (bodyFeetCols(), player.js), so it can
+    // stand across two tiles — refuse if ANY tile of the new item's
+    // footprint is one the feet are on.
+    const feetCols = bodyFeetCols(player.x);
+    const covers = (t) => t.row === playerTile.row && feetCols.includes(t.col);
+    const fp = getObjectFootprintBlockedTiles(heldItem.type, col, row);
+    if (covers({ col, row }) || fp.some(covers)) return;
+  }
 
   const def = itemDefs[heldItem.type];
   const layer = layerForType(heldItem.type);
@@ -4316,7 +4451,14 @@ function buildTileGroupSlotBox(group) {
     ? group.members.find((t) => itemDefs[t].groupIcon) || group.members[0]
     : null;
 
-  if (iconType) {
+  if (meta && meta.iconImage) {
+    // A picture of its own that isn't any one member (the whole
+    // bartender table, standing for its three parts).
+    const img = document.createElement("img");
+    img.src = meta.iconImage().src;
+    img.alt = group.name;
+    box.appendChild(img);
+  } else if (iconType) {
     const img = document.createElement("img");
     img.src = itemDefs[iconType].icon.src;
     img.alt = group.name;

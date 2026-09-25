@@ -32,6 +32,23 @@
      getCurrentWeather()  -> { name, icon } — one of WEATHER_STATES
 ================================================================= */
 
+/* --- day of the week ---
+   Per request (Maria works Monday-Friday and only goes outside on the
+   weekend). Day 1 of the save is a Monday, and it simply counts on from
+   there in sevens off the same getGameDay() counter as everything else. */
+const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const WEEKDAY_ABBR = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+// 0 = Monday ... 6 = Sunday
+function getWeekdayIndex() {
+  return (getGameDay() - 1) % 7;
+}
+
+// Saturday or Sunday
+function isWeekendDay() {
+  return getWeekdayIndex() >= 5;
+}
+
 function getCalendarDate() {
   const dayIndex0 = getGameDay() - 1; // 0-indexed total in-game days elapsed
   const daysPerYear = CALENDAR_DAYS_PER_MONTH * 12;
@@ -48,6 +65,9 @@ function getCalendarDate() {
     dayOfMonth,
     season,
     seasonIcon: CALENDAR_SEASON_ICONS[season],
+    weekdayIndex: dayIndex0 % 7,
+    weekdayName: WEEKDAY_NAMES[dayIndex0 % 7],
+    weekdayAbbr: WEEKDAY_ABBR[dayIndex0 % 7],
   };
 }
 

@@ -147,11 +147,25 @@ function isTileBlocked(col, row, skipWallColliders = false) {
 // with `wallColliderPx` (tavern/abandonHouse), which are skipped there and
 // tested pixel-accurately instead — the body's real width against the
 // house's real wall columns (isBlockedByHouseWalls(), inventory.js).
+// Per request ("kaya ba malagyan ng collissions yung buong 16x16 na
+// tile"): the feet are now a 12px-wide line (BODY_COLLISION_HALF_W each
+// side), not a single point. Every solid tile was always blocked across
+// its whole 16x16 — but with only the centre of the feet tested, half the
+// body slid into it from the side before stopping, so the collision
+// looked smaller than the tile. Now the body stops flush at the tile's
+// edge from the left, right, top and bottom.
+function bodyFeetCols(x) {
+  const c0 = Math.floor((x - BODY_COLLISION_HALF_W) / TILE);
+  const c1 = Math.floor((x + BODY_COLLISION_HALF_W - 0.001) / TILE);
+  return c0 === c1 ? [c0] : [c0, c1];
+}
+
 function isBodyBlockedAt(x, y) {
   const feetY = y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
-  const col = Math.floor(x / TILE);
   const row = Math.floor(feetY / TILE);
-  if (isTileBlocked(col, row, true)) return true;
+  for (const col of bodyFeetCols(x)) {
+    if (isTileBlocked(col, row, true)) return true;
+  }
   for (const [key, type] of objectLayer) {
     if (!itemDefs[type].wallColliderPx) continue;
     const [placedCol, placedRow] = key.split(",").map(Number);
@@ -175,6 +189,25 @@ function sweepBodyTo(x0, y0, x1, y1) {
     else lo = mid;
   }
   return { x: x0 + (x1 - x0) * lo, y: y0 + (y1 - y0) * lo };
+}
+
+// Food ran out — no running until something's eaten, and a slower walk.
+function isPlayerStarving() {
+  return player.food <= 0;
+}
+
+// One-time heads-up the moment food hits 0 (and again if it runs out
+// again later), so the slower walk doesn't look like a bug.
+let starvingNoticeShown = false;
+function updateStarvingNotice() {
+  if (isPlayerStarving()) {
+    if (!starvingNoticeShown) {
+      starvingNoticeShown = true;
+      if (typeof showToast === "function") showToast("You're starving — eat something to run again.");
+    }
+  } else {
+    starvingNoticeShown = false;
+  }
 }
 
 function updatePlayer(dt) {
@@ -340,7 +373,9 @@ function updatePlayer(dt) {
   if (player.stamina <= 0) player.staminaExhausted = true;
   else if (player.stamina >= player.maxStamina * STAMINA_RUN_RECOVER_PCT) player.staminaExhausted = false;
 
-  const running = moving && keys["shift"] && player.stamina > 0 && !player.staminaExhausted;
+  updateStarvingNotice();
+  const starving = isPlayerStarving();
+  const running = moving && keys["shift"] && player.stamina > 0 && !player.staminaExhausted && !starving; // no running on an empty stomach
   const nextAnim = moving ? (running ? "run" : "walk") : "idle";
 
   // Drains while actually running, regenerates otherwise (whether idle
@@ -355,7 +390,7 @@ function updatePlayer(dt) {
   if (moving) {
     const len = Math.hypot(vx, vy) || 1;
     vx /= len; vy /= len;
-    const speed = player.speed * (running ? player.runMult : 1);
+    const speed = player.speed * (running ? player.runMult : 1) * (starving ? HUNGRY_WALK_MULT : 1);
 
     const wantX = clamp(player.x + vx * speed * dt, DRAW_SIZE / 2, MAP_W - DRAW_SIZE / 2);
     const wantY = clamp(player.y + vy * speed * dt, DRAW_SIZE / 2, MAP_H - DRAW_SIZE / 2);
@@ -373,8 +408,21 @@ function updatePlayer(dt) {
       player.x = wantX;
       player.y = wantY;
     } else {
+      const beforeY = player.y;
       player.x = sweepBodyTo(player.x, player.y, wantX, player.y).x;
       player.y = sweepBodyTo(player.x, player.y, player.x, wantY).y; // uses the (possibly just-updated) player.x
+      // Now that the feet have width, walking straight up/down into a
+      // one-tile gap (a doorway's open middle, a path between two trees)
+      // only fits when you're lined up with it. If a purely vertical move
+      // was stopped but the column you're mostly in is open, slide over
+      // onto its centre so you slip through instead of snagging a corner.
+      if (vx === 0 && vy !== 0 && Math.abs(player.y - beforeY) < 0.01) {
+        const tx = (Math.floor(player.x / TILE) + 0.5) * TILE;
+        if (Math.abs(tx - player.x) > 0.01 && !isBodyBlockedAt(tx, wantY)) {
+          const step = Math.sign(tx - player.x) * Math.min(Math.abs(tx - player.x), speed * dt);
+          if (!isBodyBlockedAt(player.x + step, player.y)) player.x += step;
+        }
+      }
     }
 
     // Any horizontal input at all (including diagonals like top-left,
@@ -410,7 +458,7 @@ function updatePlayer(dt) {
   // carry* sheets share the same frame counts/speeds as their normal
   // counterparts (idle/walk/run), so the anim key alone is enough here —
   // spriteForFacing() is what actually picks the carry vs normal sheet.
-  const fps = ANIM_FPS[player.anim];
+  const fps = ANIM_FPS[player.anim] * (player.anim === "walk" && isPlayerStarving() ? HUNGRY_WALK_ANIM_MULT : 1); // tired, slower steps while starving
   const frameCount = FRAME_COUNTS[player.anim];
   player.frameTimer += dt;
   if (player.frameTimer >= 1 / fps) {

@@ -19,7 +19,35 @@ function updateClockHUD() {
   }
 }
 
+// One error in a single frame used to stop the whole game: the exception
+// fired before requestAnimationFrame() at the bottom was reached, so no
+// next frame was ever scheduled and everything froze. Now the next frame
+// is always scheduled first, and an error is logged (once per distinct
+// message, so the console isn't flooded 60 times a second) while the
+// game keeps running.
+const loggedLoopErrors = new Set();
 function loop(now) {
+  requestAnimationFrame(loop);
+  try {
+    loopFrame(now);
+  } catch (err) {
+    const key = String(err && err.message);
+    if (!loggedLoopErrors.has(key)) {
+      loggedLoopErrors.add(key);
+      console.error("Frame error (the game keeps running):", err);
+    }
+    // Put the canvas back to a clean state in case the error happened
+    // halfway through a transformed/faded draw.
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.filter = "none";
+    } catch (e) { /* nothing more to do */ }
+  }
+}
+
+function loopFrame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
   updateDayNight(); // wall-clock based — doesn't need dt, see js/daynight.js
@@ -29,6 +57,7 @@ function loop(now) {
   updateThrownTosses(); // clears out finished T-key throw arcs (js/resources.js)
   updateWildgrassSway(dt); // grass-bending sim as the player walks through it (js/wildgrass.js)
   updateNPC(dt); // idle animation + facing auto-switch for the shopkeeper (js/npc.js)
+  updateCustomers(dt); // tavern customers coming, ordering, eating, leaving (js/customers.js)
   updatePlayerStats(dt); // food depletion + playtime accumulation (js/hud.js)
   updateWeather(); // re-rolls Sunny/Rainy/Snow once per in-game day, weighted by season (js/calendar.js)
   updateWeatherFX(dt); // rain/snow/cloud/fog particles + god rays, gated/nudged by that weather (js/weatherfx.js)
@@ -39,7 +68,6 @@ function loop(now) {
   render();
   updateClockHUD();
   updateStatsHUD(); // health/stamina/food/exp bars, duration, col/row, day, calendar date/season, weather (js/hud.js)
-  requestAnimationFrame(loop);
 }
 
 function start() {
@@ -47,6 +75,9 @@ function start() {
   initWeatherFX(); // needs resizeCanvas()'s view/zoom to already be set (js/weatherfx.js)
   buildWorld();
   loadGame(); // restore placed items / inventory / position from last time, if any
+  updateDayNight(); // make sure the clock is current before placing anyone by it
+  placePlayerAtHomeDoor(); // always start in front of your own house's door, if you have one (js/interior.js)
+  placeNpcForCurrentTime(); // Maria starts wherever her schedule has her right now (js/npc.js)
   setupPlacementClickHandler();
   setupNpcClickHandler(); // left-click-the-shopkeeper-to-shop (js/npc.js)
   setupBedClickHandler(); // left-click a placed Big Bed at night to sleep (js/resources.js)

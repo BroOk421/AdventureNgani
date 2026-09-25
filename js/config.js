@@ -117,6 +117,11 @@ const STAMINA_REGEN_PER_SEC = 12; // slower than drain, so sprinting everywhere 
 // frame, regen ticks it a hair above 0 the next, which re-armed
 // running immediately, draining it right back to 0 again).
 const STAMINA_RUN_RECOVER_PCT = 0.3;
+// Out of food (player.food at 0) — per request: no running at all until
+// you've eaten something, and walking slows down. See isPlayerStarving()
+// (js/player.js).
+const HUNGRY_WALK_MULT = 0.6;      // walk speed while starving (1 = normal)
+const HUNGRY_WALK_ANIM_MULT = 0.7; // and the walk animation slows with it, so the feet don't slide
 const FOOD_DRAIN_PER_GAME_HOUR = 100 / 24; // a full 100 food lasts exactly one in-game day with nothing eaten — no way to refill it yet, see js/hud.js
 
 // --- Inventory / hotbar / placement ---

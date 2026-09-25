@@ -156,8 +156,11 @@ html, body {
   border: none;
   border-radius: 50%;
   background: #14100a;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2), 0 2px 8px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
+  /* No white ring any more (per request) — just the soft drop shadow. */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  /* Clickable now: opens the full world map (js/hud.js openFullMap()). */
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 /* ---------------- held-item HUD (shown while holding, above the hotbar) ---------------- */
@@ -868,3 +871,98 @@ html, body {
   cursor: not-allowed;
 }
 
+
+/* ---------------- talking to Maria indoors (js/npc.js openNpcTalk()) ---------------- */
+#npc-talk-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 110px;
+  z-index: 20;
+}
+#npc-talk-overlay.hidden {
+  display: none;
+}
+#npc-talk-panel {
+  background: rgba(25, 18, 12, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 14px 16px;
+  width: min(460px, 90vw);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #f3e9dc;
+}
+#npc-talk-name {
+  color: #e0c56c;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+#npc-talk-text {
+  font-size: 15px;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+#npc-talk-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.npc-talk-option {
+  text-align: left;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #f3e9dc;
+  font-size: 13px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+.npc-talk-option:hover {
+  background: rgba(212, 175, 55, 0.18);
+  border-color: rgba(212, 175, 55, 0.6);
+}
+
+/* ---------------- full world map (click the minimap — js/hud.js) ---------------- */
+#fullmap-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  cursor: pointer;
+}
+#fullmap-overlay.hidden {
+  display: none;
+}
+#fullmap-panel {
+  background: rgba(25, 18, 12, 0.95);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+}
+#fullmap-title {
+  color: #f3e9dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  margin-bottom: 8px;
+  text-align: center;
+}
+#fullmap-title .hint {
+  color: #b8a893;
+  font-size: 12px;
+}
+#fullmap-stack {
+  position: relative;
+  line-height: 0;
+}
+#fullmap-dots {
+  position: absolute;
+  left: 0;
+  top: 0;
+}

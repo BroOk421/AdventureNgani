@@ -44,6 +44,10 @@ js/camera.js   → canvas sizing (DPR-aware), shadow, sprite drawing, ground
                  items, placement-range highlight, render loop draw calls
 js/main.js     → entry point, requestAnimationFrame loop, wires up the
                  canvas placement-click listener once everything exists
+(added later) js/interior.js (rooms, doors, locks), js/furniture.js
+(sitting), js/npc.js (Maria), js/customers.js (tavern customers),
+js/calendar.js, js/daynight.js, js/hud.js, js/weatherfx.js — see the
+numbered entries below; index.html is the source of truth for load order.
 ```
 
 Load order in `index.html` matters: each file uses globals defined by the
@@ -3243,8 +3247,171 @@ not part of the running game.
       touching=false; the side-wall stop position from entry 90 is
       unaffected.
 
+92. **Maria's route through tavern_room, and the bug that hid her.** Per
+    request, a fixed tile route inside the tavern (`tavern_room.npcRoute`,
+    interior.js): main door (12,29) -> (17,27) -> inner door (19,15) ->
+    out at (19,10) -> bed; walked in reverse in the morning
+    (`followNpcRoomRoute()`, npc.js).
+    - Root cause of "she never shows up inside": `checkInteriorEntry()`
+      called `enterInterior(type)` WITHOUT the building's col/row, so the
+      player's room id was `tavern_room@undefined,undefined` — a different
+      room from the one Maria entered (`tavern_room@col,row`). Fixed at all
+      three call sites; save.js now migrates the broken `@undefined` ids
+      onto the real building so furniture placed there isn't lost.
+    - Second bug: `npcWarpPortal()` returned `{col,row}` but callers read
+      `.x/.y` -> NaN position, she vanished. Now converted to x/y.
+    - Her indoor A* also respects the tavern's `tileMap` walls now
+      (`isNpcInteriorTileBlocked()`).
+
+93. **Lamp posts: object shadows, bigger pool, pool on the ground.**
+    - Anything solid inside a lamp's pool throws a shadow away from it —
+      same silhouette-projection technique as the candle, but the object's
+      own body stays lit. Cached per lamp (`postShadowCache`, camera.js),
+      rebuilt only when something nearby changes.
+    - Pool 7 -> 10 tiles (`POST_GLOW_WORLD_SIZE`).
+    - Centred on the ground under the bulb (`lightGlow.groundOffsetY`)
+      instead of the bulb itself, which floated most of the pool in the air.
+    - Later: the lantern itself is repainted after the night washes at 80%
+      (`drawLampNightRelight()`, `lightGlow.relightRect`) so it doesn't look
+      dead.
+
+94. **Maria's weekly life.** Weekends (Sat/Sun) she goes outside on her old
+    route; Mon-Fri she stays in the tavern (`npcSchedule`, interior.js):
+    06:00 out of bed through the inner door (19,11)->(19,17), wanders the
+    lower room, sets off in time to be at her work spot (8,19) at 08:00,
+    works until 17:00, wanders, 18:00 back to bed.
+    - Day of the week added (`getWeekdayIndex()`/`isWeekendDay()`,
+      calendar.js; Day 1 = Monday) and shown in the HUD date.
+    - "Memory" of blocked tiles: a collision appearing on her route puts
+      that tile in `room.npcAvoid` (saved) and she never uses it again —
+      unless it's the only way through and it's clear.
+    - ALL colliding indoor furniture blocks her (`npcDecorBlockedTiles()`),
+      not just fixedFootprint beds.
+    - She keeps her real colours at night (`drawNpcNightRelight()`), cut out
+      where something stands in front of her.
+    - Assumption flagged to the user: their inner-door spawn "row 7" was
+      read as row 17 (row 7 is still the upper room).
+
+95. **Tavern doors and rooms follow their owner.**
+    - Main door spawn row 29, exit on row 30 (`exitZone.minY: 475`).
+    - Rooms have an `owner` ("npc" tavern, "player" house_room). While the
+      owner is home and awake the room keeps daytime colours; once they're
+      asleep it switches to the fixed 8pm look (`getIndoorLighting()`,
+      camera.js). Fix later: the two weights are eased directly — easing
+      "home" and "awake" separately made the dark wash bump to ~25% when
+      Maria walked in (visible flicker + candles flashing on).
+
+96. **Maria's house, her rules.** Player starts in front of their house
+    door (`placePlayerAtHomeDoor()`); Maria starts where her schedule says
+    (`placeNpcForCurrentTime()`). Her tavern's main door is closed on
+    weekends and outside Mon-Fri 08:00-17:00; its inner door needs her
+    permission — click her indoors -> "Can I go to your room?" (only yes
+    during working hours, lasts until 17:00). Her shop moved into that
+    dialog too (she's never outside on weekdays). `npcHomeRoomId()` only
+    counts a real tavern — the fallback-to-any-door once locked the
+    player out of their OWN house when no tavern existed.
+
+97. **Lights merge instead of stacking.** Every light (both candles, every
+    lamp) goes into one half-res buffer combined with "lighten" (per-pixel
+    max, lights pre-multiplied onto opaque black so it's an exact max),
+    added to the scene once, BEFORE the characters' relight — so
+    overlapping lights never overdrive and characters keep their own
+    colours (`addSceneLight()`/`flushSceneLights()`, camera.js).
+
+98. **Shadow clean-up.** Indoors only real floor objects cast shadows (no
+    wall decor, ceiling, flat rugs, or invisible Collision Blocks — those
+    were the "box" shadows). Silhouettes drop faint pixels. An occluder
+    whose art CONTAINS the light's centre is skipped — standing behind a
+    table/tree used to wipe out your own candle completely.
+
+99. **Furniture indoors actually works.** `placeInteriorDecorAt()` refused
+    anything `multiTileFootprint` — i.e. every table, chair, bench, couch
+    and stove. Now only buildings are refused (`isBuildingType()`); the
+    whole footprint must be on floor and clear of other solid pieces;
+    the ghost preview and tile grid show indoors; the player collides
+    with it; E puts solid furniture on the tile in front.
+
+100. **Collision covers the whole tile.** The feet used to be a single
+     point, so half the body slid into a solid tile from the side. The
+     feet are now 12px wide (`bodyFeetCols()`, player.js) — flush stops
+     on all four sides — plus a nudge that centres you into 1-tile gaps
+     (doors, paths between trees) when walking straight at them.
+
+101. **Minimap & world map.** White viewport box and rim removed; clicking
+     the minimap opens the whole world map (`openFullMap()`, hud.js).
+
+102. **Food.** Items in `assets/interior/foods/` are strips of 16x16 frames
+     (full -> empty). Icons are the first frame, cut by
+     `tools/crop_food_icons.py` (canvas cropping at runtime fails under
+     file://). Maria sells Grilled Meat 50 / Salad 20 / Beer 10 (item id
+     stays `meatItem` for old saves). The asset loader no longer hangs on
+     a missing image (fallbacks, then counts it done anyway).
+     - Out of food: no running, 60% walk speed (`HUNGRY_WALK_MULT`).
+
+103. **Tables.** Never see-through (`noOcclusionFade`), depth-sorted with
+     characters indoors too (indoor decor used to always draw under
+     everyone), and the night relight is masked by anything in front
+     (`drawMaskedRelight()`). New Long Table (footprint pinned to its 2
+     real rows). All indoor tables share one "Tables" slot. Bartender
+     table = 3 parts (left/center/right, 1x1 collision) built from
+     `bartender-table.png` by `tools/slice_bartender_table.py`; its slot
+     uses the whole table as icon (`iconImage` group option). `isTable`
+     marks real tables (Tabletop Clutter isn't one).
+
+104. **Tavern customers (js/customers.js).** 20 stand-ins (player sprites —
+     swap `customerSprites()` for real NPC art) visit on weekdays: walk in
+     from across the map, queue at the counter, ONE order bubble at a time
+     (5 s), sit at a chair facing a table (`findTableSeats()`), eat for
+     40-50 s (food strip plays full -> empty), leave.
+     - When they come is a daily plan on the GAME clock
+       (`buildCustomerDay()`, seeded per day): Mon/Fri usually busy, other
+       days quiet/normal/busy at random, small lunch rush; each sets off in
+       time to reach the door on time. Last arrival ~14:00 because a 40-50
+       s meal is over an hour of game time; at 16:51 everyone inside
+       leaves. Missed visits (hidden tab) are skipped, not piled in.
+     - Crash fixed: anim stayed "sit" for one frame after the seat was
+       cleared -> `c.seat.poseX` on null froze the game. main.js's loop now
+       schedules the next frame first and catches/logs frame errors, so a
+       single bug can't freeze everything again.
+
+105. **Smaller bits.** Fog patches fade in/out over a life cycle instead of
+     popping; sitting and sleeping need you within 1 tile
+     (`FURNITURE_REACH_TILES`); tavern opens Mon-Fri 08:00-17:00.
+
+106. **Windows with their light, and a floor layer indoors.**
+     - Window (A)/(B) are one 32x110 image each (window on top, its light
+       patch below; B built by `tools/combine_window.py`, original kept as
+       window2_plain.png). `artRoot` anchors them on the WINDOW so the
+       cursor/ghost/placed item line up on it; `litWindow.lightTop` splits
+       the art so only the light fades with daylight, at
+       `LIT_WINDOW_LIGHT_ALPHA` (0.5 — the art is solid white).
+     - Floor tiles (floorBrown/DarkGreen/Green families) and Floor Mat are
+       layer "overlay" now, not 3 — they were taking the objects' slot, so
+       a stove couldn't go on a mat. Indoors they live in their own map,
+       `room.floorDecor` (drawn first; saved as `interiorFloorDecor`; old
+       saves are migrated out of `room.decor` on load), so a floor piece
+       and an object can share a tile. `interiorMapFor(room, type)` picks
+       the map.
+
+107. **Furniture can be pushed up against an indoor wall.** The wall check
+     in `isInteriorPlacementBlocked()` tested a tall object's WHOLE
+     footprint, so a chair's backrest / stove's chimney / bed's headboard
+     landing on the wall rows refused 26 of 102 objects on the floor row
+     right under the wall (tavern row 18). Now only the BASE row must be
+     floor; overlaps with other solid objects are still checked across the
+     full footprint.
+
 ## Possible next steps (not done yet, just noted)
 
+- Serving: the player carrying orders to customers (assets/sprites/
+  Carry_Order/ is already in the project, unused) and customers paying in
+  gold (assets/items/goild_coins.png, also unused).
+- Real NPC art for the tavern customers — only `customerSprites()` in
+  js/customers.js needs to change.
+- tools/generate_alpha_masks.py is OUT OF DATE (old building names):
+  running it would DELETE the tavern/abandonHouse/house masks. Update its
+  OBJECT_ICONS list first, or patch single entries by hand as done for
+  tableBig2/chairRight/tableCircle.
 - An actual item/object to pick up in the world, wired to trigger the
   real `collectRequested = true` on proximity + F, instead of the current
   demo behavior of toggling on every F press regardless of context.

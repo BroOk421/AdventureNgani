@@ -536,31 +536,53 @@ function drawCloudSprites(camX, camY) {
 const fogPatches = [];
 const fogImages = [assets.fog, assets.fog2, assets.fog3];
 
+/* Per request ("yung fog sa labas kapag sunny dapat smooth yung
+   entrance parang fade in din at out"): every patch now lives a little
+   life instead of being permanently on — it fades IN where it appears,
+   drifts for a while, fades OUT, and only then reappears somewhere else
+   (already invisible, so the jump is never seen) to fade in again.
+   Before, patches were simply always there at full strength and, on
+   reaching the edge of the map, popped straight back to the other side.
+   `age` starts at a random point so the patches don't all breathe in
+   step with each other. */
+const FOG_LIFE_MIN = 25, FOG_LIFE_MAX = 55; // seconds a patch lasts, fades included
+const FOG_FADE_SEC = 6;                      // seconds to fade in, and again to fade out
+
+function resetFogPatch(f, randomAge) {
+  f.wx = weatherRand(-FOG_SRC_W * FOG_SCALE_MAX, MAP_W);
+  f.wy = weatherRand(0, MAP_H);
+  f.speed = weatherRand(FOG_SPEED_MIN, FOG_SPEED_MAX);
+  f.scale = weatherRand(FOG_SCALE_MIN, FOG_SCALE_MAX);
+  f.opacity = weatherRand(FOG_OPACITY_MIN, FOG_OPACITY_MAX);
+  f.variant = Math.floor(weatherRand(0, fogImages.length));
+  f.inFront = Math.random() < 0.5;
+  f.life = weatherRand(FOG_LIFE_MIN, FOG_LIFE_MAX);
+  f.age = randomAge ? weatherRand(0, f.life) : 0;
+  return f;
+}
+
 function spawnFog() {
-  return {
-    wx: weatherRand(-FOG_SRC_W * FOG_SCALE_MAX, MAP_W),
-    wy: weatherRand(0, MAP_H),
-    speed: weatherRand(FOG_SPEED_MIN, FOG_SPEED_MAX),
-    scale: weatherRand(FOG_SCALE_MIN, FOG_SCALE_MAX),
-    opacity: weatherRand(FOG_OPACITY_MIN, FOG_OPACITY_MAX),
-    variant: Math.floor(weatherRand(0, fogImages.length)),
-    inFront: Math.random() < 0.5,
-  };
+  return resetFogPatch({}, true);
+}
+
+// 0..1 — how visible a patch is at this point in its life (smoothstep
+// ramps, so it eases in and out rather than fading linearly).
+function fogLifeAlpha(f) {
+  const ease = (t) => t * t * (3 - 2 * t);
+  const tIn = Math.min(1, f.age / FOG_FADE_SEC);
+  const tOut = Math.min(1, Math.max(0, (f.life - f.age) / FOG_FADE_SEC));
+  return ease(Math.min(tIn, tOut));
 }
 
 function updateFog(dt) {
   for (const f of fogPatches) {
     f.wx += f.speed * dt;
+    f.age += dt;
     const halfW = (FOG_SRC_W * f.scale) / 2;
-    if (f.wx - halfW > MAP_W) {
-      f.wx = -halfW;
-      f.wy = weatherRand(0, MAP_H);
-      f.speed = weatherRand(FOG_SPEED_MIN, FOG_SPEED_MAX);
-      f.scale = weatherRand(FOG_SCALE_MIN, FOG_SCALE_MAX);
-      f.opacity = weatherRand(FOG_OPACITY_MIN, FOG_OPACITY_MAX);
-      f.variant = Math.floor(weatherRand(0, fogImages.length));
-      f.inFront = Math.random() < 0.5;
-    }
+    // Drifting off the edge of the map ends its life early — start the
+    // fade-out instead of letting it pop.
+    if (f.wx - halfW > MAP_W && f.life - f.age > FOG_FADE_SEC) f.age = f.life - FOG_FADE_SEC;
+    if (f.age >= f.life) resetFogPatch(f, false); // invisible at this point — safe to move
   }
 }
 
@@ -577,7 +599,9 @@ function drawFogLayer(camX, camY, front) {
     const screenX = (f.wx - camX) * zoom;
     const screenY = (f.wy - camY) * zoom;
     if (screenX + w / 2 < 0 || screenX - w / 2 > view.width || screenY + h / 2 < 0 || screenY - h / 2 > view.height) continue;
-    ctx.globalAlpha = f.opacity;
+    const a = f.opacity * fogLifeAlpha(f);
+    if (a <= 0.003) continue;
+    ctx.globalAlpha = a;
     ctx.drawImage(fogImages[f.variant], screenX - w / 2, screenY - h / 2, w, h);
   }
   ctx.restore();

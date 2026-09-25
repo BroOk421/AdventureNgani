@@ -77,8 +77,20 @@ function buildSaveData() {
     // furniture placed indoors via placeInteriorDecorAt()), saved the
     // same shape/reasoning as interiorCollisions above, just a separate
     // map since the two are independent layers.
+    // Floor-level pieces (floor tiles, mats) — their own map, see
+    // js/interior.js isInteriorFloorType().
+    interiorFloorDecor: Object.fromEntries(
+      Object.keys(INTERIOR_ROOMS).map((roomId) => [roomId, Array.from((INTERIOR_ROOMS[roomId].floorDecor || new Map()).entries())])
+    ),
     interiorDecor: Object.fromEntries(
       Object.keys(INTERIOR_ROOMS).map((roomId) => [roomId, Array.from(INTERIOR_ROOMS[roomId].decor.entries())])
+    ),
+    // Maria's memory of tiles she's stopped using because a collision
+    // turned up on her route (js/npc.js — npcAvoidTiles()), per room.
+    npcAvoidTiles: Object.fromEntries(
+      Object.keys(INTERIOR_ROOMS)
+        .filter((roomId) => INTERIOR_ROOMS[roomId].npcAvoid && INTERIOR_ROOMS[roomId].npcAvoid.size)
+        .map((roomId) => [roomId, Array.from(INTERIOR_ROOMS[roomId].npcAvoid)])
     ),
     itemCounts,
     hotbarTypes,
@@ -261,6 +273,31 @@ function applySaveData(data) {
   }
   const migrateLegacyRoomId = (roomId) => {
     let id = roomId;
+    // A bug in checkInteriorEntry() (js/interior.js) entered every room
+    // WITHOUT the building's tile, so anything placed indoors was saved
+    // under "tavern_room@undefined,undefined" instead of the building's
+    // own id — and Maria, who always uses the real id, never saw any of
+    // it (no bed, no shared room with the player). Re-point that broken
+    // id at a real building of that layout, preferring an actual
+    // building (objectLayer — the tavern itself) over a hand-placed
+    // standalone door, the same preference findNpcHomeDoor() has.
+    const brokenAt = id.indexOf("@");
+    if (brokenAt !== -1 && /undefined|NaN/.test(id.slice(brokenAt + 1))) {
+      const blueprint = id.slice(0, brokenAt);
+      const layers = [objectLayer].concat(ALL_LAYERS.filter((l) => l !== objectLayer));
+      let hit = null;
+      for (const layer of layers) {
+        for (const [key, type] of layer) {
+          const def = itemDefs[type];
+          if (!def || !def.interior || def.interior.roomId !== blueprint) continue;
+          const [col, row] = key.split(",").map(Number);
+          hit = interiorRoomId(blueprint, col, row);
+          break;
+        }
+        if (hit) break;
+      }
+      return hit || id;
+    }
     if (!id.includes("@")) {
       // Pre-per-building id: point it at a building that's actually
       // placed and uses that layout.
@@ -318,15 +355,42 @@ function applySaveData(data) {
   // gets its own clear + restore pass.
   Object.keys(INTERIOR_ROOMS).forEach((roomId) => {
     INTERIOR_ROOMS[roomId].decor.clear();
+    if (INTERIOR_ROOMS[roomId].floorDecor) INTERIOR_ROOMS[roomId].floorDecor.clear();
+    else INTERIOR_ROOMS[roomId].floorDecor = new Map();
   });
+  // Floor pieces first, so a mat saved in the OLD shared map (below) can
+  // be moved across without clobbering one already saved here.
+  if (data.interiorFloorDecor && typeof data.interiorFloorDecor === "object") {
+    Object.entries(data.interiorFloorDecor).forEach(([roomId, entries]) => {
+      if (!Array.isArray(entries)) return;
+      const room = getOrCreateInteriorRoom(migrateLegacyRoomId(roomId));
+      if (!room) return;
+      entries.forEach(([key, type]) => {
+        if (itemDefs[type]) room.floorDecor.set(key, type);
+      });
+    });
+  }
   if (data.interiorDecor && typeof data.interiorDecor === "object") {
     Object.entries(data.interiorDecor).forEach(([roomId, entries]) => {
       if (!Array.isArray(entries)) return;
       const room = getOrCreateInteriorRoom(migrateLegacyRoomId(roomId));
       if (!room) return;
       entries.forEach(([key, type]) => {
-        if (itemDefs[type]) room.decor.set(key, type);
+        if (!itemDefs[type]) return;
+        // Saves from before floor pieces had their own map kept mats and
+        // floor tiles in here — move them to where they belong now.
+        if (isInteriorFloorType(type)) { if (!room.floorDecor.has(key)) room.floorDecor.set(key, type); }
+        else room.decor.set(key, type);
       });
+    });
+  }
+
+  Object.keys(INTERIOR_ROOMS).forEach((roomId) => { INTERIOR_ROOMS[roomId].npcAvoid = new Set(); });
+  if (data.npcAvoidTiles && typeof data.npcAvoidTiles === "object") {
+    Object.entries(data.npcAvoidTiles).forEach(([roomId, tiles]) => {
+      if (!Array.isArray(tiles)) return;
+      const room = getOrCreateInteriorRoom(migrateLegacyRoomId(roomId));
+      if (room) room.npcAvoid = new Set(tiles.filter((t) => typeof t === "string"));
     });
   }
 

@@ -64,6 +64,7 @@ const INTERIOR_ROOM_BLUEPRINTS = {
   //     y 103, under the cream upper wall and its dark trim band.
   //   - the doormat is the green rug at x 129-158, y 279-292.
   house_room: {
+    owner: "player", // the player's own house — lit while you're awake, dark once you're asleep in bed (camera.js getRoomOwnerPresence())
     image: assets.houseRoom,
     width: 300,
     height: 300,
@@ -122,14 +123,16 @@ const INTERIOR_ROOM_BLUEPRINTS = {
     },
   },
   tavern_room: {
+    owner: "npc", // Maria's home — its lights follow her (camera.js getRoomOwnerPresence())
     image: assets.tavernRoom,
     width: 416,
     height: 500,
-    // Just inside the door, a clear step above the exit zone below (see
-    // exitZone) so walking in doesn't immediately re-trigger walking
-    // back out — facing further into the room.
+    // Just inside the door — per request, feet on row 29 (was 27):
+    // centerYForFeetRow(29) = 466. Still a clear step above the exit
+    // zone below (feet row 30), so walking in doesn't immediately
+    // re-trigger walking back out.
     spawnX: 192,
-    spawnY: 440,
+    spawnY: 466,
     // The doormat at the bottom of the art (measured from the exported
     // PNG: a green rug at roughly x 177-207, y 484-497) — walking down
     // onto this rectangle exits back outside. minY is pulled in from the
@@ -139,7 +142,11 @@ const INTERIOR_ROOM_BLUEPRINTS = {
     // unreachable — 460 leaves a walkable band the player can actually
     // enter (their FEET, drawn below center, reach visibly onto the mat
     // itself even though their tracked center point doesn't quite).
-    exitZone: { minX: 160, maxX: 224, minY: 460, maxY: 500 },
+    // Per request, the way out is feet row 30 (the doorway gap in the
+    // bottom wall, cols 11-12 of tileMap below): a centre y of 475+ puts
+    // the feet at y 480.76+, i.e. row 30. Movement clamps the centre at
+    // 476, so that band is reachable by walking down into the doorway.
+    exitZone: { minX: 160, maxX: 224, minY: 475, maxY: 500 },
     // "col,row" (16x16 TILE grid, same math as the outdoor tileKey()) ->
     // item type — every Collision Block (js/inventory.js's itemDefs)
     // manually placed inside this room, blocking movement. Populated by
@@ -225,6 +232,44 @@ const INTERIOR_ROOM_BLUEPRINTS = {
       forwardSpawn: [{ col: 19, row: 10 }],
       returnPortal: [{ col: 19, row: 11 }],
       returnSpawn: [{ col: 19, row: 17 }],
+    },
+    // Maria's fixed walk through this room (js/npc.js — followNpcRoomRoute()),
+    // per request, in room-local FEET tiles (same col/row the warp lists
+    // above use). Going to bed she walks it top to bottom, then on to the
+    // bed; in the morning she walks it in reverse back to the main door.
+    //   - (12,29): where she appears, just inside the main door (the same
+    //     row the player now spawns on)
+    //   - (17,27): along the lower room
+    //   - (19,15): the inner door — she waits a moment, then comes out
+    //     at `warpTo` (19,10) in the upper room, same as the player's warp
+    // Walking out, the inner door is taken backwards: (19,10) -> (19,15).
+    npcExitTile: { col: 12, row: 30 }, // where Maria steps out of the main door
+    npcRoute: [
+      { col: 12, row: 29 },
+      { col: 17, row: 27 },
+      { col: 19, row: 15, warpTo: { col: 19, row: 10 } },
+    ],
+    // Maria's Monday-Friday day inside the tavern (js/npc.js —
+    // updateNpcWeekdayInside()), per request. All room-local FEET tiles.
+    //   06:00  gets out of bed, goes through the inner door (`toLower`)
+    //          and walks around the lower room
+    //   ~07:4x sets off for `workSpot` so she's standing there at 08:00
+    //   08:00-17:00  works at `workSpot`
+    //   17:00  walks around the lower room again
+    //   18:00  back through the inner door (`toUpper`) and into bed
+    // On Saturday and Sunday she follows `npcRoute` above instead and
+    // goes outside.
+    npcSchedule: {
+      upperMaxRow: 11,   // feet row <= this = the upper (bed) room; the passage and everything below count as the lower room
+      toLower: { portal: { col: 19, row: 11 }, spawn: { col: 19, row: 17 } },
+      toUpper: { portal: { col: 19, row: 15 }, spawn: { col: 19, row: 10 } },
+      workSpot: { col: 8, row: 19 },
+      wakeHour: 6,
+      workStartHour: 8,
+      workEndHour: 17,
+      bedHour: 18,
+      // Where she's allowed to wander in the lower room (inclusive).
+      wanderArea: { minCol: 1, maxCol: 23, minRow: 18, maxRow: 29 },
     },
   },
 
@@ -323,6 +368,10 @@ function getOrCreateInteriorRoom(roomId) {
     blueprintId,
     collisions: new Map(), // fresh per building — a new house starts empty
     decor: new Map(),
+    // Floor-level pieces (floor tiles, mats, rugs, light patches) live in
+    // their OWN map, so an object can stand on top of one — see
+    // isInteriorFloorType(). `decor` holds everything from layer 3 up.
+    floorDecor: new Map(),
   });
   INTERIOR_ROOMS[roomId] = room;
   return room;
@@ -391,6 +440,89 @@ function getSceneFadeAlpha() {
 // isTouchingTileDoor() (inventory.js). Anything with neither (a future
 // house with a genuinely walkable door tile) falls back to the older
 // exact-tile check.
+/* ---------------- locked doors: Maria's tavern ----------------
+   Per request: Maria's tavern is HER house.
+     - The main door is only open while she's inside it, and never on
+       Saturday or Sunday — on the weekend the house is closed and only
+       she goes in and out.
+     - Its inner door (up to her bedroom) is locked to the player. The
+       player has to ask her first ("Can I go to your room?" — click her
+       indoors, js/npc.js openNpcTalk()), and she only says yes during
+       her working hours; the permission lasts until her shift ends.
+       The way back DOWN through that door is never locked, so the
+       player can't be stuck upstairs when it runs out.
+   Every other building (and any other tavern that isn't her home) is
+   unaffected. */
+let lockedDoorToastAt = 0;
+function showLockedDoorToast(message) {
+  // Pressing "up" against a locked door fires every frame — only say it
+  // once every couple of seconds.
+  const now = Date.now();
+  if (now - lockedDoorToastAt < 2000) return;
+  lockedDoorToastAt = now;
+  showToast(message); // js/save.js
+}
+
+// Enter a building if its door is open to the player; returns false (and
+// says why) if it's locked.
+function tryPlayerEnterInterior(type, placedCol, placedRow) {
+  const def = itemDefs[type];
+  const roomId = interiorRoomId(def.interior.roomId, placedCol, placedRow);
+  if (roomId === npcHomeRoomId()) { // js/npc.js
+    if (isNpcWeekend()) {
+      showLockedDoorToast("The tavern is closed on weekends.");
+      return false;
+    }
+    // Monday-Friday it only opens for her working hours — per request,
+    // "8am mag open". Same hours as her shift (npcSchedule's
+    // workStartHour/workEndHour, so changing her shift changes these too).
+    const hours = npcWorkHours(roomId); // js/npc.js
+    const h = getGameHour();
+    if (h < hours.start || h >= hours.end) {
+      showLockedDoorToast("The tavern is closed. Open Mon-Fri, " + hours.start + ":00-" + hours.end + ":00.");
+      return false;
+    }
+    if (!(npc.scene === "inside" && npc.roomId === roomId)) {
+      showLockedDoorToast("The tavern is closed — Maria isn't home.");
+      return false;
+    }
+  }
+  beginSceneFade(() => enterInterior(type, placedCol, placedRow));
+  return true;
+}
+
+// May the player go UP through this room's inner door right now?
+function isPlayerAllowedThroughInnerDoor(room) {
+  if (player.activeRoomId !== npcHomeRoomId()) return true; // not Maria's house
+  return hasNpcRoomPermission(player.activeRoomId); // js/npc.js
+}
+
+/* ---------------- default spawn: in front of the player's house ----------------
+   Per request ("yung default spawn ng character ko laging nasa harap ng
+   house dun sa spawn na door"): every time the game starts, the player
+   stands on the tile just in front of their house's door. With no house
+   placed, the saved position is kept. */
+function placePlayerAtHomeDoor() {
+  for (const [key, type] of objectLayer) {
+    if (type !== "house") continue;
+    const def = itemDefs[type];
+    if (!def.interior || !def.interior.doorOffset) continue;
+    const [col, row] = key.split(",").map(Number);
+    const doorCol = col + def.interior.doorOffset.col;
+    const doorRow = row + def.interior.doorOffset.row;
+    const x = (doorCol + 0.5) * TILE;
+    for (let below = 1; below <= 3; below++) { // first free tile in front of the door
+      const y = (doorRow + below + 0.5) * TILE - (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+      if (isBodyBlockedAt(x, y)) continue;
+      player.x = x;
+      player.y = y;
+      player.facing = "up";
+      return true;
+    }
+  }
+  return false;
+}
+
 function checkInteriorEntry(vy) {
   if (sceneFade) return; // already mid-transition — don't retrigger
   // Only pressing "up" (W / ArrowUp) at the door should walk you in —
@@ -407,7 +539,11 @@ function checkInteriorEntry(vy) {
     const [placedCol, placedRow] = key.split(",").map(Number);
     if (def.wallColliderPx) {
       if (isTouchingHouseDoor(type, placedCol, placedRow, player.x, feetY)) {
-        beginSceneFade(() => enterInterior(type));
+        // Pass the building's own tile — without it the room id came out
+        // as "tavern_room@undefined,undefined", a different room from the
+        // one Maria walks into ("tavern_room@col,row"), so the player
+        // never saw her inside and she never found the bed placed there.
+        if (!tryPlayerEnterInterior(type, placedCol, placedRow)) return; // locked — tryPlayerEnterInterior() says why
         return;
       }
       continue;
@@ -419,7 +555,7 @@ function checkInteriorEntry(vy) {
     // detect contact against it instead, same idea as the wallColliderPx
     // branch above.
     if (isTouchingTileDoor(doorCol, doorRow, player.x, feetY)) {
-      beginSceneFade(() => enterInterior(type));
+      if (!tryPlayerEnterInterior(type, placedCol, placedRow)) return; // locked — tryPlayerEnterInterior() says why
       return;
     }
   }
@@ -444,7 +580,7 @@ function checkInteriorEntry(vy) {
     const topRow = placedRow - (rows - 1);
     if (p.col !== placedCol) continue; // the walkable center column
     if (p.row > centerRow || p.row < topRow) continue; // reached (or passed) the middle, but not beyond the top of the door
-    beginSceneFade(() => enterInterior(type));
+    if (!tryPlayerEnterInterior(type, placedCol, placedRow)) return; // locked — tryPlayerEnterInterior() says why
     return;
   }
 }
@@ -569,13 +705,13 @@ function isInteriorTileBlocked(room, col, row) {
   // ordinary furniture. Reuses the same footprint math outdoor collision
   // uses (getObjectFootprintBlockedTiles(), js/inventory.js) so the two
   // never drift apart.
-  for (const [key, type] of room.decor) {
-    const def = itemDefs[type];
-    if (!def.collides || !def.fixedFootprint) continue;
-    const [placedCol, placedRow] = key.split(",").map(Number);
-    const tiles = getObjectFootprintBlockedTiles(type, placedCol, placedRow);
-    if (tiles.some((t) => t.col === col && t.row === row)) return true;
-  }
+  //
+  // Extended per request ("walang collissions" on tables and chairs
+  // indoors): EVERY solid piece of furniture now blocks across its real
+  // footprint — tables, chairs, benches, couches, stoves, barrels —
+  // not just the fixedFootprint ones. Read from one cached set of tiles
+  // (interiorSolidDecorTiles(), below) since this runs for every step.
+  if (interiorSolidDecorTiles(room).has(col + "," + row)) return true;
   return false;
 }
 
@@ -598,8 +734,11 @@ function interiorFeetTileAt(x, y) {
 function isInteriorWallAt(room, x, y) {
   if (!room.walls) return false;
   const feetY = y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+  // The feet are a 12px-wide line now, not a point (see bodyFeetCols(),
+  // js/player.js) — so the body stops at a wall instead of half inside it.
+  const x0 = x - BODY_COLLISION_HALF_W, x1 = x + BODY_COLLISION_HALF_W;
   for (const w of room.walls) {
-    if (x >= w.minX && x <= w.maxX && feetY >= w.minY && feetY <= w.maxY) return true;
+    if (x1 >= w.minX && x0 <= w.maxX && feetY >= w.minY && feetY <= w.maxY) return true;
   }
   return false;
 }
@@ -607,7 +746,10 @@ function isInteriorWallAt(room, x, y) {
 function isInteriorBodyBlockedAt(room, x, y) {
   if (isInteriorWallAt(room, x, y)) return true;
   const t = interiorFeetTileAt(x, y);
-  return isInteriorTileBlocked(room, t.col, t.row);
+  for (const col of bodyFeetCols(x)) { // js/player.js — both edges of the feet
+    if (isInteriorTileBlocked(room, col, t.row)) return true;
+  }
+  return false;
 }
 
 function sweepInteriorBodyTo(room, x0, y0, x1, y1) {
@@ -702,9 +844,92 @@ function mayPlaceOnInteriorWall(type) {
 // Would placing `type` at this tile be refused? Shared by the actual
 // placement and by the preview grid, so the red squares and what the
 // click does can't disagree.
+// Only an actual BUILDING can't go inside a room — anything with its own
+// interior, a construction timer, or pixel walls. Furniture uses the same
+// `multiTileFootprint` flag buildings do, and the old check refused on
+// that flag alone — which is why every table, chair, bench, couch and
+// stove could be held but never put down indoors.
+function isBuildingType(def) {
+  return !!(def.interior || def.buildSeconds || def.wallColliderPx);
+}
+
+// Every tile a solid piece of indoor furniture covers — the same
+// footprint math outdoor collision uses (getObjectFootprintBlockedTiles(),
+// js/inventory.js). `skipKey` leaves one placed item out (the one being
+// moved). Non-solid decor only ever covers its own tile.
+function interiorFootprintTiles(type, col, row) {
+  const def = itemDefs[type];
+  if (!def || !def.collides) return [{ col, row }];
+  const tiles = getObjectFootprintBlockedTiles(type, col, row);
+  return tiles.length ? tiles : [{ col, row }];
+}
+
+function interiorSolidDecorTiles(room, skipKey) {
+  // The placement grid asks this for every tile in range, every frame —
+  // reuse one result per frame unless something was added or removed.
+  if (skipKey === undefined) {
+    const c = room.solidDecorCache, now = Date.now();
+    if (c && c.size === room.decor.size && now - c.at < 100) return c.tiles;
+  }
+  const out = new Set();
+  for (const [key, type] of room.decor) {
+    if (key === skipKey) continue;
+    const def = itemDefs[type];
+    if (!def || !def.collides) continue;
+    const [c, r] = key.split(",").map(Number);
+    for (const t of getObjectFootprintBlockedTiles(type, c, r)) out.add(t.col + "," + t.row);
+  }
+  if (skipKey === undefined) room.solidDecorCache = { at: Date.now(), size: room.decor.size, tiles: out };
+  return out;
+}
+
 function isInteriorPlacementBlocked(room, type, col, row) {
+  const def = itemDefs[type];
+  if (!def || isBuildingType(def)) return true;
   if (mayPlaceOnInteriorWall(type)) return false;
-  return isInteriorWallTile(room, col, row);
+  // Layer 3 — something standing on the floor. For solid furniture the
+  // WHOLE footprint has to be on floor (no part of a table sunk into the
+  // wall) and clear of every other solid piece, same as outdoors.
+  //
+  // Only the BASE — the bottom row, the tiles the object actually stands
+  // on — has to be floor. The rest of a tall object's footprint (a
+  // chair's backrest, a stove's chimney, a bed's headboard) is allowed to
+  // overlap the wall behind it, the way furniture pushed up against a
+  // wall does in a top-down view. Checking the whole footprint against
+  // the walls refused every tall object on the rows right under the wall.
+  // Overlapping another solid object is still checked across the whole
+  // footprint.
+  const tiles = interiorFootprintTiles(type, col, row);
+  const baseRow = Math.max(...tiles.map((t) => t.row));
+  const solid = def.collides ? interiorSolidDecorTiles(room) : null;
+  for (const t of tiles) {
+    if (t.col < 0 || t.row < 0 || t.col * TILE >= room.width || t.row * TILE >= room.height) return true;
+    if (t.row === baseRow && isInteriorWallTile(room, t.col, t.row)) return true;
+    if (solid && solid.has(t.col + "," + t.row)) return true;
+  }
+  return false;
+}
+
+// Would placing this solid item put part of it under the player's feet?
+// (Outdoors the same rule stops you trapping yourself.)
+function interiorFootprintCoversPlayer(type, col, row) {
+  if (!itemDefs[type].collides) return false;
+  const p = interiorFeetTileAt(player.x, player.y);
+  const feetCols = bodyFeetCols(player.x); // the body can straddle two tiles (js/player.js)
+  return interiorFootprintTiles(type, col, row).some((t) => t.row === p.row && feetCols.includes(t.col));
+}
+
+// Floor-level items indoors: layers 1, 2 and the ground overlay (floor
+// tiles, mats, light patches). They go in room.floorDecor, apart from
+// the objects in room.decor, so one of each can share a tile.
+function isInteriorFloorType(type) {
+  const n = layerNumberForType(type);
+  return n === 1 || n === 2 || n === "overlay";
+}
+
+function interiorMapFor(room, type) {
+  if (!room.floorDecor) room.floorDecor = new Map();
+  return isInteriorFloorType(type) ? room.floorDecor : room.decor;
 }
 
 function placeInteriorDecorAt(col, row) {
@@ -712,7 +937,7 @@ function placeInteriorDecorAt(col, row) {
   if (player.scene !== "inside") return;
   const def = itemDefs[heldItem.type];
   if (def.interiorOnly) return; // Collision Block goes through placeInteriorCollisionAt() instead
-  if (def.multiTileFootprint) return; // a whole house/building makes no sense inside a room
+  if (isBuildingType(def)) return; // a whole house/building makes no sense inside a room — furniture is fine
   const room = INTERIOR_ROOMS[player.activeRoomId];
   if (!room) return;
   if (col < 0 || row < 0 || col * TILE >= room.width || row * TILE >= room.height) return;
@@ -722,11 +947,15 @@ function placeInteriorDecorAt(col, row) {
 
   // Walls are not floor: a layer-3 item has nowhere to stand here.
   if (isInteriorPlacementBlocked(room, heldItem.type, col, row)) return;
+  if (interiorFootprintCoversPlayer(heldItem.type, col, row)) return; // don't trap yourself inside a table
 
   const key = tileKey(col, row);
-  if (room.decor.has(key)) return; // one decor item per tile — same "already occupied" rule the outdoor layers use
+  // One item per tile PER LAYER, same as outdoors: a floor piece and an
+  // object can share a tile; two objects (or two floor pieces) can't.
+  const target = interiorMapFor(room, heldItem.type);
+  if (target.has(key)) return;
 
-  room.decor.set(key, heldItem.type);
+  target.set(key, heldItem.type);
   commitPlacementUse(heldItem.fromSlot);
 }
 
@@ -780,13 +1009,18 @@ function tryGrabOrPlaceIndoorItemInFront() {
     // ordinary decor item is walkable, so it goes on the tile the
     // player is actually standing on.
     const isCollisionItem = !!itemDefs[type].interiorOnly;
-    const targetMap = isCollisionItem ? room.collisions : room.decor;
-    const target = isCollisionItem
+    const targetMap = isCollisionItem ? room.collisions : interiorMapFor(room, type);
+    // Anything solid — the Collision Block, or furniture like a table —
+    // goes on the tile in FRONT of the player; only walkable decor goes
+    // underfoot.
+    const target = (isCollisionItem || itemDefs[type].collides)
       ? getInteriorTileInFrontOfPlayer()
       : interiorFeetTileAt(player.x, player.y);
     if (target.col < 0 || target.row < 0 || target.col * TILE >= room.width || target.row * TILE >= room.height) return;
     const key = tileKey(target.col, target.row);
     if (targetMap.has(key)) return; // occupied — stays in hand
+    if (!isCollisionItem && (isInteriorPlacementBlocked(room, type, target.col, target.row) ||
+        interiorFootprintCoversPlayer(type, target.col, target.row))) return; // doesn't fit there — stays in hand
     targetMap.set(key, type);
     player.grabbedType = null;
     player.mode = "normal";
@@ -807,6 +1041,7 @@ function tryGrabOrPlaceIndoorItemInFront() {
   const frontKey = tileKey(front.col, front.row);
 
   let foundKey = null, foundMap = null;
+  if (!room.floorDecor) room.floorDecor = new Map();
   if (room.decor.has(hereKey)) { foundKey = hereKey; foundMap = room.decor; }
   else if (room.decor.has(frontKey)) { foundKey = frontKey; foundMap = room.decor; }
   else if (room.collisions.has(hereKey)) { foundKey = hereKey; foundMap = room.collisions; }
@@ -821,6 +1056,12 @@ function tryGrabOrPlaceIndoorItemInFront() {
       foundKey = tileKey(hit.anchorCol, hit.anchorRow);
       foundMap = room.decor;
     }
+  }
+  // Nothing standing there — the floor piece (mat, floor tile) under
+  // your feet or in front, last, so objects on top are picked up first.
+  if (!foundKey) {
+    if (room.floorDecor.has(hereKey)) { foundKey = hereKey; foundMap = room.floorDecor; }
+    else if (room.floorDecor.has(frontKey)) { foundKey = frontKey; foundMap = room.floorDecor; }
   }
   if (!foundKey) return; // nothing grabbable on either tile, on either layer
 
@@ -893,8 +1134,9 @@ function updatePlayerInsideInterior(dt) {
   if (moving) {
     const len = Math.hypot(vx, vy) || 1;
     vx /= len; vy /= len;
-    const wantX = clamp(player.x + vx * player.speed * dt, DRAW_SIZE / 2, room.width - DRAW_SIZE / 2);
-    const wantY = clamp(player.y + vy * player.speed * dt, DRAW_SIZE / 2, room.height - DRAW_SIZE / 2);
+    const speed = player.speed * (isPlayerStarving() ? HUNGRY_WALK_MULT : 1); // slower on an empty stomach (js/player.js)
+    const wantX = clamp(player.x + vx * speed * dt, DRAW_SIZE / 2, room.width - DRAW_SIZE / 2);
+    const wantY = clamp(player.y + vy * speed * dt, DRAW_SIZE / 2, room.height - DRAW_SIZE / 2);
 
     // Same separate-axis collision + "already overlapping -> let them
     // walk free" escape hatch as the outdoor movement block (player.js),
@@ -904,8 +1146,17 @@ function updatePlayerInsideInterior(dt) {
       player.x = wantX;
       player.y = wantY;
     } else {
+      const beforeY = player.y;
       player.x = sweepInteriorBodyTo(room, player.x, player.y, wantX, player.y).x;
       player.y = sweepInteriorBodyTo(room, player.x, player.y, player.x, wantY).y;
+      // Same slip-into-the-gap nudge as outdoors (js/player.js).
+      if (vx === 0 && vy !== 0 && Math.abs(player.y - beforeY) < 0.01) {
+        const tx = (Math.floor(player.x / TILE) + 0.5) * TILE;
+        if (Math.abs(tx - player.x) > 0.01 && !isInteriorBodyBlockedAt(room, tx, wantY)) {
+          const step = Math.sign(tx - player.x) * Math.min(Math.abs(tx - player.x), player.speed * dt);
+          if (!isInteriorBodyBlockedAt(room, player.x + step, player.y)) player.x += step;
+        }
+      }
     }
     player.facing = vx !== 0 ? (vx > 0 ? "right" : "left") : (vy > 0 ? "down" : "up");
   }
@@ -916,7 +1167,7 @@ function updatePlayerInsideInterior(dt) {
     player.frame = 0;
     player.frameTimer = 0;
   }
-  const fps = ANIM_FPS[player.anim];
+  const fps = ANIM_FPS[player.anim] * (player.anim === "walk" && isPlayerStarving() ? HUNGRY_WALK_ANIM_MULT : 1);
   const frameCount = FRAME_COUNTS[player.anim];
   player.frameTimer += dt;
   if (player.frameTimer >= 1 / fps) {
@@ -1006,6 +1257,10 @@ function checkIndoorWarpDoor(room, vy) {
 
   // FORWARD — standing on a forwardPortal tile, walking up.
   if (vy < 0 && warp.forwardPortal.length && warp.forwardSpawn.length && isOnAny(warp.forwardPortal)) {
+    if (!isPlayerAllowedThroughInnerDoor(room)) {
+      showLockedDoorToast("It's locked. Ask Maria first.");
+      return;
+    }
     const dest = centerOfTiles(warp.forwardSpawn);
     indoorWarpPending = {
       startAt: Date.now(),

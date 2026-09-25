@@ -386,12 +386,14 @@ function findNearbyBigBed() {
 // visible — no fade-out beforehand. The fade only happens at the far
 // end, once all FRAME_COUNTS.sleep frames have finished playing
 // (updateSleeping(), below) — same as it always did.
-function trySleepInBed() {
+// `bedOverride`: the bed that was clicked (already checked to be within
+// reach) — otherwise the one the player is facing (the E key).
+function trySleepInBed(bedOverride) {
   if (isDaytime()) return false;
   if (sceneFade) return false;
   if (player.sleeping) return false;
   if (heldItem || player.grabbedType) return false;
-  const bed = findNearbyBigBed();
+  const bed = bedOverride || findNearbyBigBed();
   if (!bed) return false;
 
   player.sleeping = true;
@@ -438,7 +440,24 @@ function setupBedClickHandler() {
     if (heldItem || player.grabbedType) return; // hands full — a click places/grabs instead, see inventory.js
     const { x, y } = screenToWorld(e.clientX, e.clientY);
     if (!isPointOnBigBed(x, y)) return;
-    trySleepInBed();
+    // Which bed was clicked, and is the player right beside it? Any side
+    // of it counts (per request: within 1 tile), not only when facing it.
+    const col = Math.floor(x / TILE), row = Math.floor(y / TILE);
+    const layers = player.scene === "inside"
+      ? [INTERIOR_ROOMS[player.activeRoomId] && INTERIOR_ROOMS[player.activeRoomId].decor].filter(Boolean)
+      : ALL_LAYERS_TOP_FIRST;
+    let hit = null;
+    for (const layer of layers) {
+      const h = findFootprintCoveringTile(layer, col, row);
+      if (h && h.type === "bedBig") { hit = h; break; }
+    }
+    if (!hit) return;
+    const bedTiles = getObjectFootprintBlockedTiles("bedBig", hit.anchorCol, hit.anchorRow);
+    if (!isPlayerWithinReachOfTiles(bedTiles)) {
+      showTooFarToast("Get closer to the bed to sleep.");
+      return;
+    }
+    trySleepInBed({ col: hit.anchorCol, row: hit.anchorRow });
   });
 }
 
