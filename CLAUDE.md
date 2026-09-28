@@ -3807,6 +3807,16 @@ pixels can't be read on a file:// page).
      `SCENE_LIGHT_CAP_RGB`. Measured: peak 112-113 alone or overlapped;
      two candles 30px apart stay 111-113 all the way between them.
 
+121. **Snow/rain/leaves no longer follow the character.** They stay in a
+     wrapping screen-sized field (so they're continuous through houses),
+     but `scrollWeatherWithCamera()` (weatherfx.js, first thing in
+     updateWeatherFX()) shifts every particle opposite to the outdoor
+     camera's movement each frame — snow and leaves in CSS px, rain (and
+     its splats, landing spots) in screen fractions — wrapping at the
+     edges. Skipped on scene/zoom changes or jumps bigger than a screen.
+     Verified: with falling stopped, walking 62px diagonally left every
+     flake at the same world x/y (or wrapped exactly one screen over).
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

@@ -969,7 +969,54 @@ function initWeatherFX() {
   buildSunRays();
 }
 
+/* --- Keep the weather still while the camera moves -------------------
+   Per request ("yung snow parang sumusunod sa character dapat hindi"):
+   snow, rain and leaves live in a wrapping screen-sized field (that's
+   what keeps them going seamlessly in and out of houses), but outdoors,
+   whenever the camera scrolls, every particle is shifted the opposite
+   way by the same amount — so on screen they stay put in the world and
+   the character walks through them instead of dragging them along.
+   Skipped across a scene change or zoom change (no meaningful delta). */
+let weatherCamLast = null;
+
+function scrollWeatherWithCamera() {
+  const now = { x: camX, y: camY, zoom, scene: player.scene };
+  const last = weatherCamLast;
+  weatherCamLast = now;
+  if (!last || now.scene !== "outside" || last.scene !== "outside" || last.zoom !== now.zoom) return;
+  const dxCanvas = (now.x - last.x) * zoom, dyCanvas = (now.y - last.y) * zoom;
+  if (!dxCanvas && !dyCanvas) return;
+  if (Math.abs(dxCanvas) > view.width || Math.abs(dyCanvas) > view.height) return; // a teleport, not a scroll
+  const k = rainPxScale();            // canvas px per CSS px
+  const dx = dxCanvas / k, dy = dyCanvas / k; // CSS px
+  const sz = screenCssSize();
+  const wrap = (v, size, pad) => {
+    const span = size + pad * 2;
+    return ((((v + pad) % span) + span) % span) - pad;
+  };
+  for (const f of snowFlakes) {
+    f.x = wrap(f.x - dx, sz.w, f.r);
+    f.y = wrap(f.y - dy, sz.h, f.r);
+  }
+  for (const l of leaves) {
+    if (!l.live) continue;
+    l.x -= dx; l.y -= dy;
+    if (l.x < -30) l.x += sz.w + 60; else if (l.x > sz.w + 30) l.x -= sz.w + 60;
+    if (l.y < -20) l.y += sz.h + 40; else if (l.y > sz.h + 20) l.y -= sz.h + 40;
+  }
+  // Rain is kept in screen fractions.
+  const fx = dxCanvas / view.width, fy = dyCanvas / view.height;
+  for (const d of rainDrops) {
+    d.x = ((d.x - fx) % 1 + 1) % 1;
+    d.y -= fy;
+    d.landY -= fy;
+    if (d.landY < 0.05 || d.landY > 1.05) Object.assign(d, spawnRainDrop(false, d.row)); // its landing spot scrolled away
+  }
+  for (const sp of splashes) { sp.x -= fx; sp.y -= fy; }
+}
+
 function updateWeatherFX(dt) {
+  scrollWeatherWithCamera();
   computeSun();
   sunRayTime += dt;
   // Rain/snow motion only needs to run while that weather is actually
