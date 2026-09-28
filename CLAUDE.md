@@ -3661,6 +3661,30 @@ pixels can't be read on a file:// page).
        tile or overlapping `isBodyBlockedAt()`; two citizens sent head-on
        along one row both arrive; no page errors.
 
+112. **Maria no longer gets stuck against furniture (collision unchanged).**
+     Per a recording: indoors she'd press into a side chair and stay there
+     until the chair was picked up. Reproduced headless with rows of side
+     chairs + round tables: 74 of 279 random walks stuck. Cause: her route
+     runs tile centre to tile centre, but she usually starts a few px off
+     centre, so the first leg went diagonally and her 12px-wide feet caught
+     the chair's corner; `sweepInteriorBodyTo()` stopped her flush, and
+     every replan from that same spot aimed at the same corner. Fixes
+     (js/npc.js), none touching any item's collision:
+     - Routes (indoor `findNpcInteriorPath()` and outdoor `setNpcPathTo()`)
+       now start by stepping onto the centre of her current tile, when it's
+       clear.
+     - New `moveNpcInsideToward()`: when the straight step is blocked it
+       slides (x then y), like the outdoor step already did. If she's
+       already overlapping something (it was placed on her), she may walk
+       out of it — never into something she wasn't already in. The outdoor
+       `stepNpcToward()` got the same walk-out.
+     - Stuck 1 s: she first backs off to the nearest tile centre she can
+       reach in a straight clear line (`npcNearestClearCentre()`), then
+       re-plans, instead of re-planning into the same corner.
+     - Result: 0 of 279 stuck, 0 steps that ended inside a collision she
+       wasn't already in; a chair dropped on top of her is walked out of in
+       ~3.6 s with the chair left in place.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

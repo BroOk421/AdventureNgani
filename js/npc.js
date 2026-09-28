@@ -370,6 +370,10 @@ function setNpcPathTo(goalX, goalY) {
   // Replace the last tile-centre hop with the caller's real goal.
   if (npc.path.length) npc.path[npc.path.length - 1] = { x: goalX, y: goalY };
   else npc.path.push({ x: goalX, y: goalY });
+  // Start by stepping onto the middle of her own tile, so she doesn't cut
+  // a corner from an off-centre spot (see findNpcInteriorPath()).
+  const home = { x: (startCol + 0.5) * TILE, y: npcCentreYForFeetY((startRow + 0.5) * TILE) };
+  if (Math.hypot(home.x - npc.x, home.y - npc.y) > 1 && !isBodyBlockedAt(home.x, home.y)) npc.path.unshift(home);
   npc.pathGoalX = goalX;
   npc.pathGoalY = goalY;
   return true;
@@ -502,6 +506,15 @@ function stepNpcToward(targetX, targetY, dt) {
   const wantY = clamp(npc.y + vy * NPC_MOVE_SPEED * dt, NPC_DRAW_SIZE / 2, MAP_H - NPC_DRAW_SIZE / 2);
 
   let moved = false;
+  // Already overlapping something (it was placed on her)? Let her walk
+  // out instead of freezing until it's removed.
+  if (isBodyBlockedAt(npc.x, npc.y)) {
+    npc.x = wantX;
+    npc.y = wantY;
+    if (vx > 0.05) npc.facing = "right";
+    else if (vx < -0.05) npc.facing = "left";
+    return { arrived: false, moved: true, dist };
+  }
   if (!isBodyBlockedAt(wantX, npc.y)) {
     npc.x = wantX;
     moved = true;
@@ -777,6 +790,17 @@ function findNpcInteriorPath(room, targetX, targetY) {
     x: (t.col + 0.5) * TILE,
     y: centerYForFeetRow(t.row),
   }));
+  // First get back onto the middle of the tile she's standing on. The
+  // route runs tile centre to tile centre, but she's often a few px off
+  // (stopped flush against something, ended the last walk off-centre),
+  // and heading straight from there to the next tile cut diagonally
+  // across the corner of a chair or table — she stopped against it and
+  // every replan produced the same corner again. Only when that centre is
+  // actually clear (it can be half-covered by a side chair's base).
+  const home = { x: (from.col + 0.5) * TILE, y: centerYForFeetRow(from.row) };
+  if (Math.hypot(home.x - npc.inX, home.y - npc.inY) > 1 && !isInteriorBodyBlockedAt(room, home.x, home.y)) {
+    path.unshift(home);
+  }
   if (path.length) path[path.length - 1] = { x: targetX, y: targetY };
   else path.push({ x: targetX, y: targetY });
   path.tiles = rawTiles; // every tile of the route, for npcRouteHitNewCollision()
@@ -785,12 +809,80 @@ function findNpcInteriorPath(room, targetX, targetY) {
 
 function clearNpcInsidePath() {
   npc.inPath = null;
+  npc.inUnsticking = false;
   npc.inPathFailed = false;
   npc.inPathIndex = 0;
   npc.inPathReplanTimer = 0;
   npc.inStuckSeconds = 0;
   npc.inGoalX = null;
   npc.inGoalY = null;
+}
+
+// One step of her indoor movement toward (tx, ty), collision-checked the
+// same way the player's is. Two things the old plain sweep didn't do:
+//  - SLIDE: when the straight step is blocked, try the two axes one after
+//    the other, so brushing the corner of a chair or table slides her
+//    along it instead of stopping her dead against it.
+//  - WALK OUT: if she's somehow already overlapping something solid (it
+//    was placed on her, or she was put there by a warp/schedule), every
+//    sweep from inside it returned "0 px" and she was frozen until the
+//    object was removed. Now she can move as long as the step doesn't
+//    push her deeper — same escape hatch the player's movement has.
+// The collision itself is untouched — nothing here lets her END a step
+// inside something she wasn't already in.
+function moveNpcInsideToward(room, tx, ty, stepLen) {
+  const x0 = npc.inX, y0 = npc.inY;
+  const dx = tx - x0, dy = ty - y0;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.01) return false;
+  const len = Math.min(dist, stepLen);
+  const nx = x0 + (dx / dist) * len, ny = y0 + (dy / dist) * len;
+  let want;
+  if (isInteriorBodyBlockedAt(room, x0, y0)) {
+    want = { x: nx, y: ny }; // already stuck inside something — let her walk out of it
+  } else {
+    want = sweepInteriorBodyTo(room, x0, y0, nx, ny);
+    if (Math.hypot(want.x - x0, want.y - y0) < len * 0.5) {
+      // Blocked: slide — horizontal part, then vertical part.
+      const a = sweepInteriorBodyTo(room, x0, y0, nx, y0);
+      const b = sweepInteriorBodyTo(room, a.x, a.y, a.x, ny);
+      if (Math.hypot(b.x - x0, b.y - y0) > Math.hypot(want.x - x0, want.y - y0)) want = b;
+    }
+  }
+  const moved = Math.abs(want.x - x0) > 0.01 || Math.abs(want.y - y0) > 0.01;
+  npc.inX = want.x;
+  npc.inY = want.y;
+  npc.isWalking = true;
+  if (dx > 0.05) npc.facing = "right";
+  else if (dx < -0.05) npc.facing = "left";
+  return moved;
+}
+
+// The nearest tile centre she can walk straight to without touching
+// anything — where she backs off to when she's wedged.
+function npcNearestClearCentre(room) {
+  const here = interiorFeetTileAt(npc.inX, npc.inY);
+  const clearLine = (x1, y1) => {
+    const d = Math.hypot(x1 - npc.inX, y1 - npc.inY);
+    const n = Math.max(1, Math.ceil(d / 2));
+    for (let i = 1; i <= n; i++) {
+      if (isInteriorBodyBlockedAt(room, npc.inX + ((x1 - npc.inX) * i) / n, npc.inY + ((y1 - npc.inY) * i) / n)) return false;
+    }
+    return true;
+  };
+  let best = null, bestD = Infinity;
+  for (let dr = -2; dr <= 2; dr++) {
+    for (let dc = -2; dc <= 2; dc++) {
+      const col = here.col + dc, row = here.row + dr;
+      if (isNpcInteriorTileBlocked(room, col, row, true)) continue;
+      const x = (col + 0.5) * TILE, y = centerYForFeetRow(row);
+      const d = Math.hypot(x - npc.inX, y - npc.inY);
+      if (d < 1 || d >= bestD) continue;
+      if (!clearLine(x, y)) continue;
+      best = { x, y }; bestD = d;
+    }
+  }
+  return best;
 }
 
 // One step along her indoor route. Moves through sweepInteriorBodyTo() —
@@ -806,15 +898,7 @@ function stepNpcInside(room, dt) {
     npc.inPathIndex++;
     return { done: npc.inPathIndex >= npc.inPath.length, moved: false };
   }
-  const stepLen = Math.min(dist, NPC_MOVE_SPEED * dt);
-  const want = sweepInteriorBodyTo(room, npc.inX, npc.inY,
-    npc.inX + (dx / dist) * stepLen, npc.inY + (dy / dist) * stepLen);
-  const moved = Math.abs(want.x - npc.inX) > 0.01 || Math.abs(want.y - npc.inY) > 0.01;
-  npc.inX = want.x;
-  npc.inY = want.y;
-  npc.isWalking = true;
-  if (dx > 0.05) npc.facing = "right";
-  else if (dx < -0.05) npc.facing = "left";
+  const moved = moveNpcInsideToward(room, wp.x, wp.y, NPC_MOVE_SPEED * dt);
   return { done: false, moved };
 }
 
@@ -843,7 +927,10 @@ function npcWalkInsideTo(room, targetX, targetY, dt) {
   const needPlan = (!npc.inPath && !npc.inPathFailed)
     || goalMoved
     || npc.inPathReplanTimer >= NPC_PATH_REPLAN_SECONDS;
-  if (needPlan) {
+  if (needPlan && npc.inUnsticking && !goalMoved) {
+    // still backing off — let that finish first
+  } else if (needPlan) {
+    npc.inUnsticking = false;
     npc.inPath = findNpcInteriorPath(room, targetX, targetY);
     npc.inPathFailed = !npc.inPath;
     npc.inPathIndex = 0;
@@ -856,6 +943,7 @@ function npcWalkInsideTo(room, targetX, targetY, dt) {
   const step = stepNpcInside(room, dt);
   if (step.done) {
     npc.inPath = null;
+    if (npc.inUnsticking) { npc.inUnsticking = false; return "walking"; } // backed off — plan properly next frame
     return Math.hypot(targetX - npc.inX, targetY - npc.inY) <= NPC_BED_REACH_DIST
       ? "arrived" : "unreachable";
   }
@@ -865,7 +953,19 @@ function npcWalkInsideTo(room, targetX, targetY, dt) {
     npc.inStuckSeconds += dt;
     if (npc.inStuckSeconds >= NPC_MAX_STUCK_SECONDS) {
       npc.inStuckSeconds = 0;
-      npc.inPath = null; // wedged — force a fresh route next frame
+      // Wedged. A fresh route from this exact spot tends to aim at the
+      // same corner again, so first step back to the nearest clear tile
+      // centre, THEN re-plan from there.
+      const back = npcNearestClearCentre(room);
+      if (back && !npc.inUnsticking) {
+        npc.inPath = [back];
+        npc.inPathIndex = 0;
+        npc.inPathReplanTimer = -NPC_PATH_REPLAN_SECONDS; // don't replan mid back-off
+        npc.inUnsticking = true;
+      } else {
+        npc.inUnsticking = false;
+        npc.inPath = null; // force a fresh route next frame
+      }
     }
   }
   return "walking";
@@ -966,14 +1066,7 @@ function npcRouteWalkTo(room, x, y, dt) {
     const dx = x - npc.inX, dy = y - npc.inY;
     const dist = Math.hypot(dx, dy);
     if (dist <= NPC_BED_REACH_DIST) return true;
-    const stepLen = Math.min(dist, NPC_MOVE_SPEED * dt);
-    const want = sweepInteriorBodyTo(room, npc.inX, npc.inY,
-      npc.inX + (dx / dist) * stepLen, npc.inY + (dy / dist) * stepLen);
-    npc.inX = want.x;
-    npc.inY = want.y;
-    npc.isWalking = true;
-    if (dx > 0.05) npc.facing = "right";
-    else if (dx < -0.05) npc.facing = "left";
+    moveNpcInsideToward(room, x, y, NPC_MOVE_SPEED * dt);
   }
   return false;
 }
