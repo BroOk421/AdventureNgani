@@ -366,6 +366,9 @@ let sceneLightMaxStrength = 0;
        and the cap is the core's own warm colour, so the hue holds;
      - the candle still shows wherever the lamp is less than full, and
        inside a lamp's core the two are simply one light. */
+// Overall brightness of every light (candles + lamp posts) — per request
+// ("bawasan mo ng konti yung lightness siguro -10%"). 1 = the old look.
+const SCENE_LIGHT_BRIGHTNESS = 0.9;
 const SCENE_LIGHT_CAP_RGB = [250, 193, 120]; // a lamp's core, pre-multiplied (inner 0.95 over mid 0.60 — buildPostGlowSprite())
 
 function beginSceneLights() {
@@ -419,6 +422,7 @@ function flushSceneLights() {
   sceneLightCtx.globalCompositeOperation = "source-over";
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = SCENE_LIGHT_BRIGHTNESS; // additive, so this scales how much light is added
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(sceneLightCanvas, 0, 0, sceneLightCanvas.width, sceneLightCanvas.height,
     0, 0, sceneLightCanvas.width / SCENE_LIGHT_SCALE, sceneLightCanvas.height / SCENE_LIGHT_SCALE);
@@ -1234,8 +1238,21 @@ function drawCharacterNightRelights() {
         player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
     }
   }
-  if (npcInFront) { drawPlayerNightRelight(); drawNpcNightRelight(); }
-  else { drawNpcNightRelight(); drawPlayerNightRelight(); }
+  // The wandering citizens (js/citizens.js) join in: everyone is relit
+  // back-to-front, so whoever stands in front keeps covering whoever's
+  // behind them even after the relight.
+  const playerSort = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+  const order = [
+    { sortY: npcInFront ? playerSort - 0.001 : playerSort + 0.001, draw: drawPlayerNightRelight },
+    { sortY: playerSort, draw: drawNpcNightRelight }, // her place relative to the player, worked out above
+  ];
+  if (player.scene === "outside" && npc.scene === "outside") {
+    order[1].sortY = npc.y + (SPRITE_FEET_FRACTION - 0.5) * NPC_DRAW_SIZE;
+    order[0].sortY = playerSort;
+  }
+  for (const c of citizenRelightList()) order.push(c);
+  order.sort((a, b) => a.sortY - b.sortY);
+  for (const o of order) o.draw();
 }
 
 // Maria asleep in a Big Bed inside a room (js/npc.js's sleep schedule) —

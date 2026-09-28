@@ -335,6 +335,9 @@ function drawCitizen(c) {
   const py = (citizenCentreY(c.fy) - camY) * zoom;
   const sx = c.frame * FRAME_SIZE;
   drawShadow(px, py - size / 2 + size * SPRITE_FEET_FRACTION, size, sheet, sx);
+  // Same candle circle the player and Maria carry — night only (it's a
+  // no-op in daylight, see drawCharacterGlow(), js/camera.js).
+  drawCharacterGlow(px, py, size, c.fx, citizenCentreY(c.fy));
   ctx.drawImage(sheet, sx, 0, FRAME_SIZE, FRAME_SIZE, px - size / 2, py - size / 2, size, size);
 }
 
@@ -348,6 +351,28 @@ function citizenDrawables() {
     if (c.fx < camX - DRAW_SIZE || c.fx > camX + viewW + DRAW_SIZE ||
         c.fy < camY - DRAW_SIZE || c.fy > camY + viewH + DRAW_SIZE * 2) continue; // off screen
     out.push({ sortY: citizenSortY(c), draw: () => drawCitizen(c) });
+  }
+  return out;
+}
+
+// Night relight — like the player and Maria, citizens keep their real
+// colours after dark instead of being dragged blue-grey by the night
+// washes. Returned as sortable entries so drawCharacterNightRelights()
+// (js/camera.js) can relight everyone back-to-front.
+function citizenRelightList() {
+  const out = [];
+  if (player.scene !== "outside") return out;
+  const night = getRelightStrength();
+  if (night <= 0.01) return out;
+  const size = DRAW_SIZE * zoom;
+  for (const c of citizens) {
+    const sheet = currentCitizenSheet(c);
+    if (!sheet || !sheet.width) continue;
+    const px = (c.fx - camX) * zoom, py = (citizenCentreY(c.fy) - camY) * zoom;
+    if (px < -size || py < -size || px > view.width + size || py > view.height + size) continue;
+    const sortY = citizenSortY(c);
+    out.push({ sortY, draw: () => drawMaskedRelight((g) => g.drawImage(sheet, c.frame * FRAME_SIZE, 0,
+      FRAME_SIZE, FRAME_SIZE, px - size / 2, py - size / 2, size, size), px, py, size, sortY, night, false) });
   }
   return out;
 }

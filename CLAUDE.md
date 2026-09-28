@@ -3685,6 +3685,19 @@ pixels can't be read on a file:// page).
        wasn't already in; a chair dropped on top of her is walked out of in
        ~3.6 s with the chair left in place.
 
+113. **Lights 10% dimmer; citizens carry a candle and keep their colours
+     at night.** Per request.
+     - `SCENE_LIGHT_BRIGHTNESS = 0.9` (camera.js): the merged light buffer
+       is added to the scene at 90%, so every candle circle and lamp-post
+       pool is 10% less bright. Set it back to 1 for the old look.
+     - `drawCitizen()` calls `drawCharacterGlow()` like the player and
+       Maria — it's already night-only, so nothing shows in daylight.
+     - `citizenRelightList()` (citizens.js) gives each on-screen citizen a
+       `drawMaskedRelight()` pass, cut out by whatever stands in front of
+       them. `drawCharacterNightRelights()` now relights the player, Maria
+       and every citizen sorted back-to-front, so whoever is in front stays
+       in front after the relight.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order
