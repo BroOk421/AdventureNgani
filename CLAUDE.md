@@ -3769,6 +3769,12 @@ pixels can't be read on a file:// page).
      - Inventory `--inv` 600 -> 470px (max 78vh / 90vw); `#inventory-grid`
        has `overflow-x: hidden`.
 
+118. **Hotbar a bit smaller; highlight shaped like the slot.** `#hotbar`
+     640 -> 540px (max 90vw), held-item pill moved to match. The selected
+     (gold) / held (green) outline is now a `::after` ring 5% outside the
+     slot's dark inside — on its bronze rim — with 16% rounded corners,
+     instead of an inset square box-shadow.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

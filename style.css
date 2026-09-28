@@ -1381,3 +1381,37 @@ html, body {
   bottom: 12%;
   right: 13%;
 }
+
+/* ---------- hotbar v2: a bit smaller, highlight shaped like the slot ----------
+   Per request: smaller bar, and the selected/held outline follows the
+   painted slot — it sits on the slot's bronze rim (a few % outside the
+   dark inside) with the same rounded corners, instead of a hard square
+   drawn over the slot. */
+#hotbar {
+  width: min(540px, 90vw);
+}
+#held-item-hud {
+  bottom: calc(min(540px, 90vw) * 209 / 1249 + 14px);
+}
+#hotbar .hotbar-slot,
+#hotbar .hotbar-slot.selected,
+#hotbar .hotbar-slot.held {
+  box-shadow: none;
+  border-radius: 0;
+}
+#hotbar .hotbar-slot::after {
+  content: "";
+  position: absolute;
+  inset: -5%;
+  border: 2px solid transparent;
+  border-radius: 16%;
+  pointer-events: none;
+}
+#hotbar .hotbar-slot.selected::after {
+  border-color: #f2c14e;
+  box-shadow: 0 0 6px rgba(242, 193, 78, 0.6), inset 0 0 4px rgba(242, 193, 78, 0.35);
+}
+#hotbar .hotbar-slot.held::after {
+  border-color: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.7), inset 0 0 4px rgba(74, 222, 128, 0.35);
+}
