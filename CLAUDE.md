@@ -3737,6 +3737,25 @@ pixels can't be read on a file:// page).
        keyframes and the indoor full-night wash. Lamp/candle strength
        (`POST_GLOW_MATCH_CANDLE`) left alone so lights don't dim with it.
 
+116. **Hotbar slot fix, inventory built from one looped slot tile,
+     citizens reliably leave at 06:00.**
+     - Hotbar bug: the icon nudge was `padding: 16% 0 0 12%` — padding %
+       is of the containing block's WIDTH (the whole bar), so each slot
+       grew to ~100px, the highlight covered two slots and the icons were
+       pushed out of view. Now no padding; the icon is absolutely centred
+       at 56%/58% of its slot (it may overlap the painted number).
+     - Inventory: `assets/asset/inventory_slot.png` is one slot cropped
+       from inventory.png (182,230)-(282,330), and
+       `inventory_frame.png` is inventory.png with the grid area
+       (78..884 x 122..845) filled with the slot tile's edge colour.
+       Every grid cell (8 x 100px, no gaps, at 81,133) carries the tile as
+       its own background, so slots scroll with their items;
+       `renderInventory()` pads to whole rows and at least 7 rows.
+     - Citizens: exit counts as reached within one tile of the room's
+       spawn, and anyone still inside at 06:30
+       (`CITIZEN_LEAVE_GRACE_HOURS`) is put straight out the door. Real-
+       time test from 05:58: all four out by ~06:19.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

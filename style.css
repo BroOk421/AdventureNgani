@@ -1328,7 +1328,55 @@ html, body {
 #inventory-gold .inventory-gold-label {
   color: #f2c14e;
 }
-/* keep the icon clear of the painted number badge in the top-left */
+/* Hotbar icons: centred a little right/below the middle so the painted
+   number badge still shows, overlapping it slightly is fine. Positioned
+   absolutely — the old padding-based nudge was a % of the WHOLE bar's
+   width, which blew each slot up to ~100px and threw the highlight off
+   and pushed the icon out of the slot. */
 #hotbar .hotbar-slot {
-  padding: 16% 0 0 12%;
+  padding: 0;
+  display: block;
+}
+#hotbar .hotbar-slot img {
+  position: absolute;
+  left: 56%;
+  top: 58%;
+  transform: translate(-50%, -50%);
+  max-width: 64%;
+  max-height: 64%;
+}
+
+/* ---------- inventory v2: frame + one cropped slot tile, looped ----------
+   inventory_frame.png = inventory.png with the painted slot grid
+   cleared; inventory_slot.png = one slot (100x100) cropped from it.
+   Every cell of the grid gets that tile as its own background, so the
+   slot boxes scroll together with the items. */
+#inventory-panel {
+  background-image: url("assets/asset/inventory_frame.png");
+}
+#inventory-grid {
+  left: calc(var(--inv) * 81 / 961);
+  top: calc(var(--inv) * 133 / 961);
+  width: calc(var(--inv) * 814 / 961);  /* 8 x 100 + room for the scrollbar over the right frame */
+  height: calc(var(--inv) * 700 / 961); /* exactly 7 rows */
+  grid-template-columns: repeat(8, calc(var(--inv) * 100 / 961));
+  grid-auto-rows: calc(var(--inv) * 100 / 961);
+  column-gap: 0;
+  row-gap: 0;
+}
+#inventory-grid .inv-slot {
+  background: url("assets/asset/inventory_slot.png") center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+  border-radius: 0;
+}
+#inventory-grid .inv-slot:hover {
+  background: url("assets/asset/inventory_slot.png") center / 100% 100% no-repeat;
+  filter: brightness(1.2);
+}
+#inventory-grid .inv-slot.held {
+  box-shadow: inset 0 0 0 3px #4ade80;
+}
+#inventory-grid .slot-count {
+  bottom: 12%;
+  right: 13%;
 }

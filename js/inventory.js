@@ -4624,6 +4624,17 @@ function renderInventory() {
 
     inventoryGridEl.appendChild(box);
   }
+
+  // Fill out the grid with empty slots: at least the 7 visible rows, and
+  // always whole rows, so the painted slot tile repeats cleanly (and
+  // still scrolls row by row) however many items there are.
+  const shown = inventoryGridEl.children.length;
+  const total = Math.max(INVENTORY_COLS * 7, Math.ceil(shown / INVENTORY_COLS) * INVENTORY_COLS);
+  for (let k = shown; k < total; k++) {
+    const empty = document.createElement("div");
+    empty.className = "inv-slot";
+    inventoryGridEl.appendChild(empty);
+  }
 }
 
 // One consolidated slot standing in for an entire tile family (see the

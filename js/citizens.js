@@ -77,6 +77,11 @@ const CITIZEN_WAKE_HOUR = 6;  // come back out
 const CITIZEN_SHELTER_TYPE = "abandonHouse";
 const CITIZEN_INDOOR_SPEED_MULT = 0.7;
 const CITIZEN_INDOOR_IDLE_MIN = 4, CITIZEN_INDOOR_IDLE_MAX = 11;
+// At 06:00 they walk out through the door. If someone can't reach it
+// (the doorway is blocked by furniture, or by the player standing on the
+// mat) they still go out once this much game time has passed — nobody
+// stays shut inside all day.
+const CITIZEN_LEAVE_GRACE_HOURS = 0.5;
 
 const citizens = [];
 let citizensReady = false;
@@ -303,7 +308,7 @@ function stopCitizenWalk(c) {
   c.errand = null;
   // Reached the door / the room's exit? (Close enough — they may have
   // stopped a few px short behind someone.)
-  if (errand && Math.hypot(errand.x - c.fx, errand.y - c.fy) <= 10) {
+  if (errand && Math.hypot(errand.x - c.fx, errand.y - c.fy) <= TILE) {
     if (errand.kind === "enter") citizenEnterShelter(c, errand.shelter);
     else if (errand.kind === "exit") citizenLeaveShelter(c);
   } else if (errand) {
@@ -414,6 +419,9 @@ function citizenScheduleTick(c) {
     const houseStillThere = citizenShelters().some((s) => s.roomId === c.roomId);
     if (!room || !houseStillThere) { citizenLeaveShelter(c); return; }
     if (night) return;
+    // Morning. Past the grace period (couldn't walk out) -> just leave.
+    const h = getGameHour();
+    if (h >= CITIZEN_WAKE_HOUR + CITIZEN_LEAVE_GRACE_HOURS) { citizenLeaveShelter(c); return; }
     if (c.errand && c.errand.kind === "exit") return;
     if (c.state !== "walk" && c.timer > 0) return;
     const p = shelterSpawnFeet(room);
