@@ -200,6 +200,20 @@ const PLAYER_GLOW_RADIUS_SCALE = 0.85; // relative to the sprite's own size — 
 const PLAYER_GLOW_COLOR_INNER = "rgba(255,198,124,0.95)"; // pale warm core, right at the flame
 const PLAYER_GLOW_COLOR_MID = "rgba(255,152,66,0.60)";   // amber body of the pool of light
 const PLAYER_GLOW_COLOR_OUTER = "rgba(255,120,30,0)";     // deep orange, faded to nothing
+// The carried candle (player, Maria, citizens) — per request ("medyo i
+// opacity mo pa yung light niya parang aninag na lang... yung dulo ng
+// circle medyo fade na"): fainter overall (CANDLE_OPACITY) and a long,
+// smooth fall-off instead of the old 3-stop ramp, whose amber middle
+// ended in a visible orange ring near the edge.
+const CANDLE_OPACITY = 0.6;
+const CANDLE_GRADIENT_STOPS = [
+  [0.00, "rgba(255,200,130,0.85)"],
+  [0.25, "rgba(255,186,110,0.66)"],
+  [0.50, "rgba(255,168,90,0.38)"],
+  [0.72, "rgba(255,150,70,0.16)"],
+  [0.88, "rgba(255,135,55,0.05)"],
+  [1.00, "rgba(255,120,40,0)"],
+];
 
 /* --- the owner's lights ---------------------------------------------
    Per request ("kapag yung sariling may ari ng bahay is nasa bahay nila
@@ -404,7 +418,13 @@ function addSceneLight(src, dx, dy, dw, dh, strength) {
   g.drawImage(src, dx * S - x, dy * S - y, dw * S, dh * S); // pre-multiply onto black
   g.fillStyle = "rgba(0,0,0," + (1 - Math.min(1, strength)) + ")"; // then scale by strength
   g.fillRect(0, 0, w, h);
-  sceneLightCtx.globalCompositeOperation = "lighter"; // summed — the cap in flushSceneLights() keeps it from overdriving
+  // Per-pixel MAX, per request ("dapat kung anong kulay kapag mag isa
+  // ganun lang din dapat kapag nag katamaan... kahit madaanan yung
+  // postlight"): where lights overlap, each pixel is exactly as bright as
+  // the brightest single light there — two candles, or a candle under a
+  // lamp, never add up into a brighter patch. (The summed + capped
+  // version still let two candles get brighter than one.)
+  sceneLightCtx.globalCompositeOperation = "lighten";
   sceneLightCtx.drawImage(sceneLightTmp, 0, 0, w, h, x, y, w, h);
   sceneLightsUsed = true;
   sceneLightMaxStrength = Math.max(sceneLightMaxStrength, Math.min(1, strength));
@@ -413,12 +433,8 @@ function addSceneLight(src, dx, dy, dw, dh, strength) {
 // Adds the merged lights to the scene, once.
 function flushSceneLights() {
   if (!sceneLightsUsed) return;
-  // Cap the summed lights at one light's core, at this frame's strength.
-  const k = sceneLightMaxStrength;
-  sceneLightCtx.globalCompositeOperation = "darken"; // per-channel min against the cap
-  sceneLightCtx.fillStyle = "rgb(" + Math.round(SCENE_LIGHT_CAP_RGB[0] * k) + "," +
-    Math.round(SCENE_LIGHT_CAP_RGB[1] * k) + "," + Math.round(SCENE_LIGHT_CAP_RGB[2] * k) + ")";
-  sceneLightCtx.fillRect(0, 0, sceneLightCanvas.width, sceneLightCanvas.height);
+  // Lights are already merged by per-pixel max (addSceneLight()), so no
+  // cap is needed — nothing in the buffer is brighter than one light.
   sceneLightCtx.globalCompositeOperation = "source-over";
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
@@ -795,9 +811,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   glowCtx.setTransform(1, 0, 0, 1, 0, 0);
   glowCtx.clearRect(0, 0, d, d);
   const gradient = glowCtx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-  gradient.addColorStop(0, PLAYER_GLOW_COLOR_INNER);
-  gradient.addColorStop(0.55, PLAYER_GLOW_COLOR_MID);
-  gradient.addColorStop(1, PLAYER_GLOW_COLOR_OUTER);
+  for (const [at, col] of CANDLE_GRADIENT_STOPS) gradient.addColorStop(at, col);
   glowCtx.fillStyle = gradient;
   glowCtx.beginPath();
   glowCtx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -832,7 +846,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   //    night washes, where this candle used to land before them — so it's
   //    dimmed by hand to the same strength the washes used to leave it
   //    at (POST_GLOW_MATCH_CANDLE, the lamp's own figure for exactly this).
-  addSceneLight(glowCanvas, px - d / 2, py - d / 2, d, d, darkness * POST_GLOW_MATCH_CANDLE);
+  addSceneLight(glowCanvas, px - d / 2, py - d / 2, d, d, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY);
 }
 
 // The player's own light — a thin wrapper around the shared

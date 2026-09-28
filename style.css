@@ -1222,7 +1222,7 @@ html, body {
 
 /* ---------- inventory panel: inventory.png ---------- */
 #inventory-panel {
-  --inv: min(600px, 90vh, 94vw); /* on-screen size of the square art */
+  --inv: min(470px, 78vh, 90vw); /* on-screen size of the square art — smaller, per request */
   position: relative;
   width: var(--inv);
   height: var(--inv);
@@ -1285,6 +1285,7 @@ html, body {
   column-gap: calc(var(--inv) * 13.2 / 961);
   row-gap: calc(var(--inv) * 14 / 961);
   overflow-y: auto;
+  overflow-x: hidden; /* no sideways scrollbar, per request */
   scroll-snap-type: y mandatory;
 }
 #inventory-grid .inv-slot {

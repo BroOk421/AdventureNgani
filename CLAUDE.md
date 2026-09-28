@@ -3756,6 +3756,19 @@ pixels can't be read on a file:// page).
        (`CITIZEN_LEAVE_GRACE_HOURS`) is put straight out the door. Real-
        time test from 05:58: all four out by ~06:19.
 
+117. **Lights never brighten where they overlap; fainter, softer candle;
+     smaller inventory.**
+     - `addSceneLight()` merges with "lighten" (per-pixel max) instead of
+       summing, and the cap in `flushSceneLights()` is gone. Measured: the
+       brightest pixel of the light buffer is the same (129) with one
+       candle, two on the same spot, two offset, or four together, and a
+       candle under a lamp is just the lamp.
+     - The carried candle: `CANDLE_OPACITY = 0.6` and a 6-stop
+       `CANDLE_GRADIENT_STOPS` ramp that fades out long before the rim.
+       Lamp posts unchanged.
+     - Inventory `--inv` 600 -> 470px (max 78vh / 90vw); `#inventory-grid`
+       has `overflow-x: hidden`.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order
