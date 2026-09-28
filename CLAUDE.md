@@ -3698,6 +3698,18 @@ pixels can't be read on a file:// page).
        and every citizen sorted back-to-front, so whoever is in front stays
        in front after the relight.
 
+114. **The carried Tray rests on the head and bobs with the carry
+     animation.** Per request (screenshot: tray floating well above the
+     head facing up). `drawCarriedOrder()` (waiter.js) now puts the tray's
+     visible bottom edge on the head top of the CURRENT frame, sunk 2 source
+     px into the crown (`TRAY_SINK_INTO_HEAD`). Head tops per frame were
+     measured off Carry_Idle / Carry_Walk / Carry_Run (first opaque row,
+     `CARRY_HEAD_TOP_BY_SHEET`); every tray picture is 32x16 with 1 empty
+     row at the bottom (`TRAY_ART_BOTTOM_PAD`). While carrying the tray,
+     facing down now also uses Carry_Idle/Carry_Walk (hands up, tray on
+     head) instead of Carry_Order_Down — that sheet is kept for a single
+     dish carried without the tray.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

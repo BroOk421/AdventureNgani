@@ -824,9 +824,30 @@ function setupWaiterClickHandler() {
 function carryOrderSheet(animKey, facing) {
   if (!player.carryOrder && !player.carryTray) return null;
   if (ONE_SHOT_ACTION_SHEETS[animKey]) return null; // js/player.js — actions keep their own sheets
-  if (facing === "down" && assets.carryOrderDown.width) return assets.carryOrderDown;
+  // The Tray is carried ON THE HEAD in every direction (per request:
+  // "idikit mo sa ulo... carry_idle at carry_walk"), so it always uses the
+  // Carry_Idle / Carry_Walk / Carry_Run sheets. Carry_Order_Down (dish in
+  // the hands) is only for a single dish without a tray.
+  if (!player.carryTray && facing === "down" && assets.carryOrderDown.width) return assets.carryOrderDown;
   return spriteForFacing(animKey, facing, "carrying");
 }
+
+// Top of the head, in source px of the 64px frame, for every frame of the
+// carry sheets — measured off the art (first opaque row). The head bobs
+// 1-2 px through the idle/walk cycles, and the tray rides that exactly.
+const CARRY_HEAD_TOP_BY_SHEET = new Map([
+  [assets.carryIdleDown, [18, 19, 20, 19]],
+  [assets.carryIdleUp, [18, 19, 20, 19]],
+  [assets.carryIdleSide, [18, 19, 20, 19]],
+  [assets.carryWalkDown, [18, 19, 18, 18, 19, 18]],
+  [assets.carryWalkUp, [18, 19, 18, 18, 19, 18]],
+  [assets.carryWalkSide, [18, 19, 18, 18, 19, 18]],
+  [assets.carryRunDown, [18, 18, 19, 18, 18, 19]],
+  [assets.carryRunUp, [18, 19, 19, 18, 19, 19]],
+  [assets.carryRunSide, [17, 18, 18, 17, 18, 18]],
+]);
+const TRAY_ART_BOTTOM_PAD = 1;  // every tray picture is 32x16 with one empty row under it
+const TRAY_SINK_INTO_HEAD = 2;  // source px the tray overlaps the crown, so it reads as resting ON it
 
 // The dish itself: in the hands (facing down, Carry_Order), above the
 // head like any other carried thing otherwise.
@@ -837,10 +858,15 @@ function drawCarriedOrder(px, py, size, scale, g = ctx) {
     const img = trayImageFor(player.carryTray.roomId, player.carryTray.key);
     if (!img || !img.width) return;
     const w = 22 * scale, h = w * img.height / img.width;
-    const y = player.facing === "down"
-      ? py - size / 2 + size * (36 / 64) - h * 0.4                            // in the hands
-      : py - size / 2 + size * SPRITE_HEAD_FRACTION - h - 4 * scale;         // over the head
-    g.drawImage(img, px - w / 2, y, w, h);
+    // Resting on the head: the tray's visible bottom edge sits on this
+    // frame's head top (sunk a couple of px into the crown), so it bobs
+    // with the carry animation instead of floating above it.
+    const sheet = currentPlayerSheet(); // js/camera.js
+    const tops = CARRY_HEAD_TOP_BY_SHEET.get(sheet);
+    const headTop = tops ? tops[player.frame % tops.length] : SPRITE_HEAD_FRACTION * FRAME_SIZE;
+    const headTopY = py - size / 2 + (size * (headTop + TRAY_SINK_INTO_HEAD)) / FRAME_SIZE;
+    const pad = (h * TRAY_ART_BOTTOM_PAD) / img.height;
+    g.drawImage(img, px - w / 2, headTopY - h + pad, w, h);
     return;
   }
   if (!player.carryOrder) return;
