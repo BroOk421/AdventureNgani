@@ -3497,7 +3497,19 @@ function resetInventoryFromItemDefs() {
 // default hotbar: slots 1-7 mirror inventory slots 0-6, same as before —
 // but now this is just a starting point, freely reassignable via the
 // inventory panel's action menu.
-const hotbar = [0, 1, 2, 3, 4, 5, 6];
+const hotbar = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+// The key that selects hotbar slot i: 1..9, then 0 for the tenth.
+function hotbarKeyLabel(i) {
+  return i === 9 ? "0" : String(i + 1);
+}
+
+// Where each of the 10 slots sits inside assets/asset/slots.png
+// (1249x209), measured off the art — left edges; every slot is ~97px
+// square starting at y 58. Positioned in % so the bar scales freely.
+const HOTBAR_ART_W = 1249, HOTBAR_ART_H = 209;
+const HOTBAR_SLOT_X = [75, 187, 298, 410, 522, 633, 745, 858, 970, 1083];
+const HOTBAR_SLOT_Y = 58, HOTBAR_SLOT_SIZE = 97;
 
 let selectedHotbarIndex = 0;
 let heldItem = null; // null | { type, fromSlot }  (fromSlot = an INVENTORY index)
@@ -4530,10 +4542,12 @@ function renderHotbar() {
     if (heldItem && invIndex !== null && heldItem.fromSlot === invIndex)
       box.classList.add("held");
 
-    const number = document.createElement("span");
-    number.className = "slot-number";
-    number.textContent = i + 1;
-    box.appendChild(number);
+    // The number badge (1-9, 0) is painted into slots.png itself.
+    box.style.left = (HOTBAR_SLOT_X[i] / HOTBAR_ART_W) * 100 + "%";
+    box.style.top = (HOTBAR_SLOT_Y / HOTBAR_ART_H) * 100 + "%";
+    box.style.width = (HOTBAR_SLOT_SIZE / HOTBAR_ART_W) * 100 + "%";
+    box.style.height = (HOTBAR_SLOT_SIZE / HOTBAR_ART_H) * 100 + "%";
+    box.title = "Hotkey " + hotbarKeyLabel(i);
 
     if (slot) {
       const img = document.createElement("img");
@@ -4566,7 +4580,8 @@ const inventoryGridEl = document.getElementById("inventory-grid");
 
 function renderInventory() {
   inventoryGridEl.innerHTML = "";
-  inventoryGridEl.style.gridTemplateColumns = `repeat(${INVENTORY_COLS}, 1fr)`;
+  // Columns/rows are sized in style.css to line up with the slot boxes
+  // painted in assets/asset/inventory.png.
 
   const renderedGroups = new Set(); // group id -> already appended its one consolidated slot
 
@@ -4696,6 +4711,12 @@ function toggleInventory() {
   closeItemActionMenu();
   closeTileVariantPicker();
 }
+
+// The X painted in the inventory art's top-right corner.
+document.getElementById("inventory-close").addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (inventoryOpen) toggleInventory();
+});
 
 /* ---------------- UI: popup placement (shared by all three popups) ----------------
    Every popup in here — the tile-variant picker, the item action menu and
@@ -4890,8 +4911,8 @@ function openItemActionMenu(slotIndex, anchorEl) {
   hotkeyRow.className = "action-menu-hotkeys";
   for (let i = 0; i < HOTBAR_SIZE; i++) {
     const btn = document.createElement("button");
-    btn.textContent = i + 1;
-    btn.title = "Assign to hotkey " + (i + 1);
+    btn.textContent = hotbarKeyLabel(i);
+    btn.title = "Assign to hotkey " + hotbarKeyLabel(i);
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       hotbar[i] = slotIndex;
@@ -4922,9 +4943,14 @@ window.addEventListener("keydown", (e) => {
   if (k === "b") toggleInventory();
   if (k === "g") toggleEquipment();
 
-  const num = Number(e.key);
-  if (num >= 1 && num <= HOTBAR_SIZE) {
-    selectedHotbarIndex = num - 1;
+  // 1-9 are slots 1-9, 0 is the tenth slot. (e.code covers the numpad and
+  // keyboards whose number row types something else.)
+  let slotIdx = -1;
+  if (/^[0-9]$/.test(e.key)) slotIdx = e.key === "0" ? 9 : Number(e.key) - 1;
+  else if (/^(Digit|Numpad)[0-9]$/.test(e.code)) { const d = e.code.slice(-1); slotIdx = d === "0" ? 9 : Number(d) - 1; }
+  if (slotIdx >= 0 && slotIdx < HOTBAR_SIZE) {
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    selectedHotbarIndex = slotIdx;
     const invIndex = hotbar[selectedHotbarIndex];
     const slot = invIndex !== null ? inventory[invIndex] : null;
     if (slot) useOrHoldSlot(invIndex);

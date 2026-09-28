@@ -43,8 +43,16 @@
    same feet-based Y-sort Maria and the customers use, just with the
    split point explicit and tunable.
 
+   NIGHT: from CITIZEN_HOME_HOUR (20:00) to CITIZEN_WAKE_HOUR (06:00)
+   they walk to the nearest Abandoned House on the map, go in through
+   its door and spend the night in its abandon_room, wandering slowly
+   inside. Indoors they carry no candle and get no night relight (the
+   room's own lighting applies to them). At dawn they walk to the room's
+   exit, come out of the door and go back to strolling. With no
+   Abandoned House built, they just stay outside.
+
    Not saved — positions are rolled fresh on each load (they're
-   ambience, not progress).
+   ambience, not progress); loading at night puts them straight inside.
 ================================================================= */
 
 const CITIZEN_IDS = ["B", "C", "D", "E"];
@@ -63,6 +71,12 @@ const CITIZEN_REPLAN_SECONDS = 5;       // re-plan every so often anyway (the wo
 // row 47 (so the visible bottom is 48/64).
 const CITIZEN_OVERLAP_BOTTOM_FRACTION = 0.25;
 const CITIZEN_VISIBLE_FEET_FRACTION = 48 / 64;
+
+const CITIZEN_HOME_HOUR = 20; // go in for the night (their candles are already lit from 18:00)
+const CITIZEN_WAKE_HOUR = 6;  // come back out
+const CITIZEN_SHELTER_TYPE = "abandonHouse";
+const CITIZEN_INDOOR_SPEED_MULT = 0.7;
+const CITIZEN_INDOOR_IDLE_MIN = 4, CITIZEN_INDOOR_IDLE_MAX = 11;
 
 const citizens = [];
 let citizensReady = false;
@@ -106,6 +120,7 @@ function isCitizenTileFree(col, row, blocked) {
 // Feet positions of everyone else walking around outside right now.
 function otherOutdoorFeet(self) {
   const out = [];
+  if (self.scene === "inside") return citizenRoomMates(self);
   if (player.scene === "outside" && !player.sleeping) {
     out.push({ x: player.x, y: player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE });
   }
@@ -113,8 +128,20 @@ function otherOutdoorFeet(self) {
   if (typeof customers !== "undefined") {
     for (const cu of customers) if (cu.scene === "outside" && cu.state !== "away") out.push({ x: cu.fx, y: cu.fy });
   }
-  for (const c of citizens) if (c !== self) out.push({ x: c.fx, y: c.fy, citizen: c });
+  for (const c of citizens) if (c !== self && c.scene === "outside") out.push({ x: c.fx, y: c.fy, citizen: c });
   return out;
+}
+
+// Indoors: only the others in the same room (and the player if they're in there too).
+function citizenRoomMates(self) {
+  {
+    const inRoom = [];
+    if (player.scene === "inside" && player.activeRoomId === self.roomId && !player.sleeping) {
+      inRoom.push({ x: player.x, y: player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE });
+    }
+    for (const c of citizens) if (c !== self && c.scene === "inside" && c.roomId === self.roomId) inRoom.push({ x: c.fx, y: c.fy, citizen: c });
+    return inRoom;
+  }
 }
 
 // Town centre: in front of the player's house if there is one, otherwise
@@ -161,14 +188,48 @@ function initCitizens() {
       state: "idle", timer: citizenRand(0.5, CITIZEN_IDLE_MAX),
       path: null, pathIdx: 0, goal: null,
       waitT: 0, stuckT: 0, replanT: 0,
+      scene: "outside", roomId: null, shelter: null, errand: null,
     });
+  }
+  // Loaded at night: they're already home.
+  if (isCitizenNight()) {
+    for (const c of citizens) {
+      const sh = nearestShelter(c);
+      if (sh) citizenEnterShelter(c, sh);
+    }
   }
 }
 
 /* ---------------- walking ---------------- */
 
-function planCitizenPath(c, avoidPeople) {
+// Solid-tile test for wherever the citizen currently is: the outdoor
+// blocked set, or the room's walls + furniture (the same test Maria's
+// indoor planner uses, isNpcInteriorTileBlocked(), js/npc.js).
+function citizenBlockedFn(c) {
+  if (c.scene === "inside") {
+    const room = getOrCreateInteriorRoom(c.roomId);
+    const maxCol = Math.ceil(room.width / TILE) - 1, maxRow = Math.ceil(room.height / TILE) - 1;
+    return (col, row) => col < 0 || row < 0 || col > maxCol || row > maxRow || isNpcInteriorTileBlocked(room, col, row, true);
+  }
   const blocked = citizenStaticBlocked();
+  return (col, row) => blocked.has(col + "," + row);
+}
+
+function citizenPathBounds(c, s, g) {
+  if (c.scene === "inside") {
+    const room = getOrCreateInteriorRoom(c.roomId);
+    return { minCol: 0, maxCol: Math.ceil(room.width / TILE) - 1, minRow: 0, maxRow: Math.ceil(room.height / TILE) - 1 };
+  }
+  return {
+    minCol: Math.max(0, Math.min(s.col, g.col) - NPC_PATH_MARGIN_TILES),
+    maxCol: Math.min(COLS - 1, Math.max(s.col, g.col) + NPC_PATH_MARGIN_TILES),
+    minRow: Math.max(0, Math.min(s.row, g.row) - NPC_PATH_MARGIN_TILES),
+    maxRow: Math.min(ROWS - 1, Math.max(s.row, g.row) + NPC_PATH_MARGIN_TILES),
+  };
+}
+
+function planCitizenPath(c, avoidPeople) {
+  const isSolid = citizenBlockedFn(c);
   const s = citizenTileOf(c.fx, c.fy);
   const g = c.goal;
   const people = new Set();
@@ -180,12 +241,7 @@ function planCitizenPath(c, avoidPeople) {
     people.delete(s.col + "," + s.row);
   }
   const tiles = findNpcTilePath(s.col, s.row, g.col, g.row,
-    (col, row) => blocked.has(col + "," + row) || people.has(col + "," + row), {
-      minCol: Math.max(0, Math.min(s.col, g.col) - NPC_PATH_MARGIN_TILES),
-      maxCol: Math.min(COLS - 1, Math.max(s.col, g.col) + NPC_PATH_MARGIN_TILES),
-      minRow: Math.max(0, Math.min(s.row, g.row) - NPC_PATH_MARGIN_TILES),
-      maxRow: Math.min(ROWS - 1, Math.max(s.row, g.row) + NPC_PATH_MARGIN_TILES),
-    });
+    (col, row) => isSolid(col, row) || people.has(col + "," + row), citizenPathBounds(c, s, g));
   // First leg: back onto the centre of the tile they're on, so every leg
   // after it runs along tile centres and never clips a solid corner.
   const pts = [citizenTileCentre(s.col, s.row)];
@@ -197,6 +253,7 @@ function planCitizenPath(c, avoidPeople) {
 }
 
 function startCitizenWalk(c) {
+  if (c.scene === "inside") { startCitizenIndoorWander(c); return; }
   const blocked = citizenStaticBlocked();
   const home = citizenTileCentre(c.home.col, c.home.row);
   // Mostly around home; a little drift back toward it if they've wandered far.
@@ -215,12 +272,153 @@ function startCitizenWalk(c) {
   planCitizenPath(c, true);
 }
 
+// Walk to a specific point (feet coords) for an errand: the shelter's
+// door ("enter") or the room's exit mat ("exit").
+function startCitizenErrand(c, x, y, kind, shelter) {
+  const t = citizenTileOf(x, y);
+  c.goal = t;
+  c.errand = { kind, x, y, shelter };
+  c.state = "walk";
+  c.waitT = 0; c.stuckT = 0;
+  planCitizenPath(c, true);
+  // Finish on the exact spot, not just its tile's centre — but only when
+  // the route actually reaches that tile (a best-effort route that stops
+  // short must not end with a straight line through a wall).
+  const last = c.path && c.path[c.path.length - 1];
+  if (last) {
+    const lt = citizenTileOf(last.x, last.y);
+    if (lt.col === t.col && lt.row === t.row) c.path.push({ x, y });
+  }
+}
+
 function stopCitizenWalk(c) {
+  const errand = c.errand;
   c.state = "idle";
   c.anim = "idle";
-  c.timer = citizenRand(CITIZEN_IDLE_MIN, CITIZEN_IDLE_MAX);
+  c.timer = c.scene === "inside"
+    ? citizenRand(CITIZEN_INDOOR_IDLE_MIN, CITIZEN_INDOOR_IDLE_MAX)
+    : citizenRand(CITIZEN_IDLE_MIN, CITIZEN_IDLE_MAX);
   c.path = null;
   c.goal = null;
+  c.errand = null;
+  // Reached the door / the room's exit? (Close enough — they may have
+  // stopped a few px short behind someone.)
+  if (errand && Math.hypot(errand.x - c.fx, errand.y - c.fy) <= 10) {
+    if (errand.kind === "enter") citizenEnterShelter(c, errand.shelter);
+    else if (errand.kind === "exit") citizenLeaveShelter(c);
+  } else if (errand) {
+    c.timer = 0.5; // didn't make it (blocked) — try again shortly
+  }
+}
+
+function startCitizenIndoorWander(c) {
+  const room = getOrCreateInteriorRoom(c.roomId);
+  const isSolid = citizenBlockedFn(c);
+  const here = citizenTileOf(c.fx, c.fy);
+  const exitRow = room.exitZone ? Math.floor(room.exitZone.minY / TILE) : 999;
+  let target = null;
+  for (let i = 0; i < 30 && !target; i++) {
+    const col = Math.floor(Math.random() * Math.ceil(room.width / TILE));
+    const row = Math.floor(Math.random() * Math.ceil(room.height / TILE));
+    if (isSolid(col, row) || row >= exitRow) continue; // stay off the doormat
+    if (Math.abs(col - here.col) + Math.abs(row - here.row) < 2) continue;
+    target = { col, row };
+  }
+  if (!target) { c.state = "idle"; c.timer = citizenRand(CITIZEN_INDOOR_IDLE_MIN, CITIZEN_INDOOR_IDLE_MAX); return; }
+  c.goal = target;
+  c.state = "walk";
+  c.waitT = 0; c.stuckT = 0;
+  planCitizenPath(c, true);
+}
+
+/* ---------------- the Abandoned House at night ---------------- */
+
+function isCitizenNight() {
+  const h = getGameHour();
+  return h >= CITIZEN_HOME_HOUR || h < CITIZEN_WAKE_HOUR;
+}
+
+// Every Abandoned House on the map (only finished ones — a house still
+// under construction isn't in objectLayer yet).
+function citizenShelters() {
+  const out = [];
+  for (const [key, type] of objectLayer) {
+    if (type !== CITIZEN_SHELTER_TYPE) continue;
+    const def = itemDefs[type];
+    if (!def || !def.interior || !def.interior.doorOffset) continue;
+    const [col, row] = key.split(",").map(Number);
+    const door = { type, def, col, row, span: false };
+    const spot = npcDoorApproachSpot(door); // js/npc.js — the tile in front of the door (a CENTRE y)
+    out.push({
+      col, row,
+      roomId: interiorRoomId(def.interior.roomId, col, row),
+      doorX: spot.x,
+      doorFeetY: spot.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE,
+    });
+  }
+  return out;
+}
+
+function nearestShelter(c) {
+  let best = null, bestD = Infinity;
+  for (const sh of citizenShelters()) {
+    const d = Math.hypot(sh.doorX - c.fx, sh.doorFeetY - c.fy);
+    if (d < bestD) { best = sh; bestD = d; }
+  }
+  return best;
+}
+
+// Where they appear inside: the room's own spawn (just above its exit mat).
+function shelterSpawnFeet(room) {
+  return { x: room.spawnX, y: room.spawnY + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE };
+}
+
+function citizenEnterShelter(c, shelter) {
+  const room = getOrCreateInteriorRoom(shelter.roomId);
+  if (!room) return;
+  const p = shelterSpawnFeet(room);
+  c.scene = "inside";
+  c.roomId = shelter.roomId;
+  c.shelter = shelter;
+  c.fx = p.x; c.fy = p.y;
+  c.state = "idle"; c.anim = "idle";
+  c.timer = citizenRand(0.5, 2);
+  c.path = null; c.goal = null; c.errand = null;
+}
+
+function citizenLeaveShelter(c) {
+  const sh = c.shelter && citizenShelters().find((s) => s.roomId === c.roomId);
+  c.scene = "outside";
+  c.roomId = null;
+  c.shelter = null;
+  if (sh) { c.fx = sh.doorX; c.fy = sh.doorFeetY; }
+  else { const h = citizenTileCentre(c.home.col, c.home.row); c.fx = h.x; c.fy = h.y; } // house gone overnight
+  c.state = "idle"; c.anim = "idle";
+  c.timer = citizenRand(0.5, 2);
+  c.path = null; c.goal = null; c.errand = null;
+}
+
+// Decides, each frame, whether the citizen should be heading in/out.
+function citizenScheduleTick(c) {
+  const night = isCitizenNight();
+  if (c.scene === "outside") {
+    if (!night) return;
+    if (c.errand && c.errand.kind === "enter") return; // already on the way
+    const sh = nearestShelter(c);
+    if (!sh) return; // nowhere to go — stay out
+    // Break off a stroll right away; when standing around, go once the
+    // idle timer runs out (also paces retries if the door was blocked).
+    if (c.state === "walk" || c.timer <= 0) startCitizenErrand(c, sh.doorX, sh.doorFeetY, "enter", sh);
+  } else {
+    const room = INTERIOR_ROOMS[c.roomId];
+    const houseStillThere = citizenShelters().some((s) => s.roomId === c.roomId);
+    if (!room || !houseStillThere) { citizenLeaveShelter(c); return; }
+    if (night) return;
+    if (c.errand && c.errand.kind === "exit") return;
+    if (c.state !== "walk" && c.timer > 0) return;
+    const p = shelterSpawnFeet(room);
+    startCitizenErrand(c, p.x, p.y, "exit");
+  }
 }
 
 // Someone standing just ahead (in the direction of travel)? Returns
@@ -256,14 +454,13 @@ function stepCitizenWalk(c, dt) {
     return;
   }
   const ux = dx / d, uy = dy / d;
-  const step = Math.min(d, c.speed * dt);
+  const step = Math.min(d, c.speed * (c.scene === "inside" ? CITIZEN_INDOOR_SPEED_MULT : 1) * dt);
   const nx = c.fx + ux * step, ny = c.fy + uy * step;
 
   // Something solid appeared on the way (the player just placed a tree)?
-  const blocked = citizenStaticBlocked();
+  const isSolid = citizenBlockedFn(c);
   const here = citizenTileOf(c.fx, c.fy), next = citizenTileOf(nx, ny);
-  const nextKey = next.col + "," + next.row;
-  if ((next.col !== here.col || next.row !== here.row) && blocked.has(nextKey)) {
+  if ((next.col !== here.col || next.row !== here.row) && isSolid(next.col, next.row)) {
     if (!planCitizenPath(c, false)) stopCitizenWalk(c);
     return;
   }
@@ -308,6 +505,7 @@ function updateCitizens(dt) {
   if (!citizensReady) initCitizens();
   for (const c of citizens) {
     const prevAnim = c.anim;
+    citizenScheduleTick(c);
     if (c.state === "idle") {
       c.anim = "idle";
       c.timer -= dt;
@@ -336,8 +534,9 @@ function drawCitizen(c) {
   const sx = c.frame * FRAME_SIZE;
   drawShadow(px, py - size / 2 + size * SPRITE_FEET_FRACTION, size, sheet, sx);
   // Same candle circle the player and Maria carry — night only (it's a
-  // no-op in daylight, see drawCharacterGlow(), js/camera.js).
-  drawCharacterGlow(px, py, size, c.fx, citizenCentreY(c.fy));
+  // no-op in daylight, see drawCharacterGlow(), js/camera.js). Indoors
+  // (in the Abandoned House) they have no light, per request.
+  if (c.scene === "outside") drawCharacterGlow(px, py, size, c.fx, citizenCentreY(c.fy));
   ctx.drawImage(sheet, sx, 0, FRAME_SIZE, FRAME_SIZE, px - size / 2, py - size / 2, size, size);
 }
 
@@ -348,8 +547,20 @@ function citizenDrawables() {
   if (player.scene !== "outside") return out;
   const viewW = view.width / zoom, viewH = view.height / zoom;
   for (const c of citizens) {
+    if (c.scene !== "outside") continue;
     if (c.fx < camX - DRAW_SIZE || c.fx > camX + viewW + DRAW_SIZE ||
         c.fy < camY - DRAW_SIZE || c.fy > camY + viewH + DRAW_SIZE * 2) continue; // off screen
+    out.push({ sortY: citizenSortY(c), draw: () => drawCitizen(c) });
+  }
+  return out;
+}
+
+// The citizens spending the night in the room the player is looking at
+// (renderInteriorScene(), js/camera.js), in that room's coordinates.
+function citizenIndoorDrawables(roomId) {
+  const out = [];
+  for (const c of citizens) {
+    if (c.scene !== "inside" || c.roomId !== roomId) continue;
     out.push({ sortY: citizenSortY(c), draw: () => drawCitizen(c) });
   }
   return out;
@@ -366,6 +577,7 @@ function citizenRelightList() {
   if (night <= 0.01) return out;
   const size = DRAW_SIZE * zoom;
   for (const c of citizens) {
+    if (c.scene !== "outside") continue;
     const sheet = currentCitizenSheet(c);
     if (!sheet || !sheet.width) continue;
     const px = (c.fx - camX) * zoom, py = (citizenCentreY(c.fy) - camY) * zoom;
@@ -398,9 +610,12 @@ function citizenFrameCanvas(sheet, frame) {
 
 function citizenRelightOccluders(feetY) {
   const out = [];
-  if (player.scene !== "outside") return out;
   const size = DRAW_SIZE * zoom;
   for (const c of citizens) {
+    // Only citizens in the same place as the player: outdoors, or in the
+    // room the player is standing in.
+    if (player.scene === "outside" ? c.scene !== "outside"
+      : (c.scene !== "inside" || c.roomId !== player.activeRoomId)) continue;
     if (citizenSortY(c) <= feetY) continue; // behind — nothing to cut out
     const sheet = currentCitizenSheet(c);
     if (!sheet || !sheet.width) continue;

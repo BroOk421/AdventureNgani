@@ -3710,6 +3710,33 @@ pixels can't be read on a file:// page).
      head) instead of Carry_Order_Down — that sheet is kept for a single
      dish carried without the tray.
 
+115. **Painted inventory + hotbar art, 10 hotkeys, citizens sleep in the
+     Abandoned House, darker nights.** Per request, with the user's new
+     `assets/asset/inventory.png` (961x961) and `slots.png` (1249x209).
+     - Inventory: `#inventory-panel` is the art itself (`--inv` = its
+       on-screen size). Grid, title, close X and gold are placed in
+       fractions of the art, measured off the PNG: 8 columns from x 89
+       (86.5 wide, 13.2 gap), 7 rows from y 137 (87 tall, 14 gap). More
+       rows scroll with `scroll-snap` a row at a time, so items always
+       land in the painted boxes. `INVENTORY_COLS` 9 -> 8. The painted X
+       is `#inventory-close`. CSS is the last block in style.css.
+     - Hotbar: `HOTBAR_SIZE` 7 -> 10, keys 1-9 and 0 (also numpad).
+       `hotbarKeyLabel()` gives the label; slots are positioned on
+       slots.png from `HOTBAR_SLOT_X` (the art has its own number badges).
+       Old saves with 7 hotbar entries keep slots 8/9/0 at their defaults.
+     - Citizens (citizens.js): 20:00-06:00 they walk to the nearest
+       finished `abandonHouse`, enter at its door (`npcDoorApproachSpot()`)
+       and wander slowly in that house's `abandon_room`; at 06:00 they
+       walk to the room's spawn by the mat and come back out. No candle
+       and no relight indoors. Drawn via `citizenIndoorDrawables()` in
+       `renderInteriorScene()`; indoor relight occluders include them. No
+       Abandoned House -> they stay out. Loading at night puts them
+       inside. Verified: all 4 inside ~17 s after 20:00, 0 samples on a
+       blocked tile indoors, all out ~14 s after 06:00.
+     - `NIGHT_SKY_ALPHA` (daynight.js) 0.55 -> 0.63, used by the sky
+       keyframes and the indoor full-night wash. Lamp/candle strength
+       (`POST_GLOW_MATCH_CANDLE`) left alone so lights don't dim with it.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

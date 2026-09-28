@@ -228,7 +228,7 @@ const PLAYER_GLOW_COLOR_OUTER = "rgba(255,120,30,0)";     // deep orange, faded 
 const ROOM_OWNER_LIGHT_FADE_SEC = 1.5;
 // The full-night washes, exactly as they are at 20:00 (SKY_KEYFRAMES'
 // night colour + a full-strength NIGHT_BLUE_TINT, js/daynight.js).
-const ROOM_NIGHT_SKY_COLOR = "rgba(10,15,40,0.55)";
+const ROOM_NIGHT_SKY_COLOR = "rgba(10,15,40," + NIGHT_SKY_ALPHA + ")"; // same night darkness as outdoors (js/daynight.js)
 // The two wash weights themselves are what's stored and eased — NOT
 // "home" and "awake" separately. Easing those two independently and then
 // multiplying them (home * (1 - awake)) made the dark wash bump up to
@@ -982,6 +982,7 @@ function relightOccluders(feetY, isPlayer) {
       out.push({ icon, x: ((col + 0.5) * TILE - camX) * zoom - icon.width * zoom / 2,
         y: ((row + 1) * TILE - camY) * zoom - icon.height * zoom, w: icon.width * zoom, h: icon.height * zoom, alpha: 1 });
     }
+    for (const o of citizenRelightOccluders(feetY)) out.push(o); // citizens in this room (js/citizens.js)
     return out;
   }
   const nRow = Math.floor(feetY / TILE);
@@ -2804,6 +2805,7 @@ function renderInteriorScene() {
     }
   }
   for (const d of customerDrawables()) indoorChars.push(d); // tavern customers (js/customers.js)
+  for (const d of citizenIndoorDrawables(player.activeRoomId)) indoorChars.push(d); // citizens sheltering here for the night (js/citizens.js)
   indoorChars.sort((a, b) => a.sortY - b.sortY);
   indoorChars.forEach((c) => c.draw());
   indoorOnTop.forEach((d) => d()); // things on top of furniture + ceiling, over everyone

@@ -151,8 +151,8 @@ const FOOD_DRAIN_PER_GAME_HOUR = 100 / 24; // a full 100 food lasts exactly one 
 
 // --- Inventory / hotbar / placement ---
 const INVENTORY_ROWS = 10; // bumped from 8 as items grew past 72 — see #inventory-grid's scroll in style.css, which is what actually keeps the panel itself from growing endlessly
-const INVENTORY_COLS = 9; // 10x9 = 90 slots total
-const HOTBAR_SIZE = 7; // hotbar = the first 7 slots of inventory row 0
+const INVENTORY_COLS = 8; // matches the 8-column art in assets/asset/inventory.png (7 rows visible, the rest scroll)
+const HOTBAR_SIZE = 10; // keys 1-9 and 0 — matches the 10 slots in assets/asset/slots.png
 const PLACEMENT_RANGE = 3; // tiles around the player where items can be placed (Chebyshev distance) — per request, +1 ring bigger than before
 const HARVEST_RANGE = 1; // tiles around the player where F can hit a resource (stone/tree) — see js/resources.js
 

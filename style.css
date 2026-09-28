@@ -1172,3 +1172,163 @@ html, body {
   left: 0;
   top: 0;
 }
+
+/* =====================================================================
+   Painted UI — per request, the inventory and the hotbar use the art in
+   assets/asset/ (inventory.png 961x961, slots.png 1249x209) instead of
+   the plain boxes above. Everything is positioned in fractions of the
+   art, measured off the PNGs, so it lines up at any size. These rules
+   come last and override the older ones.
+   ===================================================================== */
+
+/* ---------- hotbar: 10 slots on slots.png ---------- */
+#bottom-bar {
+  bottom: 8px;
+}
+#hotbar {
+  position: relative;
+  display: block;
+  width: min(640px, 94vw);
+  aspect-ratio: 1249 / 209;
+  background: url("assets/asset/slots.png") center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+}
+#hotbar .hotbar-slot {
+  position: absolute; /* left/top/width/height set per slot in renderHotbar() */
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  border-radius: 12%;
+  cursor: pointer;
+}
+#hotbar .hotbar-slot.selected {
+  box-shadow: inset 0 0 0 2px #f2c14e, 0 0 8px rgba(242, 193, 78, 0.55);
+}
+#hotbar .hotbar-slot.held {
+  box-shadow: inset 0 0 0 2px #4ade80, 0 0 8px rgba(74, 222, 128, 0.7);
+}
+#hotbar .hotbar-slot img {
+  max-width: 62%;
+  max-height: 62%;
+}
+#hotbar .slot-count {
+  bottom: 3%;
+  right: 8%;
+}
+/* the "holding" pill sits just above the taller painted bar */
+#held-item-hud {
+  bottom: calc(min(640px, 94vw) * 209 / 1249 + 14px);
+}
+
+/* ---------- inventory panel: inventory.png ---------- */
+#inventory-panel {
+  --inv: min(600px, 90vh, 94vw); /* on-screen size of the square art */
+  position: relative;
+  width: var(--inv);
+  height: var(--inv);
+  max-height: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: url("assets/asset/inventory.png") center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+  display: block;
+}
+/* title on the top plank */
+#inventory-title {
+  position: absolute;
+  left: calc(var(--inv) * 150 / 961);
+  width: calc(var(--inv) * 620 / 961);
+  top: calc(var(--inv) * 50 / 961);
+  height: calc(var(--inv) * 60 / 961);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f7e3b5;
+  font-weight: 700;
+  letter-spacing: 1px;
+  font-size: calc(var(--inv) * 34 / 961);
+  text-shadow: 0 2px 0 #3a200e, 0 0 3px #3a200e;
+  pointer-events: none;
+}
+/* the painted X, top-right */
+#inventory-close {
+  position: absolute;
+  left: calc(var(--inv) * 822 / 961);
+  top: calc(var(--inv) * 12 / 961);
+  width: calc(var(--inv) * 100 / 961);
+  height: calc(var(--inv) * 96 / 961);
+  padding: 0;
+  border: 0;
+  border-radius: 12%;
+  background: transparent;
+  cursor: pointer;
+}
+#inventory-close:hover {
+  background: rgba(255, 230, 170, 0.18);
+}
+/* 8 x 7 painted slot boxes: columns start at x 89 every ~99.7 px (86.5
+   wide), rows at y 137 every 101 px (87 tall). Extra rows scroll, and
+   snap a whole row at a time so items always sit in the painted boxes. */
+#inventory-grid {
+  position: absolute;
+  left: calc(var(--inv) * 89 / 961);
+  top: calc(var(--inv) * 137 / 961);
+  width: calc(var(--inv) * 812 / 961);   /* the 8 columns + room for the scrollbar over the right frame */
+  height: calc(var(--inv) * 693 / 961);  /* exactly 7 rows: 7*87 + 6*14 */
+  max-height: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(8, calc(var(--inv) * 86.5 / 961));
+  grid-auto-rows: calc(var(--inv) * 87 / 961);
+  column-gap: calc(var(--inv) * 13.2 / 961);
+  row-gap: calc(var(--inv) * 14 / 961);
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+}
+#inventory-grid .inv-slot {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  border-radius: 10%;
+  scroll-snap-align: start;
+}
+#inventory-grid .inv-slot:hover {
+  background: rgba(255, 220, 150, 0.12);
+}
+#inventory-grid .inv-slot.held {
+  box-shadow: inset 0 0 0 2px #4ade80, 0 0 6px rgba(74, 222, 128, 0.6);
+}
+#inventory-grid .inv-slot img {
+  max-width: 62%;
+  max-height: 62%;
+}
+/* gold, on the bottom plank (the coins are painted at its left end) */
+#inventory-gold {
+  position: absolute;
+  left: calc(var(--inv) * 200 / 961);
+  width: calc(var(--inv) * 660 / 961);
+  top: calc(var(--inv) * 850 / 961);
+  height: calc(var(--inv) * 60 / 961);
+  margin: 0;
+  padding: 0 calc(var(--inv) * 20 / 961);
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  color: #f7e3b5;
+  font-size: calc(var(--inv) * 28 / 961);
+  text-shadow: 0 2px 0 #3a200e;
+}
+#inventory-gold img {
+  display: none; /* the art already has the coin pile */
+}
+#inventory-gold .inventory-gold-label {
+  color: #f2c14e;
+}
+/* keep the icon clear of the painted number badge in the top-left */
+#hotbar .hotbar-slot {
+  padding: 16% 0 0 12%;
+}

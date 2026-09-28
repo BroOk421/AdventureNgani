@@ -225,6 +225,7 @@ function drawMinimap() {
   // Citizen dots (js/citizens.js)
   minimapCtx.fillStyle = "#9fd3ff";
   for (const c of citizens) {
+    if (c.scene !== "outside") continue;
     const cx = toX(c.fx), cy = toY(c.fy);
     if (cx < 0 || cx > w || cy < 0 || cy > h) continue;
     minimapCtx.beginPath();
@@ -313,7 +314,7 @@ function drawFullMapDots() {
     g.stroke();
   };
   if (npc.scene === "outside") dot(npc.x, npc.y, 4, "#e0c56c");
-  for (const c of citizens) dot(c.fx, c.fy, 3, "#9fd3ff"); // wandering citizens (js/citizens.js)
+  for (const c of citizens) if (c.scene === "outside") dot(c.fx, c.fy, 3, "#9fd3ff"); // wandering citizens (js/citizens.js)
   // Indoors, player.x/y are room coordinates — show where they went in.
   const p = player.scene === "inside" && player.outsideReturn ? player.outsideReturn : player;
   dot(p.x, p.y, 5, "#ffffff");
