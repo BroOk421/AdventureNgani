@@ -206,6 +206,9 @@ const PLAYER_GLOW_COLOR_OUTER = "rgba(255,120,30,0)";     // deep orange, faded 
 // smooth fall-off instead of the old 3-stop ramp, whose amber middle
 // ended in a visible orange ring near the edge.
 const CANDLE_OPACITY = 0.6;
+// The candle's centre as it lands in the light buffer (first gradient
+// stop's colour x its alpha) — its brightest point, used as its cap.
+const CANDLE_PEAK_RGB = [217, 170, 111];
 const CANDLE_GRADIENT_STOPS = [
   [0.00, "rgba(255,200,130,0.85)"],
   [0.25, "rgba(255,186,110,0.66)"],
@@ -359,6 +362,11 @@ const sceneLightCanvas = document.createElement("canvas");
 const sceneLightCtx = sceneLightCanvas.getContext("2d");
 const sceneLightTmp = document.createElement("canvas");
 const sceneLightTmpCtx = sceneLightTmp.getContext("2d");
+// The per-pixel CAP: for every pixel, the peak colour of the brightest
+// light that reaches it. The summed lights are clipped to this in
+// flushSceneLights() (see addSceneLight()).
+const sceneLightCapCanvas = document.createElement("canvas");
+const sceneLightCapCtx = sceneLightCapCanvas.getContext("2d");
 let sceneLightsUsed = false;
 let sceneLightMaxStrength = 0;
 
@@ -395,13 +403,22 @@ function beginSceneLights() {
   sceneLightCtx.globalCompositeOperation = "source-over";
   sceneLightCtx.fillStyle = "#000";
   sceneLightCtx.fillRect(0, 0, w, h);
+  if (sceneLightCapCanvas.width !== w || sceneLightCapCanvas.height !== h) {
+    sceneLightCapCanvas.width = w;
+    sceneLightCapCanvas.height = h;
+  }
+  sceneLightCapCtx.globalCompositeOperation = "source-over";
+  sceneLightCapCtx.fillStyle = "#000";
+  sceneLightCapCtx.fillRect(0, 0, w, h);
   sceneLightsUsed = false;
   sceneLightMaxStrength = 0;
 }
 
 // Adds one light (a transparent glow image) at a screen rect, at a
 // strength of 0..1.
-function addSceneLight(src, dx, dy, dw, dh, strength) {
+// `peakRGB` = the light's own brightest colour (its centre, already
+// multiplied by its alpha there) — defaults to a lamp's core.
+function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB) {
   if (!src || strength <= 0.005 || dw <= 0 || dh <= 0) return;
   const S = SCENE_LIGHT_SCALE;
   const x = Math.floor(dx * S), y = Math.floor(dy * S);
@@ -418,14 +435,21 @@ function addSceneLight(src, dx, dy, dw, dh, strength) {
   g.drawImage(src, dx * S - x, dy * S - y, dw * S, dh * S); // pre-multiply onto black
   g.fillStyle = "rgba(0,0,0," + (1 - Math.min(1, strength)) + ")"; // then scale by strength
   g.fillRect(0, 0, w, h);
-  // Per-pixel MAX, per request ("dapat kung anong kulay kapag mag isa
-  // ganun lang din dapat kapag nag katamaan... kahit madaanan yung
-  // postlight"): where lights overlap, each pixel is exactly as bright as
-  // the brightest single light there — two candles, or a candle under a
-  // lamp, never add up into a brighter patch. (The summed + capped
-  // version still let two candles get brighter than one.)
-  sceneLightCtx.globalCompositeOperation = "lighten";
+  // SUMMED, then capped per pixel (flushSceneLights()) — per request:
+  //  - "light to light" leaves no dark seam between two pools: a plain
+  //    per-pixel max made the spot between two lights dimmer than either
+  //    light's own middle, which read as a shadow line. Adding them fills
+  //    that valley in, so overlapping pools join into one smooth light;
+  //  - but it never gets brighter than one light alone: each light also
+  //    writes its peak colour over its rect into the cap buffer (max),
+  //    and the sum is clipped to that — two candles top out at one
+  //    candle's centre, a candle under a lamp at the lamp's.
+  sceneLightCtx.globalCompositeOperation = "lighter";
   sceneLightCtx.drawImage(sceneLightTmp, 0, 0, w, h, x, y, w, h);
+  const pk = peakRGB || SCENE_LIGHT_CAP_RGB, st = Math.min(1, strength);
+  sceneLightCapCtx.globalCompositeOperation = "lighten";
+  sceneLightCapCtx.fillStyle = "rgb(" + Math.round(pk[0] * st) + "," + Math.round(pk[1] * st) + "," + Math.round(pk[2] * st) + ")";
+  sceneLightCapCtx.fillRect(x, y, w, h);
   sceneLightsUsed = true;
   sceneLightMaxStrength = Math.max(sceneLightMaxStrength, Math.min(1, strength));
 }
@@ -433,8 +457,9 @@ function addSceneLight(src, dx, dy, dw, dh, strength) {
 // Adds the merged lights to the scene, once.
 function flushSceneLights() {
   if (!sceneLightsUsed) return;
-  // Lights are already merged by per-pixel max (addSceneLight()), so no
-  // cap is needed — nothing in the buffer is brighter than one light.
+  // Clip the summed lights to the per-pixel cap (per-channel min).
+  sceneLightCtx.globalCompositeOperation = "darken";
+  sceneLightCtx.drawImage(sceneLightCapCanvas, 0, 0);
   sceneLightCtx.globalCompositeOperation = "source-over";
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
@@ -846,7 +871,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   //    night washes, where this candle used to land before them — so it's
   //    dimmed by hand to the same strength the washes used to leave it
   //    at (POST_GLOW_MATCH_CANDLE, the lamp's own figure for exactly this).
-  addSceneLight(glowCanvas, px - d / 2, py - d / 2, d, d, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY);
+  addSceneLight(glowCanvas, px - d / 2, py - d / 2, d, d, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB);
 }
 
 // The player's own light — a thin wrapper around the shared

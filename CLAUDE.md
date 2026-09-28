@@ -3795,6 +3795,18 @@ pixels can't be read on a file:// page).
        drift down and right, tumbling through the frames; outside the
        window no new ones start and live ones finish falling.
 
+120. **No dark seam where two lights meet ("light to light").** The
+     per-pixel max from entry 117 left a valley between two pools (the
+     midpoint is dimmer than either centre), which read as a shadow line.
+     Now `addSceneLight()` SUMS lights (fills the valley) and also paints
+     that light's peak colour over its rect into `sceneLightCapCanvas`
+     ("lighten" = max); `flushSceneLights()` clips the sum to that cap
+     ("darken" = min). So overlapping pools blend into one smooth light but
+     never get brighter than the brightest single light there. Candles
+     pass `CANDLE_PEAK_RGB` (their centre, 217/170/111); lamps default to
+     `SCENE_LIGHT_CAP_RGB`. Measured: peak 112-113 alone or overlapped;
+     two candles 30px apart stay 111-113 all the way between them.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order
