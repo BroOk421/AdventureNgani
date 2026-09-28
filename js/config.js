@@ -210,17 +210,19 @@ const WEATHER_SPAWN_MARGIN = 50; // world px outside the visible camera area use
 // a side-to-side drift instead of falling straight down (see
 // spawnSnowFlake()/updateSnow(), js/weatherfx.js). Only drawn while
 // js/calendar.js's getCurrentWeather() reports "Snow".
-const SNOW_FLAKE_COUNT = 90;
-const SNOW_FRAME_W = 8,
-  SNOW_FRAME_H = 8,
-  SNOW_FRAME_COUNT = 7; // assets/particles/Snow.png
-const SNOW_WORLD_SIZE = 6;
-const SNOW_FALL_SPEED_MIN = 16,
-  SNOW_FALL_SPEED_MAX = 38; // world px/sec, straight down — much gentler than rain
-const SNOW_DRIFT_AMPLITUDE_MIN = 6,
-  SNOW_DRIFT_AMPLITUDE_MAX = 18; // world px of side-to-side sway
-const SNOW_DRIFT_SPEED_MIN = 0.5,
-  SNOW_DRIFT_SPEED_MAX = 1.4; // sway cycles/sec-ish
+// Snow — drawn by code, after the "Snow" pen (codepen.io/ivanodintsov/pen/KVgwRG).
+// Screen-space, CSS px. The pen's per-frame numbers x 60 = per second.
+const SNOW_FLAKE_COUNT = 150;          // the pen uses 150; half go behind the characters
+const SNOW_RADIUS_MIN = 0.5, SNOW_RADIUS_MAX = 3.0;
+const SNOW_SPEED_MIN = 60, SNOW_SPEED_MAX = 180;  // fall, CSS px/sec (1-3 px/frame)
+const SNOW_WIND_MIN = -30, SNOW_WIND_MAX = 90;    // sideways, CSS px/sec (the pen goes to 3 px/frame; toned down)
+const SNOW_FRONT_ALPHA = 0.95, SNOW_BACK_ALPHA = 0.7;
+// Falling leaves (assets/particles/Leaf.png) on sunny days.
+const LEAF_COUNT = 18;
+const LEAF_START_HOUR = 9, LEAF_END_HOUR = 15;
+const LEAF_FALL_MIN = 22, LEAF_FALL_MAX = 48;     // CSS px/sec
+const LEAF_WIND_MIN = 8, LEAF_WIND_MAX = 40;      // CSS px/sec, drifting right
+const LEAF_SCALE = 1;                              // x zoom — same pixel size as the world art
 
 // --- Clouds --------------------------------------------------------------
 // Drift right across the map and wrap around; each casts a soft shadow on

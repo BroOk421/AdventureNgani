@@ -3775,6 +3775,26 @@ pixels can't be read on a file:// page).
      slot's dark inside — on its bronze rim — with 16% rounded corners,
      instead of an inset square box-shadow.
 
+119. **Snow drawn by code, weather split in front of/behind characters,
+     falling leaves on sunny days, weather continuous through houses.**
+     - Snow (weatherfx.js) follows the "Snow" pen (codepen.io/ivanodintsov/
+       pen/KVgwRG): 150 white circles, radius 0.5-3 CSS px, fall 60-180
+       px/s, wind -30..90 px/s, wrap to the top. Snow.png is still loaded
+       but no longer drawn. Tunables: SNOW_* in config.js.
+     - Snow is now SCREEN-space (it was world-space, tied to camX/camY, so
+       every trip into a house re-based it on the room camera and it came
+       back out empty). Rain already was. All weather particles keep
+       updating while the player is indoors, so stepping out lands in the
+       middle of it: measured 147/150 flakes on screen right after exit.
+     - Two rows: `drawWeatherBackFX()` (called in render() right after the
+       back fog, before the depth-sorted world) draws row 1 behind
+       characters/trees; `drawWeatherOverlayFX()` draws row 0 over them.
+       Rain's back row and its splats use the same split.
+     - Leaves: `assets.leaf` = particles/Leaf.png (6 frames, 12x7).
+       Sunny + 09:00-15:00 (`LEAF_START_HOUR`/`LEAF_END_HOUR`): 18 leaves
+       drift down and right, tumbling through the frames; outside the
+       window no new ones start and live ones finish falling.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

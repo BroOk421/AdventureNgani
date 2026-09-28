@@ -203,7 +203,7 @@ function getRainStemSprite() {
   return c;
 }
 
-function drawRain() {
+function drawRain(onlyRow) {
   const W = view.width, H = view.height;
   const k = rainPxScale();
   const lengthMult = rainIntensity().length;
@@ -216,6 +216,7 @@ function drawRain() {
   ctx.imageSmoothingEnabled = true; // a smooth gradient, not pixel art
   // Back row first (half opacity, like the pen's .back-row), then front.
   for (const row of [1, 0]) {
+    if (onlyRow !== undefined && row !== onlyRow) continue;
     ctx.globalAlpha = row === 1 ? 0.5 : 1;
     for (let i = 0; i < active; i++) {
       const d = rainDrops[i];
@@ -232,6 +233,7 @@ function drawRain() {
   ctx.setLineDash([Math.max(1, 2 * k), Math.max(1, 2 * k)]);
   ctx.strokeStyle = "rgba(" + RAIN_COLOR_RGB + "," + RAIN_SPLAT_ALPHA + ")";
   for (const s of splashes) {
+    if (onlyRow !== undefined && s.row !== onlyRow) continue;
     const p = s.t / RAIN_SPLAT_SECONDS;
     const scale = p < 0.5 ? p / 0.5 : 1 + (p - 0.5); // 0 -> 1, then 1 -> 1.5
     const alpha = p < 0.5 ? 1 - p : Math.max(0, 1 - p) * 1; // 1 -> 0.5 -> 0
@@ -363,51 +365,137 @@ function drawLightning() {
 // updateWeatherFX()/drawWeatherOverlayFX() at the bottom of this file.
 const snowFlakes = [];
 
-function spawnSnowFlake(atInit) {
-  const rect = visibleWorldRect();
-  const m = WEATHER_SPAWN_MARGIN;
+/* --- Snow, drawn by code ---------------------------------------------
+   Per request, modelled on the "Snow" pen (codepen.io/ivanodintsov/pen/
+   KVgwRG) instead of the old Snow.png sprite: plain white round flakes,
+   radius 0.5-3 px, each with its own fall speed (1-3 px per frame) and
+   sideways wind (-0.5..3 px per frame), wrapping back to the top when
+   they fall out of view. Screen-space like the pen, in CSS px (scaled to
+   the canvas when drawn), so it keeps falling seamlessly while you go in
+   and out of a house — it never depended on where the camera is.
+   Two rows: a BACK row drawn behind the characters/trees and a FRONT row
+   drawn over them (drawWeatherBackFX() / drawWeatherOverlayFX()). */
+function screenCssSize() {
+  const r = view.getBoundingClientRect();
+  return { w: r.width || window.innerWidth, h: r.height || window.innerHeight };
+}
+
+function spawnSnowFlake(atInit, row) {
+  const sz = screenCssSize();
+  const back = row !== undefined ? row === 1 : Math.random() < 0.5;
   return {
-    wx: weatherRand(camX - m, camX + rect.w + m),
-    baseX: 0, // set right after spawn, once wx is known (the sway center)
-    wy: atInit ? weatherRand(camY - rect.h, camY + rect.h) : camY - m - weatherRand(0, 40),
-    fallSpeed: weatherRand(SNOW_FALL_SPEED_MIN, SNOW_FALL_SPEED_MAX),
-    driftAmp: weatherRand(SNOW_DRIFT_AMPLITUDE_MIN, SNOW_DRIFT_AMPLITUDE_MAX),
-    driftSpeed: weatherRand(SNOW_DRIFT_SPEED_MIN, SNOW_DRIFT_SPEED_MAX),
-    phase: weatherRand(0, Math.PI * 2),
-    t: 0,
-    frame: Math.floor(weatherRand(0, SNOW_FRAME_COUNT)),
+    x: Math.random() * sz.w,
+    y: atInit ? Math.random() * sz.h : -Math.random() * 20,
+    r: weatherRand(SNOW_RADIUS_MIN, SNOW_RADIUS_MAX) * (back ? 0.75 : 1),
+    speed: weatherRand(SNOW_SPEED_MIN, SNOW_SPEED_MAX) * (back ? 0.75 : 1), // CSS px / sec
+    wind: weatherRand(SNOW_WIND_MIN, SNOW_WIND_MAX) * (back ? 0.75 : 1),
+    row: back ? 1 : 0,
   };
 }
 
-function resetSnowFlake(flake, atInit) {
-  Object.assign(flake, spawnSnowFlake(atInit));
-  flake.baseX = flake.wx;
-}
-
 function updateSnow(dt) {
-  const rect = visibleWorldRect();
-  const m = WEATHER_SPAWN_MARGIN;
-
+  const sz = screenCssSize();
   for (const f of snowFlakes) {
-    f.t += dt;
-    f.wy += f.fallSpeed * dt;
-    f.wx = f.baseX + Math.sin(f.t * f.driftSpeed + f.phase) * f.driftAmp;
-
-    const outOfBounds = f.wx < camX - m || f.wx > camX + rect.w + m || f.wy > camY + rect.h + m;
-    if (outOfBounds) resetSnowFlake(f, false);
+    f.y += f.speed * dt;
+    f.x += f.wind * dt;
+    if (f.y - f.r > sz.h) { f.y = -f.r; f.x = Math.random() * sz.w; }
+    if (f.x - f.r > sz.w) f.x -= sz.w + f.r * 2;
+    else if (f.x + f.r < 0) f.x += sz.w + f.r * 2;
   }
 }
 
-function drawSnow() {
-  const size = SNOW_WORLD_SIZE * zoom;
-
+function drawSnow(row) {
+  const k = rainPxScale();
   ctx.save();
-  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = "#ffffff";
+  ctx.globalAlpha = row === 1 ? SNOW_BACK_ALPHA : SNOW_FRONT_ALPHA;
+  ctx.beginPath();
   for (const f of snowFlakes) {
-    const screenX = (f.wx - camX) * zoom;
-    const screenY = (f.wy - camY) * zoom;
-    const sx = f.frame * SNOW_FRAME_W;
-    ctx.drawImage(assets.snow, sx, 0, SNOW_FRAME_W, SNOW_FRAME_H, screenX - size / 2, screenY - size / 2, size, size);
+    if (f.row !== row) continue;
+    const x = f.x * k, y = f.y * k, r = Math.max(0.6, f.r * k);
+    ctx.moveTo(x + r, y);
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+  }
+  ctx.fill();
+  ctx.restore();
+}
+
+/* --- Falling leaves (sunny days, 09:00-15:00) ------------------------
+   Per request: Leaf.png (6 frames of 12x7, a leaf tumbling) drifting
+   across the screen on a sunny day between 9am and 3pm. Same screen-
+   space, two-row treatment as the snow. Outside the time window no new
+   leaves start, and the ones already falling finish their fall, so it
+   eases in and out instead of popping. */
+const leaves = [];
+const LEAF_FRAME_W = 12, LEAF_FRAME_H = 7, LEAF_FRAME_COUNT = 6;
+
+function isLeafTime() {
+  if (getCurrentWeather().name !== "Sunny") return false;
+  const h = getGameHour();
+  return h >= LEAF_START_HOUR && h < LEAF_END_HOUR;
+}
+
+function spawnLeaf(atInit) {
+  const sz = screenCssSize();
+  const back = Math.random() < 0.5;
+  return {
+    live: false,
+    x: Math.random() * sz.w,
+    y: atInit ? Math.random() * sz.h : -10 - Math.random() * 60,
+    vx: weatherRand(LEAF_WIND_MIN, LEAF_WIND_MAX),
+    vy: weatherRand(LEAF_FALL_MIN, LEAF_FALL_MAX),
+    swayAmp: weatherRand(10, 26),
+    swaySpeed: weatherRand(0.8, 1.8),
+    phase: Math.random() * Math.PI * 2,
+    t: 0,
+    frame: Math.floor(Math.random() * LEAF_FRAME_COUNT),
+    frameT: Math.random(),
+    fps: weatherRand(5, 9),
+    flip: Math.random() < 0.5,
+    row: back ? 1 : 0,
+  };
+}
+
+function updateLeaves(dt) {
+  const sz = screenCssSize();
+  const spawning = isLeafTime();
+  for (let i = 0; i < leaves.length; i++) {
+    const l = leaves[i];
+    if (!l.live) {
+      // Waiting off-screen: start falling (staggered) only while it's leaf time.
+      if (spawning && Math.random() < dt * 0.6) { Object.assign(l, spawnLeaf(false)); l.live = true; }
+      continue;
+    }
+    l.t += dt;
+    l.y += l.vy * dt;
+    l.x += (l.vx + Math.cos(l.t * l.swaySpeed + l.phase) * l.swayAmp) * dt;
+    l.frameT += dt * l.fps;
+    l.frame = Math.floor(l.frameT) % LEAF_FRAME_COUNT;
+    if (l.y > sz.h + 12 || l.x > sz.w + 30 || l.x < -30) l.live = false; // fell out of view
+  }
+}
+
+function drawLeaves(row) {
+  const img = assets.leaf;
+  if (!img || !img.width) return;
+  const k = rainPxScale();
+  const scale = zoom * LEAF_SCALE * (row === 1 ? 0.8 : 1); // pixel-art sized like the world around it
+  const w = LEAF_FRAME_W * scale, h = LEAF_FRAME_H * scale;
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.globalAlpha = row === 1 ? 0.8 : 1;
+  for (const l of leaves) {
+    if (!l.live || l.row !== row) continue;
+    const x = l.x * k, y = l.y * k;
+    if (l.flip) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, l.frame * LEAF_FRAME_W, 0, LEAF_FRAME_W, LEAF_FRAME_H, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    } else {
+      ctx.drawImage(img, l.frame * LEAF_FRAME_W, 0, LEAF_FRAME_W, LEAF_FRAME_H, x - w / 2, y - h / 2, w, h);
+    }
   }
   ctx.restore();
 }
@@ -872,11 +960,8 @@ function initWeatherFX() {
   // it idle (activeRainDropCount()), so switching weather never has to
   // allocate or throw away drops mid-game.
   for (let i = 0; i < RAIN_DROP_COUNT_MAX; i++) rainDrops.push(spawnRainDrop(true, i % 2));
-  for (let i = 0; i < SNOW_FLAKE_COUNT; i++) {
-    const f = spawnSnowFlake(true);
-    f.baseX = f.wx;
-    snowFlakes.push(f);
-  }
+  for (let i = 0; i < SNOW_FLAKE_COUNT; i++) snowFlakes.push(spawnSnowFlake(true, i % 2));
+  for (let i = 0; i < LEAF_COUNT; i++) leaves.push(spawnLeaf(true));
   for (let i = 0; i < CLOUD_COUNT; i++) clouds.push(spawnCloud());
   for (let i = 0; i < FOG_COUNT; i++) fogPatches.push(spawnFog());
   sunBeamSoft = buildSunBeamSprite(1.5);
@@ -895,18 +980,32 @@ function updateWeatherFX(dt) {
   const weatherName = getCurrentWeather().name;
   if (isRaining(weatherName)) updateRain(dt); // "Rainy" and "Thunderstorm" both
   if (weatherName === "Snow") updateSnow(dt);
+  updateLeaves(dt); // sunny 09:00-15:00; finishes its fall afterwards
+  // (All of these keep running whether the player is indoors or out —
+  // they're screen-space — so walking out of a house you step straight
+  // back into weather that's been going the whole time.)
   updateLightning(dt);
   updateClouds(dt);
   updateFog(dt);
 }
 
-// Rain/snow, drawn as the topmost world-space overlay (call last in
-// render()) — only one (or neither, on a Sunny or Cloudy day) actually
-// renders, picked by js/calendar.js's getCurrentWeather(). The
-// thunderstorm's lightning flash goes on last of all, over the rain.
+// Weather particles come in two rows. The BACK row is drawn before the
+// depth-sorted world (characters, trees, houses), so those stand in front
+// of it; the FRONT row goes over everything. Per request: some snow /
+// rain / leaves pass in front of the character, some behind.
+function drawWeatherBackFX() {
+  const weatherName = getCurrentWeather().name;
+  if (isRaining(weatherName)) drawRain(1);
+  else if (weatherName === "Snow") drawSnow(1);
+  drawLeaves(1);
+}
+
+// The FRONT row (called late in render()), then the thunderstorm's
+// lightning flash over everything.
 function drawWeatherOverlayFX() {
   const weatherName = getCurrentWeather().name;
-  if (isRaining(weatherName)) drawRain();
-  else if (weatherName === "Snow") drawSnow();
+  if (isRaining(weatherName)) drawRain(0);
+  else if (weatherName === "Snow") drawSnow(0);
+  drawLeaves(0);
   drawLightning();
 }

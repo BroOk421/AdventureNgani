@@ -3069,6 +3069,7 @@ function render() {
   // visibly walks through them rather than over them.
   drawCloudShadows(camX, camY);
   drawFogLayer(camX, camY, false);
+  drawWeatherBackFX(); // the BACK row of snow/rain/leaves — behind characters and trees (js/weatherfx.js)
 
   drawPlayerStandingDecor(); // the ONE decor tile (if any) the player is standing on — always fully behind them (see js/camera.js)
   renderWorldObjectsSorted(); // stones/trees/house + every OTHER decor tile + player, depth-sorted by Y (see above)

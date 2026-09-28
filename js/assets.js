@@ -197,6 +197,7 @@ const assets = {
   // --- weather FX particles (assets/particles/), see js/weatherfx.js ---
   rainOnFloor: new Image(),
   snow: new Image(),
+  leaf: new Image(), // falling leaves on sunny days (js/weatherfx.js) — 6 frames of 12x7
   clouds: new Image(),
   clouds2: new Image(),
   clouds3: new Image(),
@@ -680,7 +681,8 @@ assets.house.src = "assets/items/house/house1.png";        // file name kept; on
 // Rain.png is no longer loaded — rain is drawn by code now (js/weatherfx.js's
 // drawRain()). RainOnFloor.png below is still used for the ground splash.
 assets.rainOnFloor.src = "assets/particles/RainOnFloor.png";
-assets.snow.src = "assets/particles/Snow.png";
+assets.snow.src = "assets/particles/Snow.png"; // no longer drawn — snow is drawn by code now (js/weatherfx.js)
+assets.leaf.src = "assets/particles/Leaf.png";
 assets.clouds.src = "assets/particles/Clouds.png";
 assets.clouds2.src = "assets/particles/Clouds2.png";
 assets.clouds3.src = "assets/particles/Clouds3.png";
