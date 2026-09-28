@@ -212,6 +212,8 @@ function resolveHarvestHit(target) {
   if (!def || !def.resource) return;
 
   const hits = (resourceHits.get(key) || 0) + 1;
+  // A small shake on every chop — per request (js/plantfx.js).
+  if (typeof triggerTreeShake === "function" && typeof isShakingTree === "function" && isShakingTree(type)) triggerTreeShake(col, row);
   if (hits < def.resource.hitsToBreak) {
     resourceHits.set(key, hits);
     return;

@@ -120,6 +120,8 @@ const assets = {
   carryRunDown: new Image(),
   carryRunUp: new Image(),
   carryRunSide: new Image(),
+  carryOrderDown: new Image(), // carrying a customer's order, facing down (js/waiter.js)
+  goldCoins: new Image(),      // gold icon — the bottom gold counter, and tips left on tables (js/waiter.js)
 
   grass: new Image(),
   grassTL: new Image(),
@@ -284,7 +286,27 @@ const assets = {
   wallFurniture7: new Image(),
   cookerExtension1: new Image(),
   cookerExtension2: new Image(),
-  tableFurniture1: new Image(),
+  tableFurniture1: new Image(), // the empty Tray — see trayEmpty below (same file)
+  // The Tray and what's on it — per request (js/waiter.js trayImageFor()).
+  trayEmpty: new Image(),
+  crateOpenInterior: new Image(), // the indoor open crate — the tavern's bin (js/waiter.js)
+  trayMugs: new Image(),          // the Tray carrying cleared dishes — assets/interior/foods/order/orderlist/empty/
+  trayPlates: new Image(),
+  trayMugsPlates: new Image(),
+  trayMugsPlatesMax: new Image(),
+  traySoloBeer: new Image(),
+  traySoloSalad: new Image(),
+  traySoloMeat: new Image(),
+  trayBeer2: new Image(),
+  trayBeer3: new Image(),
+  traySalad2: new Image(),
+  traySalad3: new Image(),
+  trayMeat2: new Image(),
+  trayMeat3: new Image(),
+  trayComboAll: new Image(),
+  trayComboNoBeer: new Image(),
+  trayComboNoSalad: new Image(),
+  trayComboNoMeat: new Image(),
   tableFurniture2: new Image(),
   tableFurniture3: new Image(),
   tableFurniture4: new Image(),
@@ -491,10 +513,28 @@ assets.water2.src = "assets/items/tile/water2.png";
 assets.water3.src = "assets/items/tile/water3.png";
 
 // --- NPC shopkeeper ---
-assets.npcIdleRight.src = "assets/npc/npc_idle_right.png";
-assets.npcIdleLeft.src = "assets/npc/npc_idle_left.png";
-assets.npcWalkRight.src = "assets/npc/npc_walk_right.png";
-assets.npcWalkLeft.src = "assets/npc/npc_walk_left.png";
+// Maria's art lives in assets/npc/Citizen_A/ now, next to the other
+// citizens' folders (same idle/ + walk/ layout: <Name>.png faces right,
+// <Name>_Left.png is the per-frame flipped copy).
+assets.npcIdleRight.src = "assets/npc/Citizen_A/idle/Idle.png";
+assets.npcIdleLeft.src = "assets/npc/Citizen_A/idle/Idle_Left.png";
+assets.npcWalkRight.src = "assets/npc/Citizen_A/walk/Walk.png";
+assets.npcWalkLeft.src = "assets/npc/Citizen_A/walk/Walk_Left.png";
+
+// --- wandering citizens B-E (js/citizens.js) — same layout as Citizen_A ---
+for (const id of ["B", "C", "D", "E"]) {
+  const base = "assets/npc/Citizen_" + id + "/";
+  const set = {
+    ["citizen" + id + "IdleRight"]: base + "idle/Idle.png",
+    ["citizen" + id + "IdleLeft"]: base + "idle/Idle_Left.png",
+    ["citizen" + id + "WalkRight"]: base + "walk/Walk.png",
+    ["citizen" + id + "WalkLeft"]: base + "walk/Walk_Left.png",
+  };
+  for (const key in set) {
+    assets[key] = new Image();
+    assets[key].src = set[key];
+  }
+}
 
 assets.idleDown.src = "assets/sprites/Idle/Idle_Down-Sheet.png";
 assets.idleUp.src = "assets/sprites/Idle/Idle_Up-Sheet.png";
@@ -558,6 +598,8 @@ assets.carryWalkSide.src = "assets/sprites/Carry_Walk/Carry_Walk_Side-Sheet.png"
 assets.carryRunDown.src = "assets/sprites/Carry_Run/Carry_Run_Down-Sheet.png";
 assets.carryRunUp.src = "assets/sprites/Carry_Run/Carry_Run_Up-Sheet.png";
 assets.carryRunSide.src = "assets/sprites/Carry_Run/Carry_Run_Side-Sheet.png"; // faces RIGHT; flipped in code for LEFT
+assets.carryOrderDown.src = "assets/sprites/Carry_Order/Carry_Order_Down.png"; // 6 frames; only a down-facing sheet exists — up/side use the Carry_* sheets above
+assets.goldCoins.src = "assets/items/gold_coins.png"; // was goild_coins.png — renamed per request
 
 // item icons — used both in the inventory UI and drawn on the ground when placed.
 // These are the base GROUND tiles — moved into assets/items/tile/ (per
@@ -707,6 +749,12 @@ let onAssetsReadyCallback = null;
 
 function whenAssetsReady(callback) {
   onAssetsReadyCallback = callback;
+  // Every image can already be done by the time main.js asks — on a
+  // reload they come straight from the browser cache, and their load
+  // events can all fire before main.js has even run. markAssetDone()
+  // then found no callback yet and the game never started (black
+  // screen). Start right away in that case.
+  if (assetsLoadedCount === assetsNeededCount) callback();
 }
 
 // A file that fails to load used to leave the counter short forever, so
@@ -812,7 +860,29 @@ assets.wallFurniture6.src = "assets/interior/wall_furniture6.png";
 assets.wallFurniture7.src = "assets/interior/wall_furniture7.png";
 assets.cookerExtension1.src = "assets/interior/cooker_extension.png";
 assets.cookerExtension2.src = "assets/interior/cooker2_extension.png";
-assets.tableFurniture1.src = "assets/interior/table_furniture.png";
+assets.tableFurniture1.src = "assets/interior/tray.png"; // was table_furniture.png — renamed to tray per request
+{
+  const T = "assets/interior/foods/order/orderlist/";
+  assets.trayEmpty.src = "assets/interior/tray.png"; // the empty tray (was table_furniture.png). orderlist/orderlist.png is the same picture as combo/nogrilled-meat.png, so it isn't used.
+  assets.traySoloBeer.src = T + "solo/beer.png";
+  assets.traySoloSalad.src = T + "solo/salad.png";
+  assets.traySoloMeat.src = T + "solo/grilled-meat.png";
+  assets.trayBeer2.src = T + "drinks/beer-2.png";
+  assets.trayBeer3.src = T + "drinks/beer-3.png";
+  assets.traySalad2.src = T + "salads/salad-2.png";
+  assets.traySalad3.src = T + "salads/salad-3.png";
+  assets.trayMeat2.src = T + "grilleds/grilled-meat-2.png";
+  assets.trayMeat3.src = T + "grilleds/grilled-meat-3.png";
+  assets.trayComboAll.src = T + "combo/drink-salad-grilled.png";
+  assets.trayComboNoBeer.src = T + "combo/nobeer.png";
+  assets.trayComboNoSalad.src = T + "combo/nosalad.png";
+  assets.trayComboNoMeat.src = T + "combo/nogrilled-meat.png";
+  assets.trayMugs.src = T + "empty/empty-mug.png";
+  assets.trayPlates.src = T + "empty/empty-plate.png";
+  assets.trayMugsPlates.src = T + "empty/empty-mug-and-plate.png";
+  assets.trayMugsPlatesMax.src = T + "empty/empty-mug-and-plate-max.png";
+  assets.crateOpenInterior.src = "assets/interior/crate_open.png"; // copied from assets/items/vegetables/boxopen.png
+}
 assets.tableFurniture2.src = "assets/interior/table_furniture2.png";
 assets.tableFurniture3.src = "assets/interior/table_furniture3.png";
 assets.tableFurniture4.src = "assets/interior/table_furniture4.png";

@@ -372,6 +372,10 @@ function getOrCreateInteriorRoom(roomId) {
     // their OWN map, so an object can stand on top of one — see
     // isInteriorFloorType(). `decor` holds everything from layer 3 up.
     floorDecor: new Map(),
+    // Layer-4 things placed ON a table (the Tray on the bartender table,
+    // per request) — their own map so they can share the table's tile.
+    // See interiorTableAt().
+    tableTop: new Map(),
   });
   INTERIOR_ROOMS[roomId] = room;
   return room;
@@ -711,7 +715,11 @@ function isInteriorTileBlocked(room, col, row) {
   // footprint — tables, chairs, benches, couches, stoves, barrels —
   // not just the fixedFootprint ones. Read from one cached set of tiles
   // (interiorSolidDecorTiles(), below) since this runs for every step.
-  if (interiorSolidDecorTiles(room).has(col + "," + row)) return true;
+  //
+  // `depthBand` items (crates, mushrooms) are left out of that tile set
+  // here — isInteriorBodyBlockedAt() tests their solid middle band
+  // pixel-accurately instead, so the feet can walk 30% into them.
+  if (interiorSolidDecorTiles(room, undefined, true).has(col + "," + row)) return true;
   return false;
 }
 
@@ -748,6 +756,23 @@ function isInteriorBodyBlockedAt(room, x, y) {
   const t = interiorFeetTileAt(x, y);
   for (const col of bodyFeetCols(x)) { // js/player.js — both edges of the feet
     if (isInteriorTileBlocked(room, col, t.row)) return true;
+  }
+  const feetY = y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+  for (const map of [room.decor, room.floorDecor]) {
+    if (!map) continue;
+    for (const [key, type] of map) {
+      const def = itemDefs[type];
+      if (!def || !def.depthBand || !def.collides) continue;
+      const [c, r] = key.split(",").map(Number);
+      if (isBlockedByDepthBand(type, c, r, x, feetY)) return true;
+    }
+  }
+  // Side chairs: base tile vs the VISIBLE feet (isBlockedBySplitChairBase(), inventory.js).
+  for (const [key, type] of room.decor) {
+    const def = itemDefs[type];
+    if (!def || !def.splitDepthTopRows || !def.collides) continue;
+    const [c, r] = key.split(",").map(Number);
+    if (isBlockedBySplitChairBase(type, c, r, x, feetY)) return true;
   }
   return false;
 }
@@ -864,11 +889,15 @@ function interiorFootprintTiles(type, col, row) {
   return tiles.length ? tiles : [{ col, row }];
 }
 
-function interiorSolidDecorTiles(room, skipKey) {
+// `skipDepthBand`: leave out crates/mushrooms (`depthBand`) — movement
+// tests those against their pixel band instead (isInteriorBodyBlockedAt()).
+// Placement still wants them as whole tiles, so it's off by default.
+function interiorSolidDecorTiles(room, skipKey, skipDepthBand = false) {
   // The placement grid asks this for every tile in range, every frame —
   // reuse one result per frame unless something was added or removed.
+  const cacheField = skipDepthBand ? "solidDecorCacheNoBand" : "solidDecorCache";
   if (skipKey === undefined) {
-    const c = room.solidDecorCache, now = Date.now();
+    const c = room[cacheField], now = Date.now();
     if (c && c.size === room.decor.size && now - c.at < 100) return c.tiles;
   }
   const out = new Set();
@@ -876,10 +905,11 @@ function interiorSolidDecorTiles(room, skipKey) {
     if (key === skipKey) continue;
     const def = itemDefs[type];
     if (!def || !def.collides) continue;
+    if (skipDepthBand && (def.depthBand || def.splitDepthTopRows)) continue; // both pixel-tested in isInteriorBodyBlockedAt()
     const [c, r] = key.split(",").map(Number);
     for (const t of getObjectFootprintBlockedTiles(type, c, r)) out.add(t.col + "," + t.row);
   }
-  if (skipKey === undefined) room.solidDecorCache = { at: Date.now(), size: room.decor.size, tiles: out };
+  if (skipKey === undefined) room[cacheField] = { at: Date.now(), size: room.decor.size, tiles: out };
   return out;
 }
 
@@ -932,6 +962,39 @@ function interiorMapFor(room, type) {
   return isInteriorFloorType(type) ? room.floorDecor : room.decor;
 }
 
+// The table (an `isTable` item in room.decor) standing on this tile, or
+// null — including a multi-tile table whose anchor is another tile.
+function interiorTableAt(room, col, row) {
+  const direct = room.decor.get(tileKey(col, row));
+  if (direct) return itemDefs[direct] && itemDefs[direct].isTable ? { type: direct, col, row } : null;
+  const hit = findFootprintCoveringTile(room.decor, col, row);
+  if (hit && itemDefs[hit.type] && itemDefs[hit.type].isTable) return { type: hit.type, col: hit.anchorCol, row: hit.anchorRow };
+  return null;
+}
+
+// Room-space Y where something on top of the table at this tile is
+// centred: the table's `tableSurfaceY`, or 40% down its visible art. Off
+// any table, the middle of the tile.
+function tableTopCentreY(room, col, row) {
+  const table = interiorTableAt(room, col, row);
+  if (!table) return (row + 0.5) * TILE;
+  const tdef = itemDefs[table.type];
+  const root = tdef.artRoot || { x: 0, y: 0 };
+  const artTop = (table.row + 1) * TILE - tdef.icon.height - root.y;
+  if (typeof tdef.tableSurfaceY === "number") return artTop + tdef.tableSurfaceY;
+  const bb = getIconOpaqueBBox(table.type);
+  return artTop + bb.y0 + (bb.y1 - bb.y0) * 0.4;
+}
+
+// Can this item go on top of a table here? Layer-4 items only (the Tray,
+// the food) — per request, so the Tray sits on the bartender table.
+function canPlaceOnTableTop(room, type, col, row) {
+  if (layerNumberForType(type) !== 4) return false;
+  if (!room.tableTop) room.tableTop = new Map();
+  if (room.tableTop.has(tileKey(col, row))) return false;
+  return !!interiorTableAt(room, col, row);
+}
+
 function placeInteriorDecorAt(col, row) {
   if (!heldItem) return;
   if (player.scene !== "inside") return;
@@ -945,6 +1008,13 @@ function placeInteriorDecorAt(col, row) {
   const p = interiorFeetTileAt(player.x, player.y);
   if (Math.max(Math.abs(col - p.col), Math.abs(row - p.row)) > PLACEMENT_RANGE) return;
 
+  // On top of a table (the Tray on the bartender table).
+  if (canPlaceOnTableTop(room, heldItem.type, col, row)) {
+    room.tableTop.set(tileKey(col, row), heldItem.type);
+    commitPlacementUse(heldItem.fromSlot);
+    return;
+  }
+
   // Walls are not floor: a layer-3 item has nowhere to stand here.
   if (isInteriorPlacementBlocked(room, heldItem.type, col, row)) return;
   if (interiorFootprintCoversPlayer(heldItem.type, col, row)) return; // don't trap yourself inside a table
@@ -953,7 +1023,8 @@ function placeInteriorDecorAt(col, row) {
   // One item per tile PER LAYER, same as outdoors: a floor piece and an
   // object can share a tile; two objects (or two floor pieces) can't.
   const target = interiorMapFor(room, heldItem.type);
-  if (target.has(key)) return;
+  // A different layer-2 floor piece replaces the one there (per request).
+  if (target.has(key) && !canReplaceGroundItem(target.get(key), heldItem.type)) return;
 
   target.set(key, heldItem.type);
   commitPlacementUse(heldItem.fromSlot);
@@ -1009,6 +1080,15 @@ function tryGrabOrPlaceIndoorItemInFront() {
     // ordinary decor item is walkable, so it goes on the tile the
     // player is actually standing on.
     const isCollisionItem = !!itemDefs[type].interiorOnly;
+    // A layer-4 item facing a table goes on the table (room.tableTop).
+    const tFront = getInteriorTileInFrontOfPlayer();
+    if (!isCollisionItem && canPlaceOnTableTop(room, type, tFront.col, tFront.row)) {
+      room.tableTop.set(tileKey(tFront.col, tFront.row), type);
+      player.grabbedType = null;
+      player.mode = "normal";
+      saveGame();
+      return;
+    }
     const targetMap = isCollisionItem ? room.collisions : interiorMapFor(room, type);
     // Anything solid — the Collision Block, or furniture like a table —
     // goes on the tile in FRONT of the player; only walkable decor goes
@@ -1042,7 +1122,14 @@ function tryGrabOrPlaceIndoorItemInFront() {
 
   let foundKey = null, foundMap = null;
   if (!room.floorDecor) room.floorDecor = new Map();
-  if (room.decor.has(hereKey)) { foundKey = hereKey; foundMap = room.decor; }
+  if (!room.tableTop) room.tableTop = new Map();
+  // Whatever's on top of a table comes off before the table itself.
+  if (room.tableTop.has(frontKey)) {
+    // A Tray with food on it stays put (js/waiter.js) — serve it first.
+    if (typeof trayBlocksGrab === "function" && trayBlocksGrab(player.activeRoomId, frontKey)) return;
+    foundKey = frontKey; foundMap = room.tableTop;
+  }
+  else if (room.decor.has(hereKey)) { foundKey = hereKey; foundMap = room.decor; }
   else if (room.decor.has(frontKey)) { foundKey = frontKey; foundMap = room.decor; }
   else if (room.collisions.has(hereKey)) { foundKey = hereKey; foundMap = room.collisions; }
   else if (room.collisions.has(frontKey)) { foundKey = frontKey; foundMap = room.collisions; }

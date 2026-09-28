@@ -112,7 +112,7 @@ add("wallFurniture6", "wallFurniture6", "Wall Decor 6", "assets/interior/wall_fu
 add("wallFurniture7", "wallFurniture7", "Wall Decor 7", "assets/interior/wall_furniture7.png", True)
 add("cookerExtension1", "cookerExtension1", "Stove Extension (A)", "assets/interior/cooker_extension.png", True)
 add("cookerExtension2", "cookerExtension2", "Stove Extension (B)", "assets/interior/cooker2_extension.png", True)
-add("tableFurniture1", "tableFurniture1", "Tabletop Clutter 1", "assets/interior/table_furniture.png", True)
+add("tableFurniture1", "tableFurniture1", "Tray", "assets/interior/tray.png", True)
 add("tableFurniture2", "tableFurniture2", "Tabletop Clutter 2", "assets/interior/table_furniture2.png", True)
 add("tableFurniture3", "tableFurniture3", "Tabletop Clutter 3", "assets/interior/table_furniture3.png", True)
 add("tableFurniture4", "tableFurniture4", "Tabletop Clutter 4", "assets/interior/table_furniture4.png", True)

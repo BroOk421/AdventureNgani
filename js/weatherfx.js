@@ -113,15 +113,23 @@ function visibleWorldRect() {
 }
 
 // --- Rain -----------------------------------------------------------
-// Drawn entirely by code (see drawRain() below) rather than blitted from
-// assets/particles/Rain.png — per request. The ground splash still uses
-// its sprite (assets.rainOnFloor), untouched.
-//
-// "Rainy" and "Thunderstorm" share every bit of this; the storm just
-// runs it harder (more drops, faster fall, longer streaks) and adds
-// lightning on top — see rainIntensity() and the lightning block below.
-const rainDrops = [];
-const splashes = [];
+// Per request, modelled on the "CSS Rain Effect" pen (codepen.io/arickle/
+// pen/XKjMZY) — just the rain, not its dark background, and no pixel
+// sprites anywhere (the old RainOnFloor.png splash is gone too):
+//   - each drop is a long, very thin stem that fades from invisible at
+//     the top to soft white at the bottom (the pen's linear-gradient),
+//   - drops fall fast and straight, each with its own speed so they
+//     never move as one sheet,
+//   - where a drop lands its stem vanishes and a "splat" plays: a dotted
+//     arc (the top of an ellipse) that pops open and fades,
+//   - a second, half-opacity "back row" behind the front one for depth.
+// It's a screen-space overlay like the pen (it doesn't scroll with the
+// map). Sizes are in CSS px and scaled to the canvas, so it looks the
+// same on any screen. Thunderstorm = more drops, faster, longer
+// (rainIntensity()).
+const rainDrops = [];   // { x, y, landY, speed, row } — x/y/landY as 0..1 of the screen
+const splashes = [];    // { x, y, t, row } — screen fractions too
+let rainStemSprite = null;
 
 function isRaining(name) {
   return name === "Rainy" || name === "Thunderstorm";
@@ -136,87 +144,102 @@ function rainIntensity() {
   return { drops: 1, speed: 1, length: 1 };
 }
 
-// How many of the pooled drops are live right now. The pool is always
-// allocated at the storm-sized maximum (RAIN_DROP_COUNT_MAX) and plain
-// rain simply uses the first RAIN_DROP_COUNT of them, so switching
-// weather never has to allocate or discard anything mid-game.
+// How many of the pooled drops are live right now (the pool is sized for
+// a storm; plain rain uses the first part of it).
 function activeRainDropCount() {
   return Math.min(rainDrops.length, Math.round(RAIN_DROP_COUNT * rainIntensity().drops));
 }
 
-function spawnRainDrop(atInit) {
-  const rect = visibleWorldRect();
-  const m = WEATHER_SPAWN_MARGIN;
+// CSS px -> canvas px (the canvas can be bigger than its CSS size).
+function rainPxScale() {
+  const r = view.getBoundingClientRect();
+  return r.width ? view.width / r.width : 1;
+}
+
+function spawnRainDrop(atInit, row) {
   return {
-    wx: weatherRand(camX - m, camX + rect.w + m),
-    wy: atInit ? weatherRand(camY - rect.h, camY + rect.h) : camY - m - weatherRand(0, 40),
-    landY: camY + rect.h * weatherRand(0.4, 0.98),
-    fallSpeed: weatherRand(RAIN_FALL_SPEED_MIN, RAIN_FALL_SPEED_MAX),
-    // Per-drop streak length and opacity — the variation is what keeps a
-    // field of identical 1px lines from reading as a flat screen door.
-    len: weatherRand(RAIN_LENGTH_MIN, RAIN_LENGTH_MAX),
-    alpha: weatherRand(RAIN_ALPHA_MIN, RAIN_ALPHA_MAX),
+    x: Math.random(),
+    // The pen staggers where each drop starts so the splats don't land
+    // in one line; here each drop also lands at its own height.
+    y: atInit ? Math.random() * 1.2 - 0.2 : -Math.random() * 0.25,
+    landY: 0.35 + Math.random() * 0.62,
+    speed: RAIN_FALL_SCREENS_PER_SEC * (0.85 + Math.random() * 0.35), // screen heights per second
+    row: row !== undefined ? row : (Math.random() < 0.5 ? 0 : 1),    // 0 = front, 1 = back row
   };
 }
 
 function updateRain(dt) {
-  const rect = visibleWorldRect();
-  const m = WEATHER_SPAWN_MARGIN;
   const speedMult = rainIntensity().speed;
   const active = activeRainDropCount();
-
   for (let i = 0; i < active; i++) {
     const d = rainDrops[i];
-    d.wy += d.fallSpeed * speedMult * dt;
-
-    if (d.wy >= d.landY) {
-      splashes.push({ wx: d.wx, wy: d.landY, t: 0 });
-      Object.assign(d, spawnRainDrop(false));
-      continue;
+    d.y += d.speed * speedMult * dt;
+    if (d.y >= d.landY) {
+      splashes.push({ x: d.x, y: d.landY, t: 0, row: d.row });
+      Object.assign(d, spawnRainDrop(false, d.row));
     }
-
-    const outOfBounds = d.wx < camX - m || d.wx > camX + rect.w + m || d.wy > camY + rect.h + m;
-    if (outOfBounds) Object.assign(d, spawnRainDrop(false));
   }
-
   for (let i = splashes.length - 1; i >= 0; i--) {
     splashes[i].t += dt;
-    if (splashes[i].t >= SPLASH_LIFETIME) splashes.splice(i, 1);
+    if (splashes[i].t >= RAIN_SPLAT_SECONDS) splashes.splice(i, 1);
   }
 }
 
+// The stem, drawn once: 1 wide, a vertical fade from transparent to the
+// drop colour — the pen's `linear-gradient(to bottom, transparent,
+// rgba(255,255,255,.25))`. Scaled per drop.
+function getRainStemSprite() {
+  if (rainStemSprite) return rainStemSprite;
+  const c = document.createElement("canvas");
+  c.width = 4;
+  c.height = 128;
+  const g = c.getContext("2d");
+  const grad = g.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0, "rgba(" + RAIN_COLOR_RGB + ",0)");
+  grad.addColorStop(1, "rgba(" + RAIN_COLOR_RGB + "," + RAIN_STEM_ALPHA + ")");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 4, 128);
+  rainStemSprite = c;
+  return c;
+}
+
 function drawRain() {
+  const W = view.width, H = view.height;
+  const k = rainPxScale();
   const lengthMult = rainIntensity().length;
   const active = activeRainDropCount();
-  // 1px wide in WORLD units, so it scales with zoom exactly like every
-  // other world-space sprite instead of staying a hairline when zoomed
-  // in. fillRect (not a stroked line) keeps the edges crisp and
-  // pixel-aligned, matching the game's art rather than anti-aliasing
-  // into a smear.
-  const w = Math.max(1, RAIN_DROP_WIDTH * zoom);
+  const stem = getRainStemSprite();
+  const stemW = Math.max(1, RAIN_STEM_WIDTH * k);
+  const stemH = RAIN_STEM_LENGTH * k * lengthMult;
 
   ctx.save();
-  for (let i = 0; i < active; i++) {
-    const d = rainDrops[i];
-    const screenX = (d.wx - camX) * zoom;
-    const screenY = (d.wy - camY) * zoom;
-    ctx.globalAlpha = d.alpha;
-    ctx.fillStyle = "rgb(" + RAIN_COLOR_RGB + ")";
-    ctx.fillRect(screenX - w / 2, screenY, w, d.len * lengthMult * zoom);
+  ctx.imageSmoothingEnabled = true; // a smooth gradient, not pixel art
+  // Back row first (half opacity, like the pen's .back-row), then front.
+  for (const row of [1, 0]) {
+    ctx.globalAlpha = row === 1 ? 0.5 : 1;
+    for (let i = 0; i < active; i++) {
+      const d = rainDrops[i];
+      if (d.row !== row) continue;
+      const bottom = d.y * H;
+      if (bottom <= 0) continue;
+      ctx.drawImage(stem, d.x * W - stemW / 2, bottom - stemH, stemW, stemH);
+    }
   }
-  ctx.restore();
 
-  // Ground splashes — unchanged, still the RainOnFloor.png frames.
-  const splashSize = SPLASH_WORLD_SIZE * zoom;
-  ctx.save();
+  // Splats: the dotted top edge of an ellipse (15 x 10 CSS px in the
+  // pen) popping open from nothing, then fading out as it grows a bit more.
+  ctx.lineWidth = Math.max(1, 2 * k);
+  ctx.setLineDash([Math.max(1, 2 * k), Math.max(1, 2 * k)]);
+  ctx.strokeStyle = "rgba(" + RAIN_COLOR_RGB + "," + RAIN_SPLAT_ALPHA + ")";
   for (const s of splashes) {
-    const screenX = (s.wx - camX) * zoom;
-    const screenY = (s.wy - camY) * zoom;
-    const progress = s.t / SPLASH_LIFETIME;
-    const frame = Math.min(SPLASH_FRAME_COUNT - 1, Math.floor(progress * SPLASH_FRAME_COUNT));
-    const sx = frame * SPLASH_FRAME_W;
-    ctx.globalAlpha = 1 - progress * 0.6;
-    ctx.drawImage(assets.rainOnFloor, sx, 0, SPLASH_FRAME_W, SPLASH_FRAME_H, screenX - splashSize / 2, screenY - splashSize / 2, splashSize, splashSize);
+    const p = s.t / RAIN_SPLAT_SECONDS;
+    const scale = p < 0.5 ? p / 0.5 : 1 + (p - 0.5); // 0 -> 1, then 1 -> 1.5
+    const alpha = p < 0.5 ? 1 - p : Math.max(0, 1 - p) * 1; // 1 -> 0.5 -> 0
+    if (scale <= 0.02) continue;
+    ctx.globalAlpha = alpha * (s.row === 1 ? 0.5 : 1);
+    ctx.beginPath();
+    ctx.ellipse(s.x * W, s.y * H + 5 * k * scale, 7.5 * k * scale, 5 * k * scale, 0, Math.PI, 2 * Math.PI);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -848,7 +871,7 @@ function initWeatherFX() {
   // Pool at the STORM-sized maximum; plain rain just leaves the tail of
   // it idle (activeRainDropCount()), so switching weather never has to
   // allocate or throw away drops mid-game.
-  for (let i = 0; i < RAIN_DROP_COUNT_MAX; i++) rainDrops.push(spawnRainDrop(true));
+  for (let i = 0; i < RAIN_DROP_COUNT_MAX; i++) rainDrops.push(spawnRainDrop(true, i % 2));
   for (let i = 0; i < SNOW_FLAKE_COUNT; i++) {
     const f = spawnSnowFlake(true);
     f.baseX = f.wx;

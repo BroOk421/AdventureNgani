@@ -61,6 +61,12 @@
    Each entry is [layer number, test]. A test is a prefix string, an
    exact-name array, or a regex. */
 const ITEM_LAYER_RULES = [
+  // The Tray (id kept as tableFurniture1 so saves keep working) — layer 4,
+  // per request, so it can sit ON TOP of the bartender table (layer 3).
+  // Indoors a layer-4 item placed on a table goes into room.tableTop
+  // (js/interior.js). Listed first so no rule below catches it.
+  [4, ["tableFurniture1"]],
+
   // --- 1. dirt ---
   [1, /^dirt/],
 
@@ -433,6 +439,115 @@ function isTouchingTileDoor(doorCol, doorRow, x, feetY) {
   if (Math.floor(x / TILE) !== doorCol) return false;
   const boundaryY = (doorRow + 1) * TILE; // door tile's south edge == the tile below's north edge
   return Math.abs(feetY - boundaryY) <= DOOR_TOUCH_SLACK_PX;
+}
+
+// `depthBand: { top, bottom }` (the crates, the mushrooms) — per request
+// ("yung mga crate box dapat half crate overlap to character 30% up and
+// 30% down character overlap box ganun din sa mushrooms"): instead of a
+// whole-tile block plus a fixed "always over / always under the player"
+// layer, the character can walk a little way INTO the art from either
+// side, and which one is drawn on top depends on which side they came
+// from:
+//   - from behind (above on screen): the feet can sink `top` (30%) of
+//     the art's visible height into it, and the crate/mushroom is drawn
+//     OVER the character there;
+//   - from the front (below on screen): the feet can come `bottom` (30%)
+//     of the way up into it, and the character is drawn OVER it;
+//   - the band left in the middle (40%) is solid — that's what stops the
+//     feet, and its centre line is the Y-sort key, so the two cases can
+//     never mix (the feet can't stand inside the band).
+// Measured off the art's real opaque pixels, not its PNG canvas, so
+// empty padding (Mushroom (B)'s blank bottom rows, say) isn't counted.
+// Everything here is world px, same bottom-centre anchor the art is
+// drawn with (drawGroundItemAt()/objectArtRect(), camera.js).
+const ICON_OPAQUE_BBOX_CACHE = new Map(); // type -> { x0, y0, x1, y1 } in icon px
+
+function getIconOpaqueBBox(type) {
+  const cached = ICON_OPAQUE_BBOX_CACHE.get(type);
+  if (cached) return cached;
+  const icon = itemDefs[type].icon;
+  const full = { x0: 0, y0: 0, x1: icon.width, y1: icon.height };
+  if (!icon.width || !icon.height) return full; // not loaded yet — don't cache
+  let box = full;
+  try {
+    const c = document.createElement("canvas");
+    c.width = icon.width;
+    c.height = icon.height;
+    const cx = c.getContext("2d");
+    cx.drawImage(icon, 0, 0);
+    const data = cx.getImageData(0, 0, icon.width, icon.height).data;
+    let x0 = icon.width, y0 = icon.height, x1 = 0, y1 = 0;
+    for (let y = 0; y < icon.height; y++) {
+      for (let x = 0; x < icon.width; x++) {
+        if (data[(y * icon.width + x) * 4 + 3] === 0) continue;
+        if (x < x0) x0 = x;
+        if (y < y0) y0 = y;
+        if (x + 1 > x1) x1 = x + 1;
+        if (y + 1 > y1) y1 = y + 1;
+      }
+    }
+    if (x1 > x0 && y1 > y0) box = { x0, y0, x1, y1 };
+  } catch (e) {
+    // Tainted canvas (file://) — fall back to the whole icon.
+  }
+  ICON_OPAQUE_BBOX_CACHE.set(type, box);
+  return box;
+}
+
+function getDepthBandRect(type, col, row) {
+  const def = itemDefs[type];
+  const band = def.depthBand;
+  const icon = def.icon;
+  const root = def.artRoot || { x: 0, y: 0 };
+  const artLeft = (col + 0.5) * TILE - icon.width / 2 - root.x;
+  const artTop = (row + 1) * TILE - icon.height - root.y;
+  const bb = getIconOpaqueBBox(type);
+  const top = artTop + bb.y0;
+  const bottom = artTop + bb.y1;
+  const h = bottom - top;
+  const minY = top + (band.top || 0) * h;
+  const maxY = Math.max(minY + 1, bottom - (band.bottom || 0) * h); // at least 1px solid, whatever the fractions
+  return {
+    minX: artLeft + bb.x0,
+    maxX: artLeft + bb.x1,
+    minY,
+    maxY,
+    sortY: (minY + maxY) / 2,
+  };
+}
+
+// Y-sort key for anything placed in the world: the band's centre line
+// for a `depthBand` item, the placement tile's bottom edge otherwise.
+function itemSortY(type, col, row) {
+  return itemDefs[type].depthBand ? getDepthBandRect(type, col, row).sortY : (row + 1) * TILE;
+}
+
+// Same feet-as-a-12px-segment test isBlockedByHouseWalls() uses.
+function isBlockedByDepthBand(type, col, row, x, feetY) {
+  const r = getDepthBandRect(type, col, row);
+  if (feetY < r.minY || feetY >= r.maxY) return false;
+  if (x + BODY_COLLISION_HALF_W <= r.minX || x - BODY_COLLISION_HALF_W >= r.maxX) return false;
+  return true;
+}
+
+// Side chairs (`splitDepthTopRows` — chairRight / chairLeft): the base
+// tile (seat + legs, the placement tile) is solid across EXACTLY its
+// 16x16, measured against the character's VISIBLE feet. The collision
+// feet point (SPRITE_FEET_FRACTION) sits ~6 world px above where the
+// sprite's feet are actually drawn (y 48 of the 64px frame), so with the
+// backrest tile now walkable a plain tile test let the drawn feet sink
+// ~6px onto the seat from behind — per request, "naaapakan na niya".
+// Here the visible feet stop flush on the tile's top edge from behind,
+// on its bottom edge from the front, and the 12px body stops on its
+// left/right edges from the side.
+const VISIBLE_FEET_BELOW_COLLISION = (48 / FRAME_SIZE - SPRITE_FEET_FRACTION) * DRAW_SIZE;
+function isBlockedBySplitChairBase(type, col, row, x, feetY) {
+  const minX = col * TILE, maxX = (col + 1) * TILE;
+  const minY = row * TILE, maxY = (row + 1) * TILE; // the placement (base) tile only — the top tile(s) are walkable
+  const fy = feetY + VISIBLE_FEET_BELOW_COLLISION;
+  if (fy <= minY || fy >= maxY) return false;
+  if (x + BODY_COLLISION_HALF_W <= minX || x - BODY_COLLISION_HALF_W >= maxX) return false;
+  return true;
 }
 
 // (The old sub-pixel "touching" check for a standalone span-door was
@@ -1475,6 +1590,10 @@ const itemDefs = {
     unlimited: true,
     noOcclusionFade: true,
     castsLightShadow: true,
+    // No collision — per request ("nagkaroon ng collissions yung mushroom
+    // alisin"). depthBand here only sets the Y-sort line, so the mushroom
+    // still draws over/under the character like the crates do.
+    depthBand: CRATE_DEPTH_BAND,
   },
   bushMushroom2: {
     id: "bushMushroom2",
@@ -1482,8 +1601,11 @@ const itemDefs = {
     icon: assets.bushMushroom2,
     unlimited: true,
     noOcclusionFade: true,
-    alwaysBehindPlayer: true,
+    // `alwaysBehindPlayer` removed — it now overlaps both ways like the
+    // crates do (depthBand), instead of always drawing under the player.
     castsLightShadow: true,
+    // No collision — per request. depthBand only sets the Y-sort line.
+    depthBand: CRATE_DEPTH_BAND,
   },
   leavesFloor: {
     id: "leavesFloor",
@@ -1819,11 +1941,17 @@ const itemDefs = {
     unlimited: true,
     flat: true,
   },
+  // The Tray — per request, renamed from "Tabletop Clutter 1"
+  // (table_furniture.png). Put it on the bartender table, fill it from the
+  // stoves, carry it to the customers (js/waiter.js). What's drawn
+  // depends on what's on it (assets/interior/foods/order/orderlist/);
+  // empty = assets/interior/tray.png (was table_furniture.png), also its icon.
   tableFurniture1: {
-    id: "tableFurniture1",
+    id: "tableFurniture1", // id kept so existing saves still load it
     noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
-    name: "Tabletop Clutter 1",
-    icon: assets.tableFurniture1,
+    name: "Tray",
+    isTray: true,
+    icon: assets.trayEmpty,
     unlimited: true,
     flat: true,
   },
@@ -1939,6 +2067,13 @@ const itemDefs = {
     unlimited: true,
     collides: true,
     multiTileFootprint: true,
+    // 2 tiles tall. Per request: walang collision ang TOP tile (backrest)
+    // — walkable na — and the two tiles depth-sort separately
+    // (`splitDepthTopRows`, js/camera.js): standing on the top tile,
+    // that tile is drawn OVER the character; the bottom tile (seat +
+    // legs) is always drawn UNDER the character.
+    footprintExcludeBackRows: 1,
+    splitDepthTopRows: 1,
     noOcclusionFade: true,
     sittable: { seats: [{ col: 0, row: 0, facing: "right" }] },
   },
@@ -1952,6 +2087,13 @@ const itemDefs = {
     unlimited: true,
     collides: true,
     multiTileFootprint: true,
+    // 2 tiles tall. Per request: walang collision ang TOP tile (backrest)
+    // — walkable na — and the two tiles depth-sort separately
+    // (`splitDepthTopRows`, js/camera.js): standing on the top tile,
+    // that tile is drawn OVER the character; the bottom tile (seat +
+    // legs) is always drawn UNDER the character.
+    footprintExcludeBackRows: 1,
+    splitDepthTopRows: 1,
     noOcclusionFade: true,
     sittable: { seats: [{ col: 0, row: 0, facing: "left" }] },
   },
@@ -2118,7 +2260,8 @@ const itemDefs = {
     unlimited: true,
     collides: true,
     multiTileFootprint: true,
-    footprintHeightTiles: 1, // the art is only ~1 tile tall now (19px) — the empty space above it stays walkable
+    footprintHeightTiles: 1, // the art is ~21px tall now (re-sliced from the resized bartender-table.png) — the empty space above it stays walkable
+    tableSurfaceY: 19, // art px (from its top) where things sitting on it are centred — the Tray (room.tableTop, js/interior.js)
     isTable: true, // customers can eat at a seat facing the counter too (js/customers.js)
   },
   // Bartender table — the middle — repeat it to make the counter as long as you want. One tile wide and one tall (solid),
@@ -2131,7 +2274,8 @@ const itemDefs = {
     unlimited: true,
     collides: true,
     multiTileFootprint: true,
-    footprintHeightTiles: 1, // the art is only ~1 tile tall now (19px) — the empty space above it stays walkable
+    footprintHeightTiles: 1, // the art is ~21px tall now (re-sliced from the resized bartender-table.png) — the empty space above it stays walkable
+    tableSurfaceY: 19, // art px (from its top) where things sitting on it are centred — the Tray (room.tableTop, js/interior.js)
     isTable: true, // customers can eat at a seat facing the counter too (js/customers.js)
   },
   // Bartender table — the right end. One tile wide and one tall (solid),
@@ -2144,7 +2288,8 @@ const itemDefs = {
     unlimited: true,
     collides: true,
     multiTileFootprint: true,
-    footprintHeightTiles: 1, // the art is only ~1 tile tall now (19px) — the empty space above it stays walkable
+    footprintHeightTiles: 1, // the art is ~21px tall now (re-sliced from the resized bartender-table.png) — the empty space above it stays walkable
+    tableSurfaceY: 19, // art px (from its top) where things sitting on it are centred — the Tray (room.tableTop, js/interior.js)
     isTable: true, // customers can eat at a seat facing the counter too (js/customers.js)
   },
   cookerStove1: {
@@ -2216,6 +2361,7 @@ const itemDefs = {
   },
   crateInterior: {
     id: "crateInterior",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Wooden Crate",
     icon: assets.crateInterior,
     unlimited: true,
@@ -2574,6 +2720,7 @@ const itemDefs = {
   },
   vegOnionBox: {
     id: "vegOnionBox",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Onion Crate",
     icon: assets.vegOnionBox,
     unlimited: true,
@@ -2589,6 +2736,7 @@ const itemDefs = {
   },
   vegPetchayBox: {
     id: "vegPetchayBox",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Petchay Crate",
     icon: assets.vegPetchayBox,
     unlimited: true,
@@ -2604,6 +2752,7 @@ const itemDefs = {
   },
   vegCabbageBox: {
     id: "vegCabbageBox",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Cabbage Crate",
     icon: assets.vegCabbageBox,
     unlimited: true,
@@ -2619,6 +2768,7 @@ const itemDefs = {
   },
   vegBrocolliBox: {
     id: "vegBrocolliBox",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Broccoli Crate",
     icon: assets.vegBrocolliBox,
     unlimited: true,
@@ -2634,6 +2784,7 @@ const itemDefs = {
   },
   vegBrocolliFlowerBox: {
     id: "vegBrocolliFlowerBox",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Broccoli Flower Crate",
     icon: assets.vegBrocolliFlowerBox,
     unlimited: true,
@@ -2649,6 +2800,7 @@ const itemDefs = {
   },
   vegCarrotBox: {
     id: "vegCarrotBox",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Carrot Crate",
     icon: assets.vegCarrotBox,
     unlimited: true,
@@ -2664,6 +2816,7 @@ const itemDefs = {
   },
   vegDragonfruitBox: {
     id: "vegDragonfruitBox",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Dragonfruit Crate",
     icon: assets.vegDragonfruitBox,
     unlimited: true,
@@ -2672,6 +2825,7 @@ const itemDefs = {
   },
   vegCrate: {
     id: "vegCrate",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Crate (Closed)",
     icon: assets.vegCrate,
     unlimited: true,
@@ -2680,6 +2834,7 @@ const itemDefs = {
   },
   vegCrateOpen: {
     id: "vegCrateOpen",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Crate (Open)",
     icon: assets.vegCrateOpen,
     unlimited: true,
@@ -2724,6 +2879,7 @@ const itemDefs = {
   },
   waterCrateHorizontal: {
     id: "waterCrateHorizontal",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Water Crate (Horizontal)",
     icon: assets.waterCrateHorizontal,
     unlimited: true,
@@ -2732,6 +2888,7 @@ const itemDefs = {
   },
   waterCrateVertical: {
     id: "waterCrateVertical",
+    depthBand: CRATE_DEPTH_BAND, // 30% walk-behind / 30% walk-in-front — see getDepthBandRect()
     name: "Water Crate (Vertical)",
     icon: assets.waterCrateVertical,
     unlimited: true,
@@ -3181,6 +3338,22 @@ const itemDefs = {
     unlimited: true,
     flat: true,
   },
+  // The open crate, indoor version — per request, a separate item from
+  // the outdoor "Crate (Open)" (vegCrateOpen), with its own copy of the
+  // art (assets/interior/crate_open.png) so each can be changed on its
+  // own. In the tavern it's the bin: carry the Tray to it and click it to
+  // tip everything off (js/waiter.js). Added LAST so no existing
+  // inventory slot / hotbar index shifts.
+  crateOpenInterior: {
+    id: "crateOpenInterior",
+    depthBand: CRATE_DEPTH_BAND, // same walk-behind / walk-in-front overlap as the other crates
+    name: "Crate (Open, Indoor)",
+    icon: assets.crateOpenInterior,
+    unlimited: true,
+    collides: true,
+    multiTileFootprint: true,
+    isTrash: true,
+  },
 };
 
 /* ---------------- tile groups (consolidated inventory slots) ----------------
@@ -3401,6 +3574,9 @@ const ALL_LAYERS = [
 // Top-to-bottom — for "what did I just click / what's the topmost thing
 // here", where the thing drawn last should answer first.
 const ALL_LAYERS_TOP_FIRST = ALL_LAYERS.slice().reverse();
+// The layers a `depthBand` item (crates, mushrooms) can be in — see
+// getDepthBandRect(). Collision and the Y-sort both sweep only these.
+const DEPTH_BAND_LAYERS = [groundLayer, groundOverlayLayer, objectLayer, upperLayer]; // groundLayer: the Water Crates (their name matches the /^water/ ground rule)
 
 // "col,row" (the anchor tile, same key objectLayer would eventually use)
 // -> { type, col, row, startAt, finishAt } — a multiTileFootprint item
@@ -3627,6 +3803,17 @@ function updateConstructions() {
   });
 }
 
+// Layer 2 (the ground: grass, water, the port tiles) — per request, a
+// tile that already has one can take a DIFFERENT layer-2 piece, which
+// replaces it, instead of refusing. Objects that happen to live on
+// layer 2 (the Water Crates, `depthBand`) aren't painted over.
+function canReplaceGroundItem(existingType, newType) {
+  if (existingType === newType) return false;
+  if (layerNumberForType(existingType) !== 2 || layerNumberForType(newType) !== 2) return false;
+  if (itemDefs[existingType].depthBand || itemDefs[newType].depthBand) return false;
+  return true;
+}
+
 function placeHeldItemAt(col, row) {
   if (!heldItem) return;
 
@@ -3695,7 +3882,7 @@ function placeHeldItemAt(col, row) {
   // there) was never touched either way — placing a tree doesn't
   // disturb the ground tile under it, and vice versa, since they live
   // in separate maps.
-  if (existingId !== null) return;
+  if (existingId !== null && !canReplaceGroundItem(existingId, heldItem.type)) return;
 
   // `multiTileFootprint` + `buildSeconds` (the house skins) — per
   // request ("dapat mag countdown 10 sec... tyaka lang matatayo yung
@@ -3961,6 +4148,15 @@ function tryGrabOrPlaceInFront() {
       const hit = findGrabbableHere(candidate, here);
       if (hit) { found = hit; layer = candidate; break; }
     }
+  }
+  // Nothing else here — the layer 2 grass fill underfoot (js/world.js)
+  // comes up as a real Ground (Inner) tile, same as a placed one would.
+  if (!found && typeof isGroundFilled === "function" && isGroundFilled(here.col, here.row)) {
+    setGroundFill(here.col, here.row, false);
+    player.grabbedType = GROUND_FILL_TYPE;
+    player.mode = "carrying";
+    saveGame();
+    return;
   }
   if (!found) return; // nothing grabbable, on either tile, on any layer
 

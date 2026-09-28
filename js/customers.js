@@ -196,8 +196,11 @@ function findTableSeats(room) {
 
 function freeSeatFor(room) {
   const taken = new Set(customers.filter((c) => c.seat).map((c) => c.seat.key));
+  const tv = customerTavern();
   const seats = findTableSeats(room).filter((s) => !taken.has(s.key) &&
-    !(player.sitting && player.scene === "inside" && player.sitAnchorCol === s.anchorCol && player.sitAnchorRow === s.anchorRow));
+    !(player.sitting && player.scene === "inside" && player.sitAnchorCol === s.anchorCol && player.sitAnchorRow === s.anchorRow) &&
+    // Dirty dishes still on that table (js/waiter.js) — sit somewhere else.
+    !(tv && typeof tableHasLeftovers === "function" && tableHasLeftovers(tv.roomId, s.tableCol, s.tableRow)));
   if (!seats.length) return null;
   return seats[Math.floor(Math.random() * seats.length)];
 }
@@ -378,6 +381,9 @@ function updateCustomer(c, dt, t) {
       if (!open) { headForExit(c, t); break; }
       const someoneOrdering = customers.some((o) => o.state === "ordering");
       if (someoneOrdering) break;
+      // Per request: nobody orders until Maria's actually at the counter
+      // — they just wait in line (js/waiter.js isMariaAtCounter()).
+      if (typeof isMariaAtCounter === "function" && t && !isMariaAtCounter(t.roomId)) break;
       const next = customers
         .filter((o) => o.state === "queued")
         .reduce((a, b) => (a.ticket < b.ticket ? a : b));
@@ -390,9 +396,16 @@ function updateCustomer(c, dt, t) {
 
     case "ordering":
       c.anim = "idle";
-      c.timer -= dt;
       if (!open) { headForExit(c, t); break; }
-      if (c.timer <= 0) { c.state = "waitSeat"; c.timer = CUSTOMER_WAIT_SEAT_SECONDS; }
+      // Maria stepped away mid-order — they wait for her to come back.
+      if (typeof isMariaAtCounter === "function" && t && !isMariaAtCounter(t.roomId)) break;
+      c.timer -= dt;
+      if (c.timer <= 0) {
+        c.state = "waitSeat";
+        c.timer = CUSTOMER_WAIT_SEAT_SECONDS;
+        // Per request, they pay Maria at the counter — no gold on tables.
+        if (typeof showMariaPaid === "function" && player.scene === "inside" && t && player.activeRoomId === t.roomId) showMariaPaid();
+      }
       break;
 
     case "waitSeat": {
@@ -414,12 +427,37 @@ function updateCustomer(c, dt, t) {
 
     case "toSeat":
       if (walkCustomer(c, dt)) {
-        c.state = "eating";
         c.anim = "sit";
         c.frame = 0;
         c.facing = c.seat.facing;
-        c.eatDur = rand(CUSTOMER_EAT_MIN, CUSTOMER_EAT_MAX);
-        c.eatT = 0;
+        c.servedByWaiter = false;
+        // The player is Maria's waiter and on shift (js/waiter.js): wait
+        // at the table for them to bring the food. Otherwise Maria
+        // serves, and the food is simply there.
+        if (typeof isWaiterOnDuty === "function" && isWaiterOnDuty()) {
+          c.state = "waitFood";
+          c.timer = WAITER_FOOD_PATIENCE;
+        } else {
+          startEating(c);
+        }
+      }
+      break;
+
+    case "waitFood":
+      c.anim = "sit";
+      if (!open) { c.anim = "idle"; c.frame = 0; c.seat = null; headForExit(c, t); break; }
+      // The waiter left (walked out, clocked off) — Maria takes over.
+      if (typeof isWaiterOnDuty === "function" && !isWaiterOnDuty()) { startEating(c); break; }
+      c.timer -= dt;
+      if (c.timer <= 0) {
+        c.anim = "idle";
+        c.frame = 0;
+        c.seat = null;
+        headForExit(c, t);
+        if (typeof noteCustomerWalkout === "function") noteCustomerWalkout(); // performance goes down (js/waiter.js)
+        if (player.scene === "inside" && t && player.activeRoomId === t.roomId) {
+          showToast("A customer got tired of waiting and left.");
+        }
       }
       break;
 
@@ -430,6 +468,12 @@ function updateCustomer(c, dt, t) {
         // Stand up FIRST: the seat is cleared here, and the drawing code
         // must never see "sitting" without a seat (that was the crash —
         // anim stayed "sit" for one frame after the seat was gone).
+        // Served by the player (js/waiter.js)? The empty plate / mug stays
+        // on the table for them to clear.
+        if (c.servedByWaiter && c.seat && t && typeof leaveTableLeftover === "function") {
+          leaveTableLeftover(t.roomId, c.seat.tableCol, c.seat.tableRow, c.order.type);
+        }
+        c.servedByWaiter = false;
         c.anim = "idle";
         c.frame = 0;
         c.seat = null; // stands up from the seat tile and walks out from there
@@ -445,6 +489,21 @@ function updateCustomer(c, dt, t) {
       if (walkCustomer(c, dt)) sendAway(c);
       break;
   }
+}
+
+function startEating(c) {
+  c.state = "eating";
+  c.anim = "sit";
+  c.eatDur = rand(CUSTOMER_EAT_MIN, CUSTOMER_EAT_MAX);
+  c.eatT = 0;
+}
+
+// The player handed over the right order (js/waiter.js).
+function serveCustomer(c) {
+  if (c.state !== "waitFood") return;
+  startEating(c);
+  c.servedByWaiter = true;
+  if (typeof noteOrderServed === "function") noteOrderServed(); // performance (js/waiter.js)
 }
 
 /* ---------------- the day's plan ---------------- */
@@ -589,7 +648,7 @@ function customerSittingAt(roomId, col, row) {
   const t = customerTavern();
   if (!t || t.roomId !== roomId) return null;
   for (const c of customers) {
-    if (c.state === "eating" && c.seat && c.seat.anchorCol === col && c.seat.anchorRow === row) return c;
+    if ((c.state === "eating" || c.state === "waitFood") && c.seat && c.seat.anchorCol === col && c.seat.anchorRow === row) return c;
   }
   return null;
 }
@@ -671,6 +730,20 @@ function drawCustomerFoodAndBubbles() {
       ctx.globalAlpha = Math.min(1, pop, c.timer / 0.3);
       ctx.drawImage(b, px - bw / 2, headY - bh - 2, bw, bh);
       ctx.restore();
+    }
+    // Seated and waiting for the waiter (js/waiter.js): the same bubble
+    // stays up, bobbing gently, so you can see who wants what. It blinks
+    // for the last 10 seconds of their patience.
+    if (c.state === "waitFood" && c.seat && c.order && c.order.bubble.width) {
+      if (c.timer < 10 && Math.floor(c.timer * 3) % 2 === 0) continue;
+      const b = c.order.bubble;
+      const bw = b.width * zoom * CUSTOMER_BUBBLE_SCALE;
+      const bh = b.height * zoom * CUSTOMER_BUBBLE_SCALE;
+      const x = c.fx + (c.facing === "left" ? -c.seat.poseX : c.seat.poseX);
+      const px = (x - camX) * zoom;
+      const py = (feetToCentreY(c.fy + c.seat.poseY) - camY) * zoom;
+      const headY = py - size / 2 + size * SPRITE_HEAD_FRACTION + Math.sin(performance.now() / 300) * zoom;
+      ctx.drawImage(b, px - bw / 2, headY - bh - 2, bw, bh);
     }
   }
 }

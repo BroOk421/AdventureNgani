@@ -36,6 +36,8 @@ const player = {
   activeInteriorType: null, // itemDefs type (e.g. "tavern") of the interior currently inside, or null while outside
   activeRoomId: null, // INTERIOR_ROOMS key (e.g. "tavern_room@40,22") the above type's `interior.roomId` resolved to — what rendering/collision actually look the room up by
   outsideReturn: null, // { x, y } saved the moment they entered — restored on exit so they come back exactly where they left off
+  carryTray: null, // { roomId, key } — the Tray being carried (js/waiter.js). Not saved: it's back on the counter after a reload.
+  carryOrder: null, // null | "foodBeer" | "foodSalad" | "meatItem" — a customer's order picked up from a tavern stove (js/waiter.js). Not saved.
   gold: 100, // currency, spent at the NPC shop (js/npc.js) — starts with a small amount so there's something to shop with right away
   frame: 0,
   frameTimer: 0,
@@ -131,7 +133,7 @@ function isTileBlocked(col, row, skipWallColliders = false) {
   for (const layer of layers) {
     for (const [key, type] of layer) {
       if (!itemDefs[type].collides) continue;
-      if (skipWallColliders && itemDefs[type].wallColliderPx) continue;
+      if (skipWallColliders && (itemDefs[type].wallColliderPx || itemDefs[type].depthBand || itemDefs[type].splitDepthTopRows)) continue; // pixel-tested in isBodyBlockedAt()
       const [placedCol, placedRow] = key.split(",").map(Number);
       const blockedTiles = getObjectFootprintBlockedTiles(type, placedCol, placedRow);
       for (let i = 0; i < blockedTiles.length; i++) {
@@ -170,6 +172,25 @@ function isBodyBlockedAt(x, y) {
     if (!itemDefs[type].wallColliderPx) continue;
     const [placedCol, placedRow] = key.split(",").map(Number);
     if (isBlockedByHouseWalls(type, placedCol, placedRow, x, feetY)) return true;
+  }
+  // `depthBand` items (crates, mushrooms — js/inventory.js): only their
+  // middle band is solid, so the feet can walk 30% into the art from
+  // behind or from the front. Crates live on layer 4 and mushrooms on the
+  // overlay layer, so both of those are swept here, plus layer 3.
+  for (const layer of DEPTH_BAND_LAYERS) {
+    for (const [key, type] of layer) {
+      const def = itemDefs[type];
+      if (!def.depthBand || !def.collides) continue;
+      const [placedCol, placedRow] = key.split(",").map(Number);
+      if (isBlockedByDepthBand(type, placedCol, placedRow, x, feetY)) return true;
+    }
+  }
+  // Side chairs: base tile vs the VISIBLE feet (isBlockedBySplitChairBase(), inventory.js).
+  for (const [key, type] of objectLayer) {
+    const def = itemDefs[type];
+    if (!def.splitDepthTopRows || !def.collides) continue;
+    const [placedCol, placedRow] = key.split(",").map(Number);
+    if (isBlockedBySplitChairBase(type, placedCol, placedRow, x, feetY)) return true;
   }
   return false;
 }

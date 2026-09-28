@@ -88,10 +88,11 @@ assets/flowers/       (flower1.png, flower2.png — their own folder,
                         see "Wild grass" below)
 assets/wildgrass/     (8 files — Wild Grass 1-8, its own layer + sway
                         effect, see "Wild grass" below)
-assets/npc/           (4 files — npc_idle_right.png/npc_walk_right.png
-                        as uploaded, npc_idle_left.png/npc_walk_left.png
-                        each a per-frame-flipped copy; see "NPC shop"
-                        below)
+assets/npc/           one folder per character, each with idle/ and walk/:
+                        <Name>.png faces right (as uploaded), <Name>_Left.png
+                        is its per-frame-flipped copy
+  Citizen_A/            Maria the shopkeeper (was npc_idle_*/npc_walk_*.png)
+  Citizen_B..E/         the wandering townsfolk (js/citizens.js)
 ```
 
 `index.html` loads the `js/` files in that exact order because each one

@@ -61,8 +61,7 @@ html, body {
   pointer-events: none;
 }
 
-#clock-hud,
-#gold-hud {
+#clock-hud {
   color: #f3e9dc;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -209,14 +208,52 @@ html, body {
 
 /* ---------------- hotbar (always visible, bottom of screen) ---------------- */
 
-#hotbar {
+/* #bottom-bar holds the hotbar + the gold counter beside it; it took over
+   the fixed bottom-centre spot the hotbar used to have on its own. */
+#bottom-bar {
   position: fixed;
   left: 50%;
   bottom: 16px;
   transform: translateX(-50%);
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
   z-index: 10;
+}
+
+#hotbar {
+  display: flex;
+  gap: 6px;
+}
+
+/* Gold — per request, inside the inventory panel, a full-width bar under
+   the grid (it used to sit beside the hotbar). */
+#inventory-gold {
+  margin-top: 10px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 12px 6px 8px;
+  background: rgba(20, 15, 10, 0.65);
+  border: 2px solid rgba(224, 197, 108, 0.55);
+  border-radius: 6px;
+  color: #f3e0a0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#inventory-gold img {
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+}
+#inventory-gold .inventory-gold-label {
+  flex: 1;
+  color: #e0c56c;
 }
 
 .hotbar-slot {
@@ -924,6 +961,175 @@ html, body {
 .npc-talk-option:hover {
   background: rgba(212, 175, 55, 0.18);
   border-color: rgba(212, 175, 55, 0.6);
+}
+
+/* ---------------- waiter contract (js/waiter.js) ---------------- */
+#waiter-contract-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+#waiter-contract-overlay.hidden {
+  display: none;
+}
+#waiter-contract-panel {
+  background: rgba(25, 18, 12, 0.97);
+  border: 2px solid rgba(224, 197, 108, 0.6);
+  border-radius: 10px;
+  padding: 16px 18px;
+  width: min(460px, 92vw);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #f3e9dc;
+  font-size: 13px;
+  line-height: 1.45;
+}
+#waiter-contract-title {
+  color: #e0c56c;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+.waiter-contract-label {
+  color: #e0c56c;
+  font-weight: 600;
+}
+.waiter-contract-section ul {
+  margin: 4px 0 12px;
+  padding-left: 18px;
+}
+.waiter-contract-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 12px;
+  margin-bottom: 14px;
+}
+#waiter-contract-buttons,
+#waiter-pay-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+#waiter-contract-buttons button,
+#waiter-pay-buttons button {
+  border-radius: 6px;
+  font-size: 13px;
+  padding: 7px 16px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f3e9dc;
+}
+#waiter-contract-confirm {
+  background: rgba(212, 175, 55, 0.3) !important;
+  border-color: rgba(212, 175, 55, 0.8) !important;
+  font-weight: 600;
+}
+#waiter-contract-buttons button:hover,
+#waiter-pay-buttons button:hover {
+  filter: brightness(1.25);
+}
+
+/* ---------------- Maria's end-of-day pay (js/waiter.js) ---------------- */
+#waiter-pay-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+#waiter-pay-overlay.hidden { display: none; }
+#waiter-pay-panel {
+  background: rgba(25, 18, 12, 0.97);
+  border: 2px solid rgba(224, 197, 108, 0.6);
+  border-radius: 10px;
+  padding: 16px 18px;
+  width: min(420px, 92vw);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #f3e9dc;
+  font-size: 13px;
+  line-height: 1.45;
+}
+#waiter-pay-title { color: #e0c56c; font-size: 17px; font-weight: 700; }
+#waiter-pay-from { color: #b8a893; font-size: 12px; margin-bottom: 8px; }
+#waiter-pay-message {
+  font-style: italic;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+#waiter-pay-perf[data-tier="excellent"] { color: #8fd694; }
+#waiter-pay-perf[data-tier="fair"] { color: #e8b86a; }
+#waiter-pay-perf[data-tier="poor"] { color: #e07a6a; }
+#waiter-pay-total-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 15px;
+  font-weight: 700;
+  color: #f3e0a0;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(224, 197, 108, 0.45);
+  border-radius: 6px;
+  background: rgba(212, 175, 55, 0.1);
+}
+#waiter-pay-buttons #waiter-pay-claim {
+  background: rgba(212, 175, 55, 0.3);
+  border-color: rgba(212, 175, 55, 0.8);
+  font-weight: 600;
+}
+
+/* ---------------- Stove (B) dish picker (js/waiter.js) ---------------- */
+#stove-menu {
+  position: fixed;
+  z-index: 25;
+  background: rgba(25, 18, 12, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+#stove-menu.hidden {
+  display: none;
+}
+.stove-menu-title {
+  color: #e0c56c;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.stove-menu-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #f3e9dc;
+  font-size: 13px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.stove-menu-option:hover {
+  background: rgba(212, 175, 55, 0.18);
+  border-color: rgba(212, 175, 55, 0.6);
+}
+.stove-menu-option img {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
 }
 
 /* ---------------- full world map (click the minimap — js/hud.js) ---------------- */

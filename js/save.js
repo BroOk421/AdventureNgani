@@ -85,6 +85,15 @@ function buildSaveData() {
     interiorDecor: Object.fromEntries(
       Object.keys(INTERIOR_ROOMS).map((roomId) => [roomId, Array.from(INTERIOR_ROOMS[roomId].decor.entries())])
     ),
+    // Things sitting ON tables indoors — the Tray on the bartender table
+    // (js/interior.js interiorTableAt()).
+    interiorTableTop: Object.fromEntries(
+      Object.keys(INTERIOR_ROOMS).map((roomId) => [roomId, Array.from((INTERIOR_ROOMS[roomId].tableTop || new Map()).entries())])
+    ),
+    // What's on each Tray (js/waiter.js).
+    waiterTrays: typeof trayContents !== "undefined" ? Array.from(trayContents.entries()) : [],
+    // Empty plates/mugs left on the tavern's tables (js/waiter.js).
+    waiterLeftovers: typeof tableLeftovers !== "undefined" ? tableLeftovers.slice() : [],
     // Maria's memory of tiles she's stopped using because a collision
     // turned up on her route (js/npc.js — npcAvoidTiles()), per room.
     npcAvoidTiles: Object.fromEntries(
@@ -98,6 +107,7 @@ function buildSaveData() {
     equippedWeapon: player.equippedWeapon, // type string, or null
     grabbedType: player.grabbedType, // type string, or null — the E-key grabbed world object (js/inventory.js); saved, unlike heldItem, since it's already removed from the world the moment it's grabbed
     gold: player.gold, // currency, spent at the NPC shop (js/npc.js)
+    waiterJob: typeof waiterJob !== "undefined" ? { ...waiterJob } : null, // hired as Maria's waiter + today's hours (js/waiter.js)
     // Stats (js/hud.js's bars) — real character state, so all four are
     // saved just like gold. health/exp don't change yet (no damage/
     // leveling system exists), but saving them now means nothing needs
@@ -123,6 +133,8 @@ function buildSaveData() {
     // player inside a collider. `sitPreX/Y` (where they were standing
     // when they clicked to sit — the front tile) is the safe spot, and
     // it's exactly where standing up would have put them anyway.
+    // Layer 2's all-grass fill (js/world.js) — a packed per-tile bitmap.
+    groundFill: groundFillInitialized ? { cols: COLS, rows: ROWS, bits: encodeGroundFill() } : undefined,
     player: player.scene === "inside" && player.outsideReturn
       ? { x: player.outsideReturn.x, y: player.outsideReturn.y }
       : player.sitting
@@ -131,7 +143,15 @@ function buildSaveData() {
   };
 }
 
+// Nothing may be written until loadGame() has read the existing save.
+// The 2 s autosave below starts ticking the moment this file loads, but
+// the game (and loadGame()) only starts once every image has loaded — on
+// a slow load that autosave fired first and overwrote the real save with
+// the fresh defaults (gold back to 100, everything reset).
+let saveGameReady = false;
+
 function saveGame() {
+  if (!saveGameReady) return;
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(buildSaveData()));
   } catch (e) {
@@ -357,7 +377,34 @@ function applySaveData(data) {
     INTERIOR_ROOMS[roomId].decor.clear();
     if (INTERIOR_ROOMS[roomId].floorDecor) INTERIOR_ROOMS[roomId].floorDecor.clear();
     else INTERIOR_ROOMS[roomId].floorDecor = new Map();
+    if (INTERIOR_ROOMS[roomId].tableTop) INTERIOR_ROOMS[roomId].tableTop.clear();
+    else INTERIOR_ROOMS[roomId].tableTop = new Map();
   });
+  if (data.interiorTableTop && typeof data.interiorTableTop === "object") {
+    Object.entries(data.interiorTableTop).forEach(([roomId, entries]) => {
+      if (!Array.isArray(entries)) return;
+      const room = getOrCreateInteriorRoom(migrateLegacyRoomId(roomId));
+      if (!room) return;
+      entries.forEach(([key, type]) => { if (itemDefs[type]) room.tableTop.set(key, type); });
+    });
+  }
+  if (typeof trayContents !== "undefined") {
+    trayContents.clear();
+    if (Array.isArray(data.waiterTrays)) {
+      data.waiterTrays.forEach(([id, c]) => {
+        if (typeof id !== "string" || !c || typeof c !== "object") return;
+        const clean = {};
+        for (const t of TRAY_FOODS) clean[t] = Math.max(0, Math.min(TRAY_MAX_PER_FOOD, Math.floor(c[t]) || 0));
+        for (const t of TRAY_DISHES) clean[t] = Math.max(0, Math.min(TRAY_MAX_DISHES, Math.floor(c[t]) || 0));
+        trayContents.set(id, clean);
+      });
+    }
+  }
+  if (typeof tableLeftovers !== "undefined") {
+    tableLeftovers = Array.isArray(data.waiterLeftovers)
+      ? data.waiterLeftovers.filter((k) => k && typeof k.roomId === "string" && Number.isFinite(k.col) && Number.isFinite(k.row) && TRAY_FOODS.includes(k.type))
+      : [];
+  }
   // Floor pieces first, so a mat saved in the OLD shared map (below) can
   // be moved across without clobbering one already saved here.
   if (data.interiorFloorDecor && typeof data.interiorFloorDecor === "object") {
@@ -465,6 +512,17 @@ function applySaveData(data) {
   player.gold = (typeof data.gold === "number" && data.gold >= 0) ? data.gold : player.gold;
   renderGoldDisplays();
 
+  if (data.waiterJob && typeof waiterJob !== "undefined") {
+    waiterJob.employed = !!data.waiterJob.employed;
+    waiterJob.day = typeof data.waiterJob.day === "number" ? data.waiterJob.day : null;
+    waiterJob.hoursToday = typeof data.waiterJob.hoursToday === "number" && data.waiterJob.hoursToday >= 0 ? data.waiterJob.hoursToday : 0;
+    waiterJob.paidDay = typeof data.waiterJob.paidDay === "number" ? data.waiterJob.paidDay : null;
+    waiterJob.servedToday = Math.max(0, Math.floor(data.waiterJob.servedToday) || 0);
+    waiterJob.walkoutsToday = Math.max(0, Math.floor(data.waiterJob.walkoutsToday) || 0);
+    const ps = data.waiterJob.payslip;
+    waiterJob.payslip = ps && typeof ps === "object" && Number.isFinite(ps.total) ? ps : null;
+  }
+
   // Same defensive "trust it only if it's a sane number" pattern as
   // gold above, clamped to each stat's max so a corrupted/edited save
   // can't push a bar over 100% either.
@@ -487,6 +545,11 @@ function applySaveData(data) {
   player.activeRoomId = null;
   player.outsideReturn = null;
 
+  // Layer 2 grass fill (js/world.js). A save from before it existed has
+  // none, so the one-time fill runs against what that save placed.
+  applyGroundFillSave(data.groundFill);
+  ensureGroundFillInitialized();
+
   renderHotbar();
   renderInventory();
   renderEquippedWeaponHUD();
@@ -505,6 +568,7 @@ function legacyItemCountsFromOldInventoryArray(oldInventory) {
 }
 
 function loadGame() {
+  saveGameReady = true; // from here on, saving is safe — the old save is read synchronously right below
   let raw;
   try {
     raw = localStorage.getItem(SAVE_KEY);

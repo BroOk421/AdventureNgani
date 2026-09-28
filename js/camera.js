@@ -149,6 +149,9 @@ function drawHeldItemAboveHead(px, py, size, scale, g = ctx) {
 
 function currentPlayerSheet() {
   const animKey = player.action || player.anim; // any active one-shot action (collect/crush/slice/...) overrides idle/walk/run
+  // Carrying a customer's order (js/waiter.js) — its own pose.
+  const orderSheet = typeof carryOrderSheet === "function" ? carryOrderSheet(animKey, player.facing) : null;
+  if (orderSheet) return orderSheet;
   const carryVisual = player.mode === "carrying" || !!heldItem;
   return spriteForFacing(animKey, player.facing, carryVisual ? "carrying" : "normal");
 }
@@ -343,6 +346,27 @@ const sceneLightCtx = sceneLightCanvas.getContext("2d");
 const sceneLightTmp = document.createElement("canvas");
 const sceneLightTmpCtx = sceneLightTmp.getContext("2d");
 let sceneLightsUsed = false;
+let sceneLightMaxStrength = 0;
+
+/* Per request ("kapag nag merge is lumiliit... kapag nagtamaan di mo
+   halata na may bounderies sila... mas malaki ang sakop pero iisa lang
+   yung kulay... di siya liliwanag ng sobra" + "yung character parang
+   nilalamon yung ilaw"): the old per-pixel MAX ("lighten") had two
+   faults. Where two pools met, the max of two falloffs left a visible
+   dark crease between them — the boundary you could see. And a weaker
+   light inside a stronger one simply vanished: walk the candle into a
+   lamp's pool and your own circle disappeared, as if the lamp ate it.
+
+   Now lights are SUMMED into the buffer ("lighter") and the total is
+   then capped at the brightest a single light ever gets — the lamp's
+   core colour ("darken" with a flat fill = per-channel min). So:
+     - overlapping edges add up and fill in smoothly — no crease, the
+       combined pool covers more ground and reads as ONE light;
+     - nowhere ends up brighter or whiter than one light's own centre,
+       and the cap is the core's own warm colour, so the hue holds;
+     - the candle still shows wherever the lamp is less than full, and
+       inside a lamp's core the two are simply one light. */
+const SCENE_LIGHT_CAP_RGB = [250, 193, 120]; // a lamp's core, pre-multiplied (inner 0.95 over mid 0.60 — buildPostGlowSprite())
 
 function beginSceneLights() {
   const w = Math.max(1, Math.ceil(view.width * SCENE_LIGHT_SCALE));
@@ -355,6 +379,7 @@ function beginSceneLights() {
   sceneLightCtx.fillStyle = "#000";
   sceneLightCtx.fillRect(0, 0, w, h);
   sceneLightsUsed = false;
+  sceneLightMaxStrength = 0;
 }
 
 // Adds one light (a transparent glow image) at a screen rect, at a
@@ -376,14 +401,22 @@ function addSceneLight(src, dx, dy, dw, dh, strength) {
   g.drawImage(src, dx * S - x, dy * S - y, dw * S, dh * S); // pre-multiply onto black
   g.fillStyle = "rgba(0,0,0," + (1 - Math.min(1, strength)) + ")"; // then scale by strength
   g.fillRect(0, 0, w, h);
-  sceneLightCtx.globalCompositeOperation = "lighten"; // per-pixel max — merge, never sum
+  sceneLightCtx.globalCompositeOperation = "lighter"; // summed — the cap in flushSceneLights() keeps it from overdriving
   sceneLightCtx.drawImage(sceneLightTmp, 0, 0, w, h, x, y, w, h);
   sceneLightsUsed = true;
+  sceneLightMaxStrength = Math.max(sceneLightMaxStrength, Math.min(1, strength));
 }
 
 // Adds the merged lights to the scene, once.
 function flushSceneLights() {
   if (!sceneLightsUsed) return;
+  // Cap the summed lights at one light's core, at this frame's strength.
+  const k = sceneLightMaxStrength;
+  sceneLightCtx.globalCompositeOperation = "darken"; // per-channel min against the cap
+  sceneLightCtx.fillStyle = "rgb(" + Math.round(SCENE_LIGHT_CAP_RGB[0] * k) + "," +
+    Math.round(SCENE_LIGHT_CAP_RGB[1] * k) + "," + Math.round(SCENE_LIGHT_CAP_RGB[2] * k) + ")";
+  sceneLightCtx.fillRect(0, 0, sceneLightCanvas.width, sceneLightCanvas.height);
+  sceneLightCtx.globalCompositeOperation = "source-over";
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   ctx.imageSmoothingEnabled = true;
@@ -510,6 +543,41 @@ const LIGHT_OCCLUDER_TILE_MARGIN = 8;
 // `opts.excludeKey` skips one placed item by its "col,row" key (a lamp
 // never shadows its own light), `opts.maxOccluders` overrides the cap
 // (a lamp's pool is much wider than the candle's, so it needs more).
+// Is any pixel of `icon` within `r` px of (px, py) (icon-local) opaque?
+// Alpha read once per image and cached; if the pixels can't be read
+// (a file:// page taints the canvas) it answers true, which is the old
+// "anywhere in the box" behaviour.
+const iconAlphaCache = new Map(); // Image -> { w, h, a: Uint8Array } | null
+function iconOpaqueNear(icon, px, py, r) {
+  let e = iconAlphaCache.get(icon);
+  if (e === undefined) {
+    e = null;
+    if (icon.width && icon.height) {
+      try {
+        const c = document.createElement("canvas");
+        c.width = icon.width;
+        c.height = icon.height;
+        const g = c.getContext("2d");
+        g.drawImage(icon, 0, 0);
+        const d = g.getImageData(0, 0, icon.width, icon.height).data;
+        const a = new Uint8Array(icon.width * icon.height);
+        for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3];
+        e = { w: icon.width, h: icon.height, a };
+      } catch (err) {
+        e = null;
+      }
+      iconAlphaCache.set(icon, e);
+    }
+  }
+  if (!e) return true;
+  const x0 = Math.max(0, Math.floor(px - r)), x1 = Math.min(e.w - 1, Math.floor(px + r));
+  const y0 = Math.max(0, Math.floor(py - r)), y1 = Math.min(e.h - 1, Math.floor(py + r));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) if (e.a[y * e.w + x] > 20) return true;
+  }
+  return false;
+}
+
 function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
   const excludeKey = opts && opts.excludeKey;
   const maxOccluders = (opts && opts.maxOccluders) || LIGHT_MAX_OCCLUDERS;
@@ -589,6 +657,10 @@ function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
         // nothing looks wrong. The flowering bushes in assets/bushes/ are
         // deliberately left out, as asked.
         if (!def.collides && !def.castsLightShadow) continue;
+        // Per request: nothing on layers 1 and 2 (dirt, the ground —
+        // grass, water, port tiles) throws a shadow. The Water Crates
+        // live on layer 2 by name but are real objects, so they keep one.
+        if ((layer === dirtLayer || layer === groundLayer) && !def.depthBand) continue;
         if (key === excludeKey) continue;
         const comma = key.indexOf(",");
         const col = +key.slice(0, comma);
@@ -605,9 +677,16 @@ function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
   // the silhouette, the "shadow" covers the entire pool, so the candle
   // simply vanished the moment you walked behind furniture. Something
   // you're behind shouldn't swallow your own light.
+  //
+  // Tested against the art's real pixels, not its whole picture box: a
+  // tree's box is mostly empty space around the canopy and trunk, so
+  // standing anywhere near a tree (bare or leafy) used to count as
+  // "inside" it and its shadow disappeared at night. Only a light that's
+  // actually over the tree's own pixels drops it now.
   for (let i = out.length - 1; i >= 0; i--) {
     const o = out[i];
-    if (worldCX >= o.x && worldCX <= o.x + o.w && worldCY >= o.y && worldCY <= o.y + o.h) out.splice(i, 1);
+    if (worldCX >= o.x && worldCX <= o.x + o.w && worldCY >= o.y && worldCY <= o.y + o.h &&
+        iconOpaqueNear(o.icon, worldCX - o.x, worldCY - o.y, 0)) out.splice(i, 1);
   }
 
   // Nearest-first, capped — a hard ceiling on how much work one frame can
@@ -839,6 +918,8 @@ function drawPlayerSprite(px, py, scale, g = ctx) {
   // What you're holding shows above your head, so it's visible in-world
   // (not just in the HUD) — mirrors js/inventory.js's `heldItem`.
   drawHeldItemAboveHead(px, py, size, scale, g);
+  // A customer's order being carried (js/waiter.js) — in the hands.
+  if (typeof drawCarriedOrder === "function") drawCarriedOrder(px, py, size, scale, g);
 }
 
 // Gives the character back their daylight colours at night — per request
@@ -886,11 +967,12 @@ function relightOccluders(feetY, isPlayer) {
   if (player.scene === "inside") {
     const room = INTERIOR_ROOMS[player.activeRoomId];
     if (!room) return out;
-    for (const [key, type] of room.decor) {
-      if (!isIndoorStandingDecor(type)) continue;
+    const indoorItems = room.floorDecor ? [...room.decor, ...room.floorDecor] : room.decor;
+    for (const [key, type] of indoorItems) {
+      if (!isIndoorStandingDecor(type) && !(itemDefs[type] && itemDefs[type].depthBand)) continue;
       const [col, row] = key.split(",").map(Number);
       if (seated && col === player.sitAnchorCol && row === player.sitAnchorRow) continue; // the seat you're on is behind you
-      if ((row + 1) * TILE <= feetY) continue; // sorts behind
+      if (itemSortY(type, col, row) <= feetY) continue; // sorts behind
       const icon = itemDefs[type].icon;
       if (!icon || !icon.width) continue;
       out.push({ icon, x: ((col + 0.5) * TILE - camX) * zoom - icon.width * zoom / 2,
@@ -904,8 +986,8 @@ function relightOccluders(feetY, isPlayer) {
     if (!def || def.alwaysBehindPlayer) return;
     const comma = key.indexOf(",");
     const col = +key.slice(0, comma), row = +key.slice(comma + 1);
-    if (row < nRow || row > nRow + 14) return; // only things further down the screen can be in front
-    if ((row + 1) * TILE <= feetY) return;
+    if (row < nRow - 2 || row > nRow + 14) return; // only things further down the screen can be in front (-2: a crate's band sits above its own tile)
+    if (itemSortY(type, col, row) <= feetY) return;
     if (seated && col === player.sitAnchorCol && row === player.sitAnchorRow) return;
     const swap = nightSwapFor(type);
     const showNight = swap && swap.night > 0.5;
@@ -917,10 +999,25 @@ function relightOccluders(feetY, isPlayer) {
       // Same see-through check drawObjectLayerItem() uses for this frame.
       const minX = camX + r.x / zoom, minY = camY + r.y / zoom;
       if (shouldFadeForOcclusion(type, minX, minX + icon.width, minY, minY + icon.height,
-        (row + 1) * TILE, showNight ? (def.nightMaskType || type) : type)) alpha = 1 - OBJECT_FADE_ALPHA;
+        itemSortY(type, col, row), showNight ? (def.nightMaskType || type) : type)) alpha = 1 - OBJECT_FADE_ALPHA;
     }
     out.push({ icon, x: r.x, y: r.y, w: r.w, h: r.h, alpha });
   });
+  // Crates/mushrooms on the other layers (see renderWorldObjectsSorted()).
+  for (const layer of [groundLayer, groundOverlayLayer, upperLayer]) {
+    layer.forEach((type, key) => {
+      const def = itemDefs[type];
+      if (!def || !def.depthBand) return;
+      const [col, row] = key.split(",").map(Number);
+      if (itemSortY(type, col, row) <= feetY) return;
+      const icon = def.icon;
+      if (!icon || !icon.width) return;
+      out.push({ icon, x: ((col + 0.5) * TILE - camX) * zoom - icon.width * zoom / 2,
+        y: ((row + 1) * TILE - camY) * zoom - icon.height * zoom, w: icon.width * zoom, h: icon.height * zoom, alpha: 1 });
+    });
+  }
+  // Wandering citizens standing in front (js/citizens.js).
+  for (const o of citizenRelightOccluders(feetY)) out.push(o);
   return out;
 }
 
@@ -1511,10 +1608,26 @@ function nightSwapFor(type) {
   return { icon: def.nightIcon, night, root: def.nightArtRoot || def.artRoot };
 }
 
+// A bush swaying / a tree shaking (js/plantfx.js) — drawn through a
+// transform around its base; everything else straight through.
 function drawObjectLayerItem(type, col, row) {
+  if (typeof applyPlantFxTransform === "function") {
+    ctx.save();
+    const moved = applyPlantFxTransform(col, row);
+    if (moved) {
+      drawObjectLayerItemRaw(type, col, row);
+      ctx.restore();
+      return;
+    }
+    ctx.restore();
+  }
+  drawObjectLayerItemRaw(type, col, row);
+}
+
+function drawObjectLayerItemRaw(type, col, row) {
   const def = itemDefs[type];
   const icon = def.icon;
-  const tileBottomY = (row + 1) * TILE;
+  const tileBottomY = itemSortY(type, col, row); // this item's Y-sort key — the band centre for a depthBand crate
   const day = objectArtRect(icon, def.artRoot, col, row, camX, camY);
   const swap = nightSwapFor(type);
 
@@ -1803,6 +1916,7 @@ function drawDirtLayer() {
 // other placed item (drawGroundItemAt()).
 function drawGroundOverlay() {
   groundOverlayLayer.forEach((type, key) => {
+    if (itemDefs[type].depthBand) return; // mushrooms — Y-sorted with the player instead (renderWorldObjectsSorted())
     const [col, row] = key.split(",").map(Number);
     drawGroundItemAt(type, col, row);
   });
@@ -1810,6 +1924,7 @@ function drawGroundOverlay() {
 
 function drawUpperLayer() {
   upperLayer.forEach((type, key) => {
+    if (itemDefs[type].depthBand) return; // crates — Y-sorted with the player instead (renderWorldObjectsSorted())
     const [col, row] = key.split(",").map(Number);
     drawGroundItemAt(type, col, row);
   });
@@ -1831,6 +1946,7 @@ function drawCeilingLayer() {
 
 function drawFlatGroundItems() {
   groundLayer.forEach((type, key) => {
+    if (itemDefs[type].depthBand) return; // Water Crates — Y-sorted with the player instead (renderWorldObjectsSorted())
     const [col, row] = key.split(",").map(Number);
     drawGroundItemAt(type, col, row);
   });
@@ -2028,11 +2144,29 @@ function renderWorldObjectsSorted() {
     // Sitting should only change where the bench is relative to the
     // PLAYER; everything else keeps sorting against it as usual.
     const sittingOnThis = player.sitting && col === player.sitAnchorCol && row === player.sitAnchorRow;
+    if (itemDefs[type].splitDepthTopRows && !sittingOnThis) {
+      pushSplitDepthDrawables(drawables, type, col, row, () => drawObjectLayerItem(type, col, row));
+      return;
+    }
     const sortY = itemDefs[type].alwaysBehindPlayer
       ? -Infinity
-      : (sittingOnThis ? seatedPlayerSortY - 0.001 : (row + 1) * TILE);
+      : (sittingOnThis ? seatedPlayerSortY - 0.001 : itemSortY(type, col, row));
     drawables.push({ sortY, draw: () => drawObjectLayerItem(type, col, row) });
   });
+
+  // `depthBand` items on the overlay layer (mushrooms), layer 4 (the
+  // crates) and the ground layer (the Water Crates) — per request, these no longer sit permanently under / over
+  // the player. They sort on the centre line of their solid band
+  // (getDepthBandRect(), inventory.js): walk in from behind and they're
+  // drawn over the character, walk in from the front and the character
+  // is drawn over them.
+  for (const layer of [groundLayer, groundOverlayLayer, upperLayer]) {
+    layer.forEach((type, key) => {
+      if (!itemDefs[type].depthBand) return;
+      const [col, row] = key.split(",").map(Number);
+      drawables.push({ sortY: itemSortY(type, col, row), draw: () => drawGroundItemAt(type, col, row) });
+    });
+  }
 
   const playerTile = getPlayerTile();
   const playerDecorKey = tileKey(playerTile.col, playerTile.row);
@@ -2070,6 +2204,9 @@ function renderWorldObjectsSorted() {
 
   // Tavern customers walking around outside (js/customers.js).
   for (const d of customerDrawables()) drawables.push(d);
+  // Citizens B-E wandering the map (js/citizens.js) — sorted on their
+  // 25%-up overlap line, see citizenSortY().
+  for (const d of citizenDrawables()) drawables.push(d);
 
   drawables.sort((a, b) => a.sortY - b.sortY);
   drawables.forEach((d) => d.draw());
@@ -2119,7 +2256,7 @@ function drawPlacementRange(camX, camY) {
       // in placeHeldItemAt()), so it's refused the same way an occupied
       // tile is, and shown the same way here.
       const isOwnTileAndCollides = itemDefs[holdingType].collides && col === p.col && row === p.row;
-      const color = (existingId === null && !isOwnTileAndCollides)
+      const color = ((existingId === null || canReplaceGroundItem(existingId, holdingType)) && !isOwnTileAndCollides)
         ? "rgba(255,255,255,0.55)"  // empty on this layer — valid to place
         : "rgba(220,40,40,0.9)";    // occupied, or would trap the player — blocked
 
@@ -2426,6 +2563,35 @@ function drawPendingConstructions(camX, camY) {
 // dy, dw, dh) call shape either way. No Y-sorting against furniture
 // yet — see js/interior.js's header comment on why that's an acceptable
 // first pass.
+// `splitDepthTopRows` (chairRight / chairLeft): the item is pushed into
+// the depth sort as TWO slices instead of one, each clipped to its own
+// tile rows —
+//   - the TOP slice (the backrest tile) sorts on the line between the
+//     top and bottom tile, so a character standing ON the top tile (it's
+//     walkable — `footprintExcludeBackRows`) is drawn UNDER it;
+//   - the BOTTOM slice (seat + legs) sorts at the top of the top tile,
+//     so any character standing on the top tile or lower is drawn OVER
+//     it.
+// A character in front of the chair (below it) still covers both.
+// The seam is rounded to a whole screen pixel so the two slices meet
+// without a hairline gap.
+function pushSplitDepthDrawables(list, type, col, row, drawFn) {
+  const topRows = itemDefs[type].splitDepthTopRows;
+  const seamWorldY = (row + 1 - topRows) * TILE; // bottom edge of the top slice
+  const seamY = Math.round((seamWorldY - camY) * zoom);
+  const BIG = 1e6;
+  const clipped = (y0, y1) => () => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(-BIG, y0, BIG * 2, y1 - y0);
+    ctx.clip();
+    drawFn();
+    ctx.restore();
+  };
+  list.push({ sortY: seamWorldY - topRows * TILE, draw: clipped(seamY, BIG) });  // bottom slice
+  list.push({ sortY: seamWorldY, draw: clipped(-BIG, seamY) });                  // top slice
+}
+
 // Something that stands on an indoor floor and should be depth-sorted
 // with the characters (layer 3, not flat).
 function isIndoorStandingDecor(type) {
@@ -2453,6 +2619,22 @@ function drawIndoorDecorItem(type, col, row) {
   ctx.drawImage(icon, screenX, screenY, w, h);
   if (fade) ctx.globalAlpha = 1;
   if (itemDefs[type].sittable) drawSitHighlight(type, col, row, { x: screenX, y: screenY, w, h });
+}
+
+// Something on top of a table indoors (room.tableTop, js/interior.js) —
+// per request, the Tray on the bartender table. Centred on the table's
+// top surface (`tableSurfaceY`, or 40% down its visible art), not on the
+// floor tile, so it sits ON the counter.
+function drawTableTopItem(room, type, col, row) {
+  const def = itemDefs[type];
+  if (def.isTray && typeof trayIsAway === "function" && trayIsAway(player.activeRoomId, tileKey(col, row))) return; // being carried
+  const icon = def.isTray && typeof trayImageFor === "function" ? trayImageFor(player.activeRoomId, tileKey(col, row)) : def.icon;
+  if (!icon || !icon.width) return;
+  const surfaceY = tableTopCentreY(room, col, row); // js/interior.js
+  const w = icon.width * zoom, h = icon.height * zoom;
+  const x = ((col + 0.5) * TILE - camX) * zoom - w / 2;
+  const y = (surfaceY - camY) * zoom - h / 2;
+  ctx.drawImage(icon, x, y, w, h);
 }
 
 function renderInteriorScene() {
@@ -2522,15 +2704,19 @@ function renderInteriorScene() {
   //     go on after, like outdoors' drawUpperLayer()/drawCeilingLayer().
   // The floor pieces (floor tiles, mats, light patches) first, under
   // everything else in the room.
+  const indoorChars = []; // player + Maria + standing furniture, depth-sorted below
   if (room.floorDecor) {
     for (const [key, type] of room.floorDecor) {
       if (!itemDefs[type]) continue;
       const [col, row] = key.split(",").map(Number);
+      if (itemDefs[type].depthBand) { // a mushroom brought indoors — overlaps both ways, like outside
+        indoorChars.push({ sortY: itemSortY(type, col, row), draw: () => drawIndoorDecorItem(type, col, row) });
+        continue;
+      }
       drawIndoorDecorItem(type, col, row);
     }
   }
 
-  const indoorChars = []; // player + Maria + standing furniture, depth-sorted below
   const indoorOnTop = [];
   const seatedSortY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
   for (const [key, type] of room.decor) {
@@ -2538,18 +2724,41 @@ function renderInteriorScene() {
     if (isNpcSleepingInRoom(player.activeRoomId) && key === tileKey(npc.sleepBedCol, npc.sleepBedRow)) continue;
     const [col, row] = key.split(",").map(Number);
     const layerN = layerNumberForType(type);
-    if (isIndoorStandingDecor(type)) {
+    if (itemDefs[type].depthBand) {
+      // Crates (and anything else with a depthBand) — sorted on their
+      // band's centre line instead of their tile's bottom edge, and pulled
+      // out of layer 4's "always on top" pass.
+      indoorChars.push({ sortY: itemSortY(type, col, row), draw: () => drawIndoorDecorItem(type, col, row) });
+    } else if (isIndoorStandingDecor(type)) {
       // The seat being sat on goes just BEHIND the player, same as outdoors.
       const sittingOnThis = player.sitting && col === player.sitAnchorCol && row === player.sitAnchorRow;
       const customerOnThis = customerSittingAt(player.activeRoomId, col, row); // js/customers.js
+      if (itemDefs[type].splitDepthTopRows && !sittingOnThis && !customerOnThis) {
+        pushSplitDepthDrawables(indoorChars, type, col, row, () => drawIndoorDecorItem(type, col, row));
+        continue;
+      }
       indoorChars.push({
         sortY: sittingOnThis ? seatedSortY - 0.001 : customerOnThis ? customerOnThis.fy - 0.001 : (row + 1) * TILE,
         draw: () => drawIndoorDecorItem(type, col, row),
       });
     } else if (layerN === 4 || layerN === 6) {
-      indoorOnTop.push(() => drawIndoorDecorItem(type, col, row));
+      // A Tray standing on the floor still shows what's on it.
+      if (itemDefs[type].isTray) indoorOnTop.push(() => drawTableTopItem(room, type, col, row));
+      else indoorOnTop.push(() => drawIndoorDecorItem(type, col, row));
     } else {
       drawIndoorDecorItem(type, col, row);
+    }
+  }
+  // Things on top of tables (the Tray on the bartender table) — depth-
+  // sorted right after their table, per request: drawn over the table,
+  // but a character standing in front of the counter overlaps them.
+  if (room.tableTop) {
+    for (const [key, type] of room.tableTop) {
+      if (!itemDefs[type]) continue;
+      const [col, row] = key.split(",").map(Number);
+      const table = interiorTableAt(room, col, row);
+      const sortY = ((table ? table.row : row) + 1) * TILE + 0.001;
+      indoorChars.push({ sortY, draw: () => drawTableTopItem(room, type, col, row) });
     }
   }
 
@@ -2581,6 +2790,8 @@ function renderInteriorScene() {
   indoorChars.sort((a, b) => a.sortY - b.sortY);
   indoorChars.forEach((c) => c.draw());
   indoorOnTop.forEach((d) => d()); // things on top of furniture + ceiling, over everyone
+  if (typeof drawTrayInfo === "function") drawTrayInfo(room); // hold Alt: what's left on each Tray (js/waiter.js)
+  if (typeof drawWaiterTableThings === "function") drawWaiterTableThings(); // empty plates/mugs on tables + Maria getting paid (js/waiter.js)
   drawCustomerFoodAndBubbles(); // customers' meals on the tables + order bubbles (js/customers.js)
 
   drawThrownTosses(); // T-key throw arc for a grabbed Collision Block (js/inventory.js's tryThrowGrabbedInteriorItem(), interior.js) — same visual as the outdoor throw
@@ -2828,6 +3039,7 @@ function render() {
 
   drawPlayerStandingDecor(); // the ONE decor tile (if any) the player is standing on — always fully behind them (see js/camera.js)
   renderWorldObjectsSorted(); // stones/trees/house + every OTHER decor tile + player, depth-sorted by Y (see above)
+  if (typeof drawLeafFlecks === "function") drawLeafFlecks(); // leaves shaken off bushes (js/plantfx.js)
 
   drawPendingConstructions(camX, camY); // house builds in progress — ghost preview + green countdown bar
 

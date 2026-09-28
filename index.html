@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RPG Prototype</title>
-<link rel="stylesheet" href="style.css?v=20260926b">
+<link rel="stylesheet" href="style.css?v=20260928a">
 </head>
 <body>
   <canvas id="view"></canvas>
@@ -59,9 +59,9 @@
       <span>Col: <span id="position-hud-col">0</span> Row: <span id="position-hud-row">0</span></span>
     </div>
 
+    <!-- Gold moved down next to the hotbar (#gold-slot) — per request. -->
     <div class="hud-section hud-row">
       <span id="clock-hud">06:00 ☀️</span>
-      <span id="gold-hud">💰 <span id="gold-hud-amount">0</span></span>
     </div>
 
     <!-- shown only while a weapon is equipped — persistent status (not
@@ -95,14 +95,23 @@
     <button id="held-item-hud-unhold">Unhold</button>
   </div>
 
-  <!-- always-visible hotbar (slots 1-7), bottom of screen -->
-  <div id="hotbar"></div>
+  <!-- always-visible hotbar (slots 1-7), bottom of screen. (The gold
+       counter that sat beside it moved into the inventory panel.) -->
+  <div id="bottom-bar">
+    <div id="hotbar"></div>
+  </div>
 
   <!-- full inventory panel, toggled with B -->
   <div id="inventory-overlay" class="hidden">
     <div id="inventory-panel">
       <div id="inventory-title">Inventory <span class="hint">(B to close)</span></div>
       <div id="inventory-grid"></div>
+      <!-- Gold — per request, inside the inventory, full width -->
+      <div id="inventory-gold" title="Gold">
+        <img src="assets/items/gold_coins.png" alt="Gold">
+        <span class="inventory-gold-label">Gold</span>
+        <span id="gold-hud-amount">0</span>
+      </div>
     </div>
   </div>
 
@@ -145,6 +154,54 @@
       <div id="npc-talk-options"></div>
     </div>
   </div>
+  <!-- Maria's waiter contract (js/waiter.js — openWaiterContract()) -->
+  <div id="waiter-contract-overlay" class="hidden">
+    <div id="waiter-contract-panel">
+      <div id="waiter-contract-title">Waiter Contract — Maria's Tavern</div>
+      <div class="waiter-contract-section">
+        <div class="waiter-contract-label">The work</div>
+        <ul>
+          <li>Take the food from the stoves: <b>Stove (A)</b> for drinks, <b>Stove (B)</b> for salad and grilled meat.</li>
+          <li>Carry it to the customer who ordered it — their order shows above their head.</li>
+          <li>Clear their empty plates and mugs onto the tray, then tip it out into the open crate.</li>
+          <li>Don't keep them waiting too long, or they'll leave.</li>
+        </ul>
+      </div>
+      <div class="waiter-contract-grid">
+        <span class="waiter-contract-label">Schedule</span><span id="waiter-contract-hours"></span>
+        <span class="waiter-contract-label">Salary</span><span id="waiter-contract-hourly"></span>
+        <span class="waiter-contract-label">Per day</span><span id="waiter-contract-daily"></span>
+        <span class="waiter-contract-label">Payment</span><span>Customers pay Maria at the counter, and only order while she's there.</span>
+        <span class="waiter-contract-label">Payday</span><span>After work, Maria brings your pay: the hours you were in the tavern on shift, with a bonus for great service or a deduction when customers leave without their food.</span>
+      </div>
+      <div id="waiter-contract-buttons">
+        <button id="waiter-contract-cancel">Cancel</button>
+        <button id="waiter-contract-confirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Maria's end-of-day pay (js/waiter.js — openWaiterPay()) -->
+  <div id="waiter-pay-overlay" class="hidden">
+    <div id="waiter-pay-panel">
+      <div id="waiter-pay-title">Great work today!</div>
+      <div id="waiter-pay-from">Maria</div>
+      <div id="waiter-pay-message"></div>
+      <div class="waiter-contract-grid">
+        <span class="waiter-contract-label">Hours</span><span id="waiter-pay-hours"></span>
+        <span class="waiter-contract-label">Served</span><span id="waiter-pay-served"></span>
+        <span class="waiter-contract-label">Walked out</span><span id="waiter-pay-walkouts"></span>
+        <span class="waiter-contract-label">Performance</span><span id="waiter-pay-perf"></span>
+        <span class="waiter-contract-label">Bonus / deduction</span><span id="waiter-pay-adjust"></span>
+      </div>
+      <div id="waiter-pay-total-row"><span>Today's pay</span><span id="waiter-pay-total"></span></div>
+      <div id="waiter-pay-buttons"><button id="waiter-pay-claim">Claim</button></div>
+    </div>
+  </div>
+
+  <!-- Stove (B)'s dish picker (js/waiter.js — openStoveMenu()) -->
+  <div id="stove-menu" class="hidden"></div>
+
   <div id="npc-shop-overlay" class="hidden">
     <div id="npc-shop-panel">
       <div id="npc-shop-title"><span id="npc-shop-title-name">Maria</span> <span class="hint">(click outside to close)</span></div>
@@ -157,25 +214,28 @@
   <!-- ?v=... is a cache buster: browsers hang on to js/*.js and style.css
        hard, so an update can look like nothing changed at all. Bump this
        string whenever a file here changes and every client reloads them. -->
-  <script src="js/config.js?v=20260926b"></script>
-  <script src="js/objectAlphaMasks.js?v=20260926b"></script>
-  <script src="js/daynight.js?v=20260926b"></script>
-  <script src="js/calendar.js?v=20260926b"></script>
-  <script src="js/assets.js?v=20260926b"></script>
-  <script src="js/input.js?v=20260926b"></script>
-  <script src="js/inventory.js?v=20260926b"></script>
-  <script src="js/resources.js?v=20260926b"></script>
-  <script src="js/interior.js?v=20260926b"></script>
-  <script src="js/furniture.js?v=20260926b"></script>
-  <script src="js/wildgrass.js?v=20260926b"></script>
-  <script src="js/save.js?v=20260926b"></script>
-  <script src="js/world.js?v=20260926b"></script>
-  <script src="js/player.js?v=20260926b"></script>
-  <script src="js/npc.js?v=20260926b"></script>
-  <script src="js/customers.js?v=20260926b"></script>
-  <script src="js/hud.js?v=20260926b"></script>
-  <script src="js/camera.js?v=20260926b"></script>
-  <script src="js/weatherfx.js?v=20260926b"></script>
-  <script src="js/main.js?v=20260926b"></script>
+  <script src="js/config.js?v=20260928a"></script>
+  <script src="js/objectAlphaMasks.js?v=20260928a"></script>
+  <script src="js/daynight.js?v=20260928a"></script>
+  <script src="js/calendar.js?v=20260928a"></script>
+  <script src="js/assets.js?v=20260928a"></script>
+  <script src="js/input.js?v=20260928a"></script>
+  <script src="js/inventory.js?v=20260928a"></script>
+  <script src="js/resources.js?v=20260928a"></script>
+  <script src="js/interior.js?v=20260928a"></script>
+  <script src="js/furniture.js?v=20260928a"></script>
+  <script src="js/wildgrass.js?v=20260928a"></script>
+  <script src="js/save.js?v=20260928a"></script>
+  <script src="js/world.js?v=20260928a"></script>
+  <script src="js/player.js?v=20260928a"></script>
+  <script src="js/npc.js?v=20260928a"></script>
+  <script src="js/customers.js?v=20260928a"></script>
+  <script src="js/citizens.js?v=20260928a"></script>
+  <script src="js/waiter.js?v=20260928a"></script>
+  <script src="js/plantfx.js?v=20260928a"></script>
+  <script src="js/hud.js?v=20260928a"></script>
+  <script src="js/camera.js?v=20260928a"></script>
+  <script src="js/weatherfx.js?v=20260928a"></script>
+  <script src="js/main.js?v=20260928a"></script>
 </body>
 </html>

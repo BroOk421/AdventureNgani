@@ -147,6 +147,21 @@ function buildNpcBlockedTiles() {
       if (!def.collides) continue;
       const [col, row] = key.split(",").map(Number);
 
+      // `depthBand` items (crates, mushrooms): same idea as the house
+      // walls below — their solid middle band, as tiles, widened by the
+      // body's half width.
+      if (def.depthBand) {
+        const b = getDepthBandRect(type, col, row);
+        const c0 = Math.floor((b.minX - BODY_COLLISION_HALF_W) / TILE);
+        const c1 = Math.floor((b.maxX + BODY_COLLISION_HALF_W - 1) / TILE);
+        const r0 = Math.floor(b.minY / TILE);
+        const r1 = Math.floor((b.maxY - 0.001) / TILE);
+        for (let r = r0; r <= r1; r++) {
+          for (let c = c0; c <= c1; c++) blocked.add(c + "," + r);
+        }
+        continue;
+      }
+
       if (def.wallColliderPx) {
         const w = getHouseWallRect(type, col, row);
         const c0 = Math.floor((w.minX - BODY_COLLISION_HALF_W) / TILE);
@@ -1302,6 +1317,8 @@ function updateNpcScheduledInside(room, dt) {
   if (npc.routePhase) resetNpcRoute(); // the main-door route is only for weekends
 
   if (h < s.wakeHour || h >= s.bedHour) {
+    // Pay still to hand over and you're right here — that first (js/waiter.js).
+    if (h >= s.bedHour && typeof waiterMariaSeeksPlayer === "function" && waiterMariaSeeksPlayer(room, dt)) return;
     npcGoToBed(room, dt);
     return;
   }
@@ -1325,6 +1342,8 @@ function updateNpcScheduledInside(room, dt) {
     return;
   }
   npc.working = false;
+  // After work: bring the waiter their pay (js/waiter.js).
+  if (typeof waiterMariaSeeksPlayer === "function" && waiterMariaSeeksPlayer(room, dt)) return;
   npcWander(room, dt);
 }
 
@@ -1752,6 +1771,7 @@ function npcTalkMainMenu(text) {
   setNpcTalk(text, [
     { label: "Can I go to your room?", onClick: askNpcForRoom },
     { label: "Let me see what you're selling.", onClick: () => { closeNpcTalk(); openNpcShop(); } },
+    waiterTalkOption(), // apply as her waiter / check on the job (js/waiter.js)
     { label: "Bye!", onClick: closeNpcTalk },
   ]);
 }

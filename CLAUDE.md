@@ -3145,6 +3145,200 @@ not part of the running game.
   hold onto these files hard enough that an update can look like nothing
   changed at all. Bump the string whenever a file changes.
 
+### Crates and mushrooms overlap both ways (`depthBand`)
+
+Per request ("yung mga crate box dapat half crate overlap to character
+30% up and 30% down character overlap box ganun din sa mushrooms"). The
+crates used to live on layer 4 (always drawn over the player), the Water
+Crates on the ground layer and the mushrooms on the overlay layer (always
+under), all blocking a whole tile. Now every crate (the seven vegetable
+crates, Crate Closed/Open, both Water Crates, the indoor Wooden Crate) and
+both mushrooms carry `depthBand: CRATE_DEPTH_BAND` (`{ top: 0.3, bottom:
+0.3 }`, config.js — later lowered to 0.25 / 0.25 per request, "medyo
+bawasan mo lang 25% up and down", so the solid middle is now 50%):
+
+- Collision is only the middle 40% of the art's visible height
+  (getDepthBandRect(), inventory.js — measured off the opaque pixels, so
+  empty padding doesn't count), tested pixel-accurately in
+  isBodyBlockedAt() (player.js) and isInteriorBodyBlockedAt()
+  (interior.js). Placement and the NPC path planner still treat them as
+  tiles.
+- The Y-sort key is that band's centre line (itemSortY()), so from behind
+  the item covers the character's feet, from the front the character
+  covers the item. They're pulled out of drawFlatGroundItems() /
+  drawGroundOverlay() / drawUpperLayer() and into
+  renderWorldObjectsSorted() (and the indoor sort), and the night relight
+  cuts them out like any other occluder. Their layer (and so save data)
+  is unchanged.
+- Mushroom (B) lost `alwaysBehindPlayer`. The mushrooms briefly got
+  `collides` too, then it was removed again per request — they're
+  walk-through, and their depthBand only sets where they Y-sort. The Wood Crate (wood items) is flat decor and was left
+  alone.
+
+### Waiter job (js/waiter.js)
+
+Per request: apply to Maria as her waiter and serve the tavern yourself.
+- Maria's talk menu gains "I want to apply as a waiter." -> a contract
+  panel (`#waiter-contract-overlay`: duties, Mon-Fri shift, 10 gold/hour,
+  max per day, tips, payday) with Confirm / Cancel. Once hired the option
+  becomes "About my waiter job..." (hours today, quit).
+- Stove (A) (`cookerStove1`) = Beer, Stove (B) (`cookerStove2`) = a small
+  menu, Salad or Grilled Meat (`#stove-menu`). Click within 2 tiles, in
+  the tavern, during her working hours. Clicking a stove while carrying
+  puts the order back. The order is `player.carryOrder` (not saved) and is
+  dropped if you leave the tavern.
+- Carrying: `Carry_Order_Down` facing down with the dish in the hands;
+  only that direction exists, so up/side use the normal Carry_* sheets
+  with the dish above the head (carryOrderSheet()/drawCarriedOrder()).
+- Customers (js/customers.js): on reaching their seat, if the player is
+  on duty (hired + in the tavern + shift hours) they go to `waitFood`
+  (seated, order bubble bobbing overhead, 60 s patience, blinks the last
+  10 s) instead of straight to `eating`. Click them with the right dish ->
+  serveCustomer(). Off duty, Maria serves as before. Served customers
+  leave `gold_coins.png` on the table (tip: beer 3 / salad 5 / meat 10);
+  click to collect. `tableCoins` isn't saved.
+- Pay: hours spent in the tavern on shift, counted each frame from the
+  game clock (clock jumps ignored). Paid when Maria goes to bed
+  (`bedHour`, 18:00); an unpaid shift from an earlier day is paid on the
+  next day change. `waiterJob` is saved.
+- The click handler runs in the CAPTURE phase and stops the event, so
+  clicking a seated customer never also sits you on their chair.
+- Gold moved from the top-left HUD to `#gold-slot` beside the hotbar
+  (both inside the new `#bottom-bar`), with the gold icon.
+  `assets/items/goild_coins.png` renamed to `gold_coins.png`.
+
+Two older bugs fixed along the way:
+- whenAssetsReady() (assets.js): on a cached reload every image could
+  finish before main.js registered its callback, so the game never
+  started. It now starts immediately if everything's already loaded.
+- saveGame() (save.js): the 2 s autosave began before loadGame() had read
+  the save, so a slow load overwrote the real save with defaults. Saving
+  is now blocked until loadGame() runs.
+
+### Bartender table re-slice + the Tray
+
+- `bartender-table.png` was resized by the user (48x32, art now 21px
+  tall). `bartender-table_left/center/right.png` were re-cut from it
+  (x 0-16 / 16-32 / 32-48) so the three parts match. They carry
+  `tableSurfaceY: 19` for things placed on top.
+- Indoors, a layer-4 item placed on a table tile (click-place or E) now
+  goes into `room.tableTop` (js/interior.js interiorTableAt() /
+  canPlaceOnTableTop()), so it can share the table's tile. Saved as
+  `interiorTableTop`. Drawn centred on the table surface
+  (tableTopCentreY(), drawTableTopItem() in camera.js). E takes the
+  top item off before the table.
+- The Tray: `tableFurniture1` (id kept for saves), renamed from
+  "Tabletop Clutter 1" to "Tray", now layer 4, `isTray`.
+  `table_furniture.png` renamed to `tray.png` (the empty tray).
+  Pictures by contents (js/waiter.js trayImageFor()): one food x1 ->
+  `solo/`, x2/x3 -> `drinks|salads|grilleds/*-2|3.png`, two foods ->
+  `combo/no<missing>.png`, all three -> `combo/drink-salad-grilled.png`.
+  `orderlist/orderlist.png` is the same picture as `nogrilled-meat.png`
+  and isn't used.
+- Flow: click the Tray holding a stove order (or a beer/salad/grilled
+  meat held from the inventory) to put it on, max 3 per food. Click the
+  Tray with empty hands to carry it (Carry_Order pose). Click a waiting
+  customer or their chair to serve from it. Stoves clicked while carrying
+  it add straight to it. Empty -> it goes back to its spot by itself;
+  click its spot to put it back early; walking out of the tavern also
+  returns it. Hold Alt for a card per tray (and the carried one) with
+  counts. `trayContents` is saved (`waiterTrays`); `player.carryTray`
+  isn't.
+- Gold moved again: from beside the hotbar into the inventory panel, a
+  full-width bar under the grid (`#inventory-gold`).
+
+### Clearing tables, the bin crate, paying Maria
+
+- New item `crateOpenInterior` "Crate (Open, Indoor)" (added LAST in
+  itemDefs so no slot/hotbar index moves), its own copy of the art at
+  `assets/interior/crate_open.png`, `isTrash`. Click it while carrying
+  the Tray (within 1 tile) to tip everything off; the Tray then goes back
+  to its spot. Clicking it with a single stove order throws that away.
+- No more gold on tables (`tableCoins`/`WAITER_TIPS` removed). Customers
+  pay Maria at the counter when their order is taken (a coin rises over
+  her head, `showMariaPaid()`); the player's money is still the salary.
+- Customers in line don't start ordering, and an order in progress
+  pauses, until Maria is at her work spot (`isMariaAtCounter()`:
+  `npc.working` in the tavern).
+- A customer the player served leaves an empty plate (salad/meat) or
+  mug (beer) on the table — the last frame of its eating strip
+  (`tableLeftovers`, saved as `waiterLeftovers`). That seat isn't
+  offered to new customers until it's cleared. Carry the Tray (an empty
+  Tray can be picked up now) and click the dish to put it on — up to 5
+  mugs and 5 plates. A Tray holds food OR dishes, not both. Pictures:
+  `orderlist/empty/empty-mug|empty-plate|empty-mug-and-plate.png`,
+  `-max` once both are on and there are 5+.
+- Reach: 1 tile for the bin, picking up / filling the Tray, and taking
+  food from a stove (`WAITER_NEAR_TILES`); 2 for customers and dishes.
+
+### No layer 1/2 shadows, fatter rain, bush/tree fx, layer-2 replace
+
+- Light shadows (collectLightOccluders(), camera.js) skip dirtLayer and
+  groundLayer — water/port tiles no longer throw one. Water Crates
+  (`depthBand`, layer 2 by name) still do.
+- Rain: `RAIN_DROP_WIDTH` 2 (was 1). Each drop is a faint 1px tail, a
+  2px body and a brighter 2px head (drawRain(), weatherfx.js).
+- js/plantfx.js: bushes (`bushBig/Medium/Small/XS/Flower*`) sway (skew
+  around the base, springing back) and drop a few leaf flecks when the
+  player walks through; trees (resource `breakAnim: "slice"`) shake 1
+  world px on each chop (resolveHarvestHit()). Applied by
+  drawObjectLayerItem(), which now wraps drawObjectLayerItemRaw().
+- Layer 2: placing a different layer-2 item on a tile that has one
+  replaces it (canReplaceGroundItem(), inventory.js — outdoors, the
+  preview highlight, and indoor floor pieces). Same item, or a
+  `depthBand` object either way, still blocks.
+
+### Tray overlap, one-click table clearing, performance pay
+
+- Things on tables (room.tableTop) are depth-sorted just after their
+  table instead of always on top, so a character in front of the
+  counter overlaps the Tray.
+- Clicking an empty plate/mug without a tray picks up the tavern's free
+  tray (one with no food) with the dish already on it.
+- The bin: the indoor open crate, and also the outdoor `vegCrateOpen`
+  if that's what's in the tavern. Clicking it empty-handed says to bring
+  the tray.
+- Pay is no longer auto-added at bedtime. After work (workEndHour) the
+  day is turned into `waiterJob.payslip`; Maria walks over to the player
+  (waiterMariaSeeksPlayer(), hooked into her after-work wander and
+  bedtime in js/npc.js) and opens `#waiter-pay-overlay`: a message, hours
+  x rate, orders served, walk-outs, performance % and tier, bonus or
+  deduction, total, and a Claim button. Performance starts at 70, +5 per
+  served order, -15 per customer who gives up waiting; >=90 +20%,
+  70-89 full, 50-69 -10%, <50 -25% (WAITER_PERF_* in js/waiter.js). An
+  unclaimed slip is saved and adds up; "I'm here for my pay." in her talk
+  menu opens it too. Quitting makes the slip right away.
+
+### Rain as one thick streak; a separate dish tray
+
+- Rain: each drop is one solid straight rectangle, `RAIN_DROP_WIDTH` 3,
+  10-15 world px long (the tail/body/head version was disliked).
+- Clearing dishes no longer takes the counter's Tray: the first click on
+  an empty plate/mug gives the player a separate dish tray
+  (`DISH_TRAY_KEY` "dishes", contents in trayContents like any tray).
+  Binning it in the open crate makes it disappear; the real Tray never
+  leaves the counter. Walking out with it drops the dishes.
+
+### Rain, modelled on the "CSS Rain Effect" pen
+
+The pixel-style rain (and the RainOnFloor.png splash) is gone. Rain is a
+screen-space overlay copied in spirit from codepen.io/arickle/pen/XKjMZY,
+without its dark background: thin (1 CSS px) stems, 72 CSS px long,
+fading from transparent to white (a pre-rendered gradient sprite), falling
+~2.2 screen heights/sec with per-drop speed; a half-opacity back row; and
+where each drop lands, a dotted half-ellipse "splat" that pops open and
+fades in 0.12 s. Tunables: RAIN_* in js/config.js.
+
+### Tree shadows at night near the light
+
+collectLightOccluders() drops an occluder when the light is "inside" it
+(so standing behind something doesn't black out your own light). That
+test used the sprite's whole picture box — for trees (bare or leafy) the
+box is mostly empty space, so being anywhere near a tree removed its
+night shadow. It now checks the actual pixel under the light
+(iconOpaqueNear(), alpha cached per image; falls back to the box if the
+pixels can't be read on a file:// page).
+
 ## Known trade-offs / things worth knowing if you keep tweaking
 
 - **Item action menu doesn't clamp to the screen edge.** `openItemActionMenu()`
@@ -3400,12 +3594,77 @@ not part of the running game.
      right under the wall (tavern row 18). Now only the BASE row must be
      floor; overlaps with other solid objects are still checked across the
      full footprint.
+108. **Side chairs (chairRight / chairLeft): walkable backrest + split
+     depth.** Both are 2 tiles tall. `footprintExcludeBackRows: 1` drops
+     the top tile's collision. `splitDepthTopRows: 1` makes the renderer
+     (`pushSplitDepthDrawables()`, camera.js) push the chair as two
+     clipped slices: the top tile sorts on the seam between the tiles
+     (drawn over a character standing on it), the bottom tile sorts at
+     the top of the top tile (a character on either tile is drawn over
+     it). While someone sits on it, the whole chair is drawn behind them
+     as before. Indoors and outdoors.
+     Follow-up: with the backrest walkable, the drawn feet sank ~6px onto
+     the seat, because the collision feet point (SPRITE_FEET_FRACTION
+     0.62) sits above the sprite's real feet (y 48/64). The base tile is
+     now tested against the VISIBLE feet across exactly its 16x16
+     (`isBlockedBySplitChairBase()`, inventory.js) in isBodyBlockedAt()
+     and isInteriorBodyBlockedAt(); the plain tile test skips these chairs
+     for movement only (NPC route planning and placement still use the
+     tile footprint).
+
+109. **Layer 2 outdoors is all grass.** Every outdoor tile with nothing on
+     layer 1/2 (and not under a bigger layer 1/2 item's art) got Ground
+     (Inner). Stored as a per-tile bitmap (`groundFill`, js/world.js) and
+     painted once into worldCanvas instead of ~19k groundLayer entries,
+     because many per-frame loops walk every layer. Runs ONCE per save
+     (`groundFill` in the save); placing a flat 16x16 layer 1/2 tile
+     replaces it (groundLayer/dirtLayer `.set` are wrapped); E on a filled
+     tile with nothing else grabs it as a real grassInner.
+
+110. **Lights merge as one pool.** The shared light buffer used a per-pixel
+     max ("lighten"): a dark crease showed where two pools met, and the
+     candle vanished inside a lamp's pool. Now lights are summed
+     ("lighter") and `flushSceneLights()` caps the total at a lamp's core
+     colour x the frame's strength ("darken" fill, `SCENE_LIGHT_CAP_RGB`),
+     so overlaps fill in smoothly and never get brighter than one light.
+
+111. **NPC art in per-character folders + four wandering citizens.** Per
+     request ("gawin mong folder Citizen_A... Citizen B to E gawan mong ng
+     left idle at walk... i add mo sa map nag lalakad lakad... umiiwas...
+     25% below at 75% higher npc overlap sa character").
+     - Maria's four sheets moved to `assets/npc/Citizen_A/idle/Idle.png`,
+       `Idle_Left.png`, `walk/Walk.png`, `Walk_Left.png` (git mv, same
+       pixels). Citizen_B..E got `Idle_Left.png` / `Walk_Left.png`, flipped
+       frame by frame (4 / 6 frames of 64x64), the same way Maria's were.
+       Loaded as `assets.citizen<X>IdleRight/IdleLeft/WalkRight/WalkLeft`.
+     - New `js/citizens.js` (after customers.js): four citizens get a home
+       spot near the player's spawn and stroll to random free tiles within
+       10 tiles of it, idling 2-7 s between walks. Routes use Maria's A*
+       (`findNpcTilePath()`) over the customers' shared blocked-tile cache
+       (`customerOutdoorBlocked()`), tile centre to tile centre, and
+       re-plan if something gets placed on the next tile. People (player,
+       Maria, customers, each other) don't collide with them, but they stop
+       when someone is within 12px ahead and route around them; in a
+       citizen-vs-citizen head-on only the later one in the list dodges
+       (both dodging picked the same side and met again). Outdoors only,
+       not saved.
+     - Overlap: each citizen sorts on a line 25% up its visible body
+       (`CITIZEN_OVERLAP_BOTTOM_FRACTION`) — player's feet below it -> player
+       in front, above it -> citizen in front. Works out within ~1px of the
+       plain feet sort Maria/customers use.
+     - They're added to `relightOccluders()` so the player's/Maria's night
+       relight is cut out behind a citizen standing in front. Citizens
+       themselves aren't relit at night (same as the customers).
+     - Minimap + full map show them as light-blue dots.
+     - Verified headless (file://): 240 random trees/stones + a tavern,
+       3 simulated minutes, 43,200 position samples — none on a blocked
+       tile or overlapping `isBodyBlockedAt()`; two citizens sent head-on
+       along one row both arrive; no page errors.
 
 ## Possible next steps (not done yet, just noted)
 
-- Serving: the player carrying orders to customers (assets/sprites/
-  Carry_Order/ is already in the project, unused) and customers paying in
-  gold (assets/items/goild_coins.png, also unused).
+- ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order
+  only has a Down sheet; Up/Side art would replace the fallback.
 - Real NPC art for the tavern customers — only `customerSprites()` in
   js/customers.js needs to change.
 - tools/generate_alpha_masks.py is OUT OF DATE (old building names):
