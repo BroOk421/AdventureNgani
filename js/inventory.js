@@ -3461,6 +3461,37 @@ const TILE_GROUP_META = {
   floorGreenTile: { name: "Green Floor Tiles", match: (t) => t.startsWith("floorGreenTile"), singleIcon: true },
 };
 
+// Picker layouts drawn as the picture the tiles build — per request, from
+// the user's mockups (null = empty cell). Each cell was matched against
+// the tile art; for the sliced floor sheets that's simply each tile's own
+// row/column. Port is its original 5x5 sheet: the few spots whose tile was
+// dropped as a pixel-duplicate (the left/right edge of row 2, the
+// bottom-left and the centre column) show the tile it duplicated.
+{
+  const floorShape = (prefix, rows, cols) => {
+    const out = [];
+    for (let r = 0; r < rows; r++) {
+      const row = [];
+      for (let c = 0; c < cols; c++) {
+        const id = prefix + "R" + r + "C" + c;
+        row.push(itemDefs[id] ? id : null);
+      }
+      out.push(row);
+    }
+    return out;
+  };
+  TILE_GROUP_META.floorBrownTile.shape = floorShape("floorBrownTile", 5, 5);
+  TILE_GROUP_META.floorDarkGreenTile.shape = floorShape("floorDarkGreenTile", 3, 3);
+  TILE_GROUP_META.floorGreenTile.shape = floorShape("floorGreenTile", 3, 3);
+  TILE_GROUP_META.port.shape = [
+    ["portTL", "portTC1", "portTC2", "portTC3", "portTR"],
+    ["portTC1", "portI1", "portI2", "portI3", "portTC3"],
+    ["portL2", "portI4", "portI2", "portI6", "portR2"],
+    ["portL3", "portI7", "portI2", "portI9", "portR3"],
+    ["portTL", "portBC1", "portBC2", "portBC3", "portBR"],
+  ];
+}
+
 // One slot per terrain tile set, showing its `icon` tile. `rows` lays the
 // picker out by name (one row per name, in order) instead of one long
 // wrapped list.
@@ -4853,8 +4884,19 @@ function openTileVariantPicker(group, anchorEl) {
       }
     }
     tileVariantPickerEl.appendChild(shapeEl);
-    // Any tile of the set that isn't in the picture (snow's plain fills)
-    // is listed underneath, by name, so every tile can still be picked.
+    // Any tile of the set that isn't in the picture (snow's plain fills,
+    // the port's bridge pieces) is listed underneath, so every tile can
+    // still be picked.
+    if (!meta.rows) {
+      const inShape = new Set(meta.shape.flat().filter(Boolean));
+      const extra = group.members.filter((t) => !inShape.has(t));
+      if (extra.length) {
+        const grid = document.createElement("div");
+        grid.className = "tile-variant-grid tile-variant-extra";
+        for (const type of extra) grid.appendChild(makeTileVariantButton(type));
+        tileVariantPickerEl.appendChild(grid);
+      }
+    }
     if (meta.rows) {
       const inShape = new Set(meta.shape.flat().filter(Boolean));
       const extra = meta.rows.map((row) => row.filter((t) => !inShape.has(t))).filter((row) => row.length);

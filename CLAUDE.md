@@ -3890,6 +3890,18 @@ pixels can't be read on a file:// page).
      listed under the shape by name (`.tile-variant-extra`). No picker
      needs a scrollbar at 1366x768.
 
+126. **Brown / dark green / green floor and Port pickers shaped like the
+     user's mockups.** `TILE_GROUP_META.<group>.shape` (set right after
+     the literal): the floors are their own sheet grids (tile RrCc at row
+     r, col c; brown 5x5 minus corners, greens 3x3) — each mockup cell
+     matched its own tile exactly. The port mockup is the original 5x5
+     port sheet (nearest-tile distance 0-9 from water shimmer, next best
+     far off); spots whose tile was dropped as a pixel-duplicate earlier
+     show the tile it duplicated (row-2 edges = portTC1/portTC3, centre
+     column = portI2, bottom-left = portTL). For shape groups without
+     `rows`, members not in the shape (the 8 port bridge pieces) are
+     listed underneath in a grid. No scrollbars needed.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order
