@@ -3902,6 +3902,19 @@ pixels can't be read on a file:// page).
      `rows`, members not in the shape (the 8 port bridge pieces) are
      listed underneath in a grid. No scrollbars needed.
 
+127. **Mountain tiles no longer replace layer 2.** Per request ("gawin mo
+     na lang object"), `terrainMountain*` is filed in the overlay layer
+     (`["overlay", /^terrainMountain/]`, before the `[2, /^terrain/]` rule)
+     rather than objectLayer: it sits on the grass/ground tile without
+     removing it, always draws under characters (layer 3 would Y-sort a
+     flat plateau tile over a player standing on it), and leaves the object
+     slot free (trees can stand on the mountain). Wall tiles still collide
+     (overlay is in ALL_LAYERS, which both the player and NPC planner scan).
+     Old saves: the load routes those tiles to the overlay by type, and
+     applySaveData() turns the grass fill back on under each mountain tile
+     that has no real ground tile. Verified: bricks + mountain on one cell
+     both kept; wall blocked, plateau walkable; migration restores grass.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

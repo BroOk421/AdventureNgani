@@ -72,8 +72,15 @@ const ITEM_LAYER_RULES = [
 
   // --- 2. the ground itself: grass, water, the port tileset ---
   [2, /^(grass|water|port)/],
-  // the terrain tile sets (grass_tile / bricks_tile / snow_tile /
-  // mountain — TERRAIN_TILE_SETS in js/assets.js) are ground too
+  // Mountain tiles lie ON the ground instead of replacing it — per request
+  // ("gawin mo na lang object para hindi napapalitan yung mga 2nd layer"):
+  // filed in the overlay, so the grass/layer-2 tile under them stays, they
+  // always draw under the characters (the plateau is walkable), and the
+  // object slot stays free (a tree can stand on the mountain). Their wall
+  // tiles still collide — the overlay is part of ALL_LAYERS.
+  ["overlay", /^terrainMountain/],
+  // the other terrain tile sets (grass_tile / bricks_tile / snow_tile —
+  // TERRAIN_TILE_SETS in js/assets.js) are ground and replace it
   [2, /^terrain/],
 
   // --- 2 (overlay): lies ON the ground without replacing it ---

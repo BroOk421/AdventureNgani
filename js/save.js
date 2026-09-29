@@ -549,6 +549,14 @@ function applySaveData(data) {
   // none, so the one-time fill runs against what that save placed.
   applyGroundFillSave(data.groundFill);
   ensureGroundFillInitialized();
+  // Mountain tiles used to be layer 2 and cleared the grass under them;
+  // they're overlay now (loaded there above by layerForType()), so give
+  // those spots their grass back unless a real ground tile is there.
+  for (const [key, type] of groundOverlayLayer) {
+    if (!type.startsWith("terrainMountain") || groundLayer.has(key) || dirtLayer.has(key)) continue;
+    const [col, row] = key.split(",").map(Number);
+    setGroundFill(col, row, true);
+  }
 
   renderHotbar();
   renderInventory();
