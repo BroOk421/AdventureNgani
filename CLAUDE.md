@@ -3878,6 +3878,18 @@ pixels can't be read on a file:// page).
        walkable. Walking up into a row of walls stops the feet one row
        short.
 
+125. **Bricks / snow / mountain pickers laid out like the user's mockups.**
+     Each mockup (white = empty) was matched cell by cell against the tiles
+     (alpha + colour exact); several tiles are pixel-identical, so each cell
+     takes the name that follows the natural order, verified to be one of
+     that cell's exact matches (0 mismatches). `shape` added to Bricks
+     (5x5 plus; the centre's last row repeats enter 4-6, as in the mockup;
+     all 18 tiles), Snow (5x5 patch, 21 tiles) and Mountain (6x12: plateau,
+     cliff walls, grassy then snowy bottoms; all 66, same order as the
+     sheets). Tiles a shape leaves out (snow-tile / snow-dark-tile, 20) are
+     listed under the shape by name (`.tile-variant-extra`). No picker
+     needs a scrollbar at 1366x768.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

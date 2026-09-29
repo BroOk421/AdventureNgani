@@ -4853,6 +4853,23 @@ function openTileVariantPicker(group, anchorEl) {
       }
     }
     tileVariantPickerEl.appendChild(shapeEl);
+    // Any tile of the set that isn't in the picture (snow's plain fills)
+    // is listed underneath, by name, so every tile can still be picked.
+    if (meta.rows) {
+      const inShape = new Set(meta.shape.flat().filter(Boolean));
+      const extra = meta.rows.map((row) => row.filter((t) => !inShape.has(t))).filter((row) => row.length);
+      if (extra.length) {
+        const rowsEl = document.createElement("div");
+        rowsEl.className = "tile-variant-rows tile-variant-extra";
+        for (const row of extra) {
+          const rowEl = document.createElement("div");
+          rowEl.className = "tile-variant-row";
+          for (const type of row) rowEl.appendChild(makeTileVariantButton(type));
+          rowsEl.appendChild(rowEl);
+        }
+        tileVariantPickerEl.appendChild(rowsEl);
+      }
+    }
     positionPopupNear(tileVariantPickerEl, anchorEl);
     return;
   }

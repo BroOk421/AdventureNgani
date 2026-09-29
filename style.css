@@ -1484,3 +1484,8 @@ html, body {
   width: 28px;
   height: 28px;
 }
+.tile-variant-extra {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}

@@ -774,11 +774,31 @@ const TERRAIN_TILE_SETS = [
   {
     id: "Bricks", name: "Brick Tiles", folder: "bricks_tile", icon: "enter-bricks-6",
     rows: [["top-bricks", 3], ["left-bricks", 3], ["right-bricks", 3], ["bottom-bricks", 3], ["enter-bricks", 6, 3]],
+    // Picker layout = the user's bricks mockup (a plus-shaped patch). The
+    // middle 3x3 repeats enter 4-6 on its last row, exactly like the
+    // mockup (enter-bricks' dropped 3rd row was identical to its 2nd).
+    shape: [
+      [null, "top-bricks-1", "top-bricks-2", "top-bricks-3", null],
+      ["left-bricks-1", "enter-bricks-1", "enter-bricks-2", "enter-bricks-3", "right-bricks-1"],
+      ["left-bricks-2", "enter-bricks-4", "enter-bricks-5", "enter-bricks-6", "right-bricks-2"],
+      ["left-bricks-3", "enter-bricks-4", "enter-bricks-5", "enter-bricks-6", "right-bricks-3"],
+      [null, "bottom-bricks-1", "bottom-bricks-2", "bottom-bricks-3", null],
+    ],
   },
   {
     id: "Snow", name: "Snow Tiles", folder: "snow_tile", icon: "center-snow-2",
     rows: [["top-snow", 3], ["top-inner-snow", 5], ["center-snow", 5], ["bottom-inner-snow", 5], ["bottom-snow", 3],
       ["snow-tile-6-part", 10, 5], ["snow-dark-tile-6-part", 10, 5]],
+    // Picker layout = the user's snow mockup (a snow patch). The plain
+    // snow-tile / snow-dark-tile fills aren't in it, so the picker lists
+    // them underneath the patch.
+    shape: [
+      [null, "top-snow-1", "top-snow-2", "top-snow-3", null],
+      ["top-inner-snow-1", "top-inner-snow-2", "top-inner-snow-3", "top-inner-snow-4", "top-inner-snow-5"],
+      ["center-snow-1", "center-snow-2", "center-snow-3", "center-snow-4", "center-snow-5"],
+      ["bottom-inner-snow-1", "bottom-inner-snow-2", "bottom-inner-snow-3", "bottom-inner-snow-4", "bottom-inner-snow-5"],
+      [null, "bottom-snow-1", "bottom-snow-2", "bottom-snow-3", null],
+    ],
   },
   {
     id: "Mountain", name: "Mountain Tiles", folder: "mountain", icon: "center-wall-mountain-3",
@@ -788,6 +808,22 @@ const TERRAIN_TILE_SETS = [
       ["top-wall-mountain", 6], ["center-wall-mountain", 6], ["bottom-wall-mountain", 6], ["bottom-outer-wall-mountain", 4],
       // snowy versions of the two bottom strips (were in the folder too)
       ["bottom-snow-wall-mountain", 6], ["bottom-snow-outer-wall-mountain", 4]],
+    // Picker layout = the user's mountain mockup: plateau, cliff walls,
+    // then the grassy and snowy wall bottoms — every tile once.
+    shape: [
+      [null, "top-mountain-1", "top-mountain-2", "top-mountain-3", "top-mountain-4", null],
+      ["top-inner-mountain-1", "top-inner-mountain-2", "top-inner-mountain-3", "top-inner-mountain-4", "top-inner-mountain-5", "top-inner-mountain-6"],
+      ["center-mountain-1", "center-mountain-2", "center-mountain-3", "center-mountain-4", "center-mountain-5", "center-mountain-6"],
+      ["center-mountain-7", "center-mountain-8", "center-mountain-9", "center-mountain-10", "center-mountain-11", "center-mountain-12"],
+      ["bottom-inner-mountain-1", "bottom-inner-mountain-2", "bottom-inner-mountain-3", "bottom-inner-mountain-4", "bottom-inner-mountain-5", "bottom-inner-mountain-6"],
+      ["top-left-wall-mountain", "bottom-mountain-1", "bottom-mountain-2", "bottom-mountain-3", "bottom-mountain-4", "top-right-wall-mountain"],
+      ["top-wall-mountain-1", "top-wall-mountain-2", "top-wall-mountain-3", "top-wall-mountain-4", "top-wall-mountain-5", "top-wall-mountain-6"],
+      ["center-wall-mountain-1", "center-wall-mountain-2", "center-wall-mountain-3", "center-wall-mountain-4", "center-wall-mountain-5", "center-wall-mountain-6"],
+      ["bottom-wall-mountain-1", "bottom-wall-mountain-2", "bottom-wall-mountain-3", "bottom-wall-mountain-4", "bottom-wall-mountain-5", "bottom-wall-mountain-6"],
+      [null, "bottom-outer-wall-mountain-1", "bottom-outer-wall-mountain-2", "bottom-outer-wall-mountain-3", "bottom-outer-wall-mountain-4", null],
+      ["bottom-snow-wall-mountain-1", "bottom-snow-wall-mountain-2", "bottom-snow-wall-mountain-3", "bottom-snow-wall-mountain-4", "bottom-snow-wall-mountain-5", "bottom-snow-wall-mountain-6"],
+      [null, "bottom-snow-outer-wall-mountain-1", "bottom-snow-outer-wall-mountain-2", "bottom-snow-outer-wall-mountain-3", "bottom-snow-outer-wall-mountain-4", null],
+    ],
   },
 ];
 
