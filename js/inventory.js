@@ -3374,6 +3374,10 @@ for (const set of TERRAIN_TILE_SETS) {
         unlimited: true,
         flat: true,
         groupIcon: file === set.icon || undefined,
+        // Mountain wall tiles are solid — per request ("lagyan mo ng
+        // collission each wall"): every tile with "wall" in its name, the
+        // whole 16x16. The plateau top and the grass/snow edges stay walkable.
+        collides: set.id === "Mountain" && file.includes("wall") ? true : undefined,
       };
     }
   }
@@ -3467,6 +3471,7 @@ for (const set of TERRAIN_TILE_SETS) {
     match: (t) => t.startsWith(prefix) && !!itemDefs[t],
     singleIcon: true,
     rows: terrainTileRows(set).map((row) => row.map((file) => terrainTileId(set, file))),
+    shape: set.shape ? set.shape.map((row) => row.map((file) => (file ? terrainTileId(set, file) : null))) : null,
   };
 }
 
@@ -4831,6 +4836,26 @@ function openTileVariantPicker(group, anchorEl) {
   tileVariantPickerEl.appendChild(label);
 
   const meta = TILE_GROUP_META[group.id];
+  tileVariantPickerEl.classList.toggle("terrain-picker", !!(meta && (meta.rows || meta.shape)));
+  if (meta && meta.shape) {
+    // Laid out as a picture of what the tiles build (grass_tile).
+    const shapeEl = document.createElement("div");
+    shapeEl.className = "tile-variant-shape";
+    shapeEl.style.gridTemplateColumns = "repeat(" + meta.shape[0].length + ", 28px)";
+    for (const row of meta.shape) {
+      for (const type of row) {
+        if (type) shapeEl.appendChild(makeTileVariantButton(type));
+        else {
+          const gap = document.createElement("div");
+          gap.className = "tile-variant-gap";
+          shapeEl.appendChild(gap);
+        }
+      }
+    }
+    tileVariantPickerEl.appendChild(shapeEl);
+    positionPopupNear(tileVariantPickerEl, anchorEl);
+    return;
+  }
   if (meta && meta.rows) {
     // Laid out by name: each row of the set is its own row here.
     const rowsEl = document.createElement("div");

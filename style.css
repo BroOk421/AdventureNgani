@@ -1422,8 +1422,6 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-height: 70vh;
-  overflow-y: auto;
 }
 .tile-variant-row {
   display: flex;
@@ -1438,4 +1436,51 @@ html, body {
   height: 22px;
   max-width: none;
   max-height: none;
+}
+
+/* Picker popups: one scroll area only (the popup itself), sized to its
+   contents up to the window height, with the same gold scrollbar as the
+   inventory. The old fixed 260px cap plus an inner scroll box on the
+   terrain rows gave two competing scrollbars and hid the lower rows. */
+#tile-variant-picker {
+  max-height: calc(100vh - 16px);
+  max-width: calc(100vw - 16px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #d4af37 rgba(0, 0, 0, 0.35);
+}
+#tile-variant-picker.terrain-picker {
+  max-width: none;
+}
+#tile-variant-picker::-webkit-scrollbar {
+  width: 8px;
+}
+#tile-variant-picker::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+}
+#tile-variant-picker::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #f5d67c, #d4af37 45%, #a97e1f);
+  border: 1px solid rgba(80, 58, 10, 0.6);
+  border-radius: 6px;
+}
+/* grass_tile: laid out as the patch it builds (the user's mockup) */
+.tile-variant-shape {
+  display: grid;
+  gap: 2px;
+}
+.tile-variant-shape .tile-variant-item {
+  width: 28px;
+  height: 28px;
+}
+.tile-variant-shape .tile-variant-item img {
+  width: 24px;
+  height: 24px;
+  max-width: none;
+  max-height: none;
+}
+.tile-variant-gap {
+  width: 28px;
+  height: 28px;
 }

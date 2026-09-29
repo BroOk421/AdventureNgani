@@ -3855,6 +3855,29 @@ pixels can't be read on a file:// page).
      - Verified: 147 tiles load (22/18/41/66), none broken; placed on the
        map the mountain/snow pieces join up.
 
+124. **grass_tile picker laid out like the user's mockup; picker scroll
+     fixed; mountain walls collide.**
+     - `TERRAIN_TILE_SETS` Grass has a `shape` (5x7, null = empty cell):
+       top 1-3 across the top, left 1-3 / right 1-3 down the sides, top
+       4/5 and bottom 1/2 as the inner corners, bottom 3-5 along the
+       bottom, enter 1-6 underneath. Matched cell by cell against the
+       mockup (alpha + colour exact); note left-grass-1 == top-grass-1,
+       right-grass-1 == top-grass-3, left-grass-3 == bottom-grass-3,
+       right-grass-3 == bottom-grass-5 pixel for pixel. The picker renders
+       `meta.shape` as a grid when present, else `meta.rows`.
+     - Scrollbars: #tile-variant-picker had max-height 260px AND the
+       terrain rows had their own 70vh scroll box — two competing
+       scrollbars, lower rows hard to reach. Now one scroll area (the
+       popup), up to the window height, gold scrollbar; the inner one is
+       gone. Grass (251px) and Mountain (412px) now fit with no scroll.
+     - Verified picker tiles hold, go on hotkeys (enter-grass-5 -> 4) and
+       place on the ground.
+     - Mountain tiles with "wall" in their name get `collides: true`
+       (whole tile): top/center/bottom/bottom-outer walls, the two
+       top-left/right corners and the snowy wall strips. Plateau tiles stay
+       walkable. Walking up into a row of walls stops the feet one row
+       short.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

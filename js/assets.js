@@ -758,6 +758,18 @@ const TERRAIN_TILE_SETS = [
   {
     id: "Grass", name: "Grass Tiles", folder: "grass_tile", icon: "enter-grass-1",
     rows: [["top-grass", 5, 3], ["right-grass", 3], ["left-grass", 3], ["bottom-grass", 5, 3], ["enter-grass", 6, 3]],
+    // Per the user's mockup, the picker shows grass_tile as the patch it
+    // builds (null = empty cell): a ring of edges around the hole, then
+    // the plain fill underneath. Every one of the 22 tiles appears once.
+    shape: [
+      [null, "top-grass-1", "top-grass-2", "top-grass-3", null],
+      ["left-grass-1", "top-grass-4", null, "top-grass-5", "right-grass-1"],
+      ["left-grass-2", null, null, null, "right-grass-2"],
+      ["left-grass-3", "bottom-grass-1", null, "bottom-grass-2", "right-grass-3"],
+      [null, "bottom-grass-3", "bottom-grass-4", "bottom-grass-5", null],
+      [null, "enter-grass-1", "enter-grass-2", "enter-grass-3", null],
+      [null, "enter-grass-4", "enter-grass-5", "enter-grass-6", null],
+    ],
   },
   {
     id: "Bricks", name: "Brick Tiles", folder: "bricks_tile", icon: "enter-bricks-6",
