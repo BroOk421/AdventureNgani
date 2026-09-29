@@ -3817,6 +3817,21 @@ pixels can't be read on a file:// page).
      Verified: with falling stopped, walking 62px diagonally left every
      flake at the same world x/y (or wrapped exactly one screen over).
 
+122. **New terrain sheets cropped into 16x16 tiles (not wired up yet).**
+     Per request, with the user's counts. Each sheet in
+     `assets/tiles/grass_tile/`, `bricks_tile/`, `snow_tile/` was cut on
+     the 16px grid in reading order (left->right, top->bottom), skipping
+     fully transparent cells, and saved in the SAME folder as
+     `<sheet>-1.png`, `<sheet>-2.png`, ... The original sheets are kept.
+     - grass: top 5, right 3, left 3, bottom 5, enter 6 (top/bottom are
+       3x2 with one empty cell each).
+     - bricks: top 3, left 3, right 3, bottom 3, enter 6 (the sheet is
+       3x3, but its 3rd row is pixel-identical to the 2nd, so rows 1-2).
+     - snow: top 3, top-inner 5, center 5, bottom-inner 5, bottom 3,
+       snow-tile-6-part 10, snow-dark-tile-6-part 10.
+     81 files. `assets/tiles/mountain/` was not in the list and was left
+     uncropped. Not added to `assets.js` / `itemDefs` yet.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order
