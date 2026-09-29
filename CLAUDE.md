@@ -3915,6 +3915,18 @@ pixels can't be read on a file:// page).
      that has no real ground tile. Verified: bricks + mountain on one cell
      both kept; wall blocked, plateau walkable; migration restores grass.
 
+128. **Mountain plateau rim collides; fence picker shaped like the mockup.**
+     - `MOUNTAIN_SOLID_TILES` (inventory.js): top-mountain 1-4,
+       top-inner 1 & 6, center 1, 6, 7, 12, bottom-inner 1 & 6,
+       bottom-mountain 1 & 4 — solid like every wall tile. 48 of the 66
+       mountain tiles collide. Each blocks its whole 16x16: walking into a
+       lone tile from each side, the 12px-wide feet stop flush on its edge
+       (x -6/+22 -> body edge 0/16, y 0/16).
+     - Fence: `TILE_GROUP_META.fenceTile.shape` = its sheet grid with the
+       four corners empty (the user's mockup; every filled cell is its own
+       RrCc tile, diff 0.2-0.5). The three existing corner pieces (R0C0,
+       R0C4, R4C0) are listed underneath.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

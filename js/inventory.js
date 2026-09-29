@@ -3366,6 +3366,18 @@ const itemDefs = {
   },
 };
 
+// Plateau tiles that collide too — per request: "top-mountain 1 to 4,
+// top-inner-mountain 1 and 6, center-mountain 1, 6, 7, 12,
+// bottom-inner-mountain 1 and 6, bottom-mountain 1 and 4" (the plateau's
+// outer rim).
+const MOUNTAIN_SOLID_TILES = new Set([
+  "top-mountain-1", "top-mountain-2", "top-mountain-3", "top-mountain-4",
+  "top-inner-mountain-1", "top-inner-mountain-6",
+  "center-mountain-1", "center-mountain-6", "center-mountain-7", "center-mountain-12",
+  "bottom-inner-mountain-1", "bottom-inner-mountain-6",
+  "bottom-mountain-1", "bottom-mountain-4",
+]);
+
 // The terrain tile sets (TERRAIN_TILE_SETS, js/assets.js): one flat,
 // unlimited ground item per tile, e.g. terrainGrassTopGrass1. The set's
 // `icon` tile is flagged groupIcon — it's the picture on the set's one
@@ -3381,10 +3393,11 @@ for (const set of TERRAIN_TILE_SETS) {
         unlimited: true,
         flat: true,
         groupIcon: file === set.icon || undefined,
-        // Mountain wall tiles are solid — per request ("lagyan mo ng
-        // collission each wall"): every tile with "wall" in its name, the
-        // whole 16x16. The plateau top and the grass/snow edges stay walkable.
-        collides: set.id === "Mountain" && file.includes("wall") ? true : undefined,
+        // Solid mountain tiles, each the whole 16x16 — per request: every
+        // wall tile (anything with "wall" in its name), plus the plateau's
+        // rim listed in MOUNTAIN_SOLID_TILES. The rest of the plateau
+        // stays walkable.
+        collides: set.id === "Mountain" && (file.includes("wall") || MOUNTAIN_SOLID_TILES.has(file)) ? true : undefined,
       };
     }
   }
@@ -3490,6 +3503,11 @@ const TILE_GROUP_META = {
   TILE_GROUP_META.floorBrownTile.shape = floorShape("floorBrownTile", 5, 5);
   TILE_GROUP_META.floorDarkGreenTile.shape = floorShape("floorDarkGreenTile", 3, 3);
   TILE_GROUP_META.floorGreenTile.shape = floorShape("floorGreenTile", 3, 3);
+  // Fence: the user's fence mockup is its sheet grid with the four corners
+  // left empty (the corner pieces that exist are listed underneath).
+  const fence = floorShape("fenceTile", 5, 5);
+  fence[0][0] = fence[0][4] = fence[4][0] = fence[4][4] = null;
+  TILE_GROUP_META.fenceTile.shape = fence;
   TILE_GROUP_META.port.shape = [
     ["portTL", "portTC1", "portTC2", "portTC3", "portTR"],
     ["portTC1", "portI1", "portI2", "portI3", "portTC3"],
