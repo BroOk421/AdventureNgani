@@ -3931,6 +3931,24 @@ pixels can't be read on a file:// page).
      4) — added to `MOUNTAIN_SOLID_TILES`; 50 of 66 mountain tiles are
      solid now, each the full 16x16.
 
+130. **Snow weather turns the grass to snow (render-time only).** New
+     js/snowground.js (after weatherfx.js), active while
+     getCurrentWeather().name === "Snow":
+     - `drawSnowGroundFill()` (right after worldCanvas in render()) draws a
+       snow tile over every ON-SCREEN grass-fill cell: center-snow-2..5,
+       picked by a position hash. center-snow-5 is an edge piece with
+       transparent pixels, so it gets center-snow-3 under it
+       (`SNOW_GROUND_PARTIAL`) — otherwise grass showed through as green
+       specks.
+     - `drawGroundItemAt()` asks `snowGroundIconFor()`: layer-2 grass
+       tiles (/^(grass|terrainGrass)/) draw as snow cut to the grass tile's
+       alpha (cached canvas per type+variant), so their edges keep shape.
+     - `drawGroundOverlay()` passes types through `snowSwapMountainType()`:
+       bottom-wall-mountain N -> bottom-snow-wall-mountain N,
+       bottom-outer-wall-mountain N -> bottom-snow-outer-wall-mountain N.
+     Saves/layers are untouched, so the grass is back when it stops
+     snowing. The minimap still shows grass (it reads worldCanvas).
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

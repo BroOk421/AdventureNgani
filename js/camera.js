@@ -1358,7 +1358,8 @@ function drawFlatItemArt(type, col, row) {
 
 function drawGroundItemAt(type, col, row) {
   if (itemDefs[type].artRoot || itemDefs[type].litWindow) { drawFlatItemArt(type, col, row); return; }
-  const icon = itemDefs[type].icon;
+  // While it snows a grass tile draws as snow in the same shape (js/snowground.js).
+  const icon = snowGroundIconFor(type, col, row) || itemDefs[type].icon;
   // Draw at native pixel size (1 source px = 1 world px, same convention
   // as every other tile-sheet asset in this project), bottom-center
   // anchored to the tile's bottom-center — like an object standing on
@@ -1975,7 +1976,8 @@ function drawGroundOverlay() {
   groundOverlayLayer.forEach((type, key) => {
     if (itemDefs[type].depthBand) return; // mushrooms — Y-sorted with the player instead (renderWorldObjectsSorted())
     const [col, row] = key.split(",").map(Number);
-    drawGroundItemAt(type, col, row);
+    // snowy mountain-wall bottoms while it snows (js/snowground.js) — drawing only
+    drawGroundItemAt(snowSwapMountainType(type), col, row);
   });
 }
 
@@ -3084,6 +3086,7 @@ function render() {
 
   ctx.clearRect(0, 0, vw, vh);
   ctx.drawImage(worldCanvas, camX, camY, viewWorldW, viewWorldH, 0, 0, vw, vh);
+  drawSnowGroundFill(); // while it snows, the grass fill shows as snow (js/snowground.js)
 
   drawDirtLayer();       // 1 — bare earth, the bottom of the stack
   drawFlatGroundItems(); // 2 — grass / water / port tiles
