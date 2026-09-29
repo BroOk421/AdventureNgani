@@ -746,6 +746,67 @@ assets.woodStick.src = "assets/items/wood_drops/wood_stick.png";
 })();
 
 let assetsLoadedCount = 0;
+/* --- Terrain tile sets (assets/tiles/<folder>/<name>-<n>.png) ----------
+   Per request: grass_tile, bricks_tile, snow_tile and mountain tiles, each
+   one inventory slot; clicking it pops up every tile of that set, laid
+   out BY NAME — one row per name, in the order below (not shuffled), a
+   long name wrapping at its sheet's width. `icon` is the tile that
+   stands for the set in the inventory. Item/asset ids are generated as
+   "terrain" + Set + Name + n, e.g. terrainGrassTopGrass1 (see
+   terrainTileId()). */
+const TERRAIN_TILE_SETS = [
+  {
+    id: "Grass", name: "Grass Tiles", folder: "grass_tile", icon: "enter-grass-1",
+    rows: [["top-grass", 5, 3], ["right-grass", 3], ["left-grass", 3], ["bottom-grass", 5, 3], ["enter-grass", 6, 3]],
+  },
+  {
+    id: "Bricks", name: "Brick Tiles", folder: "bricks_tile", icon: "enter-bricks-6",
+    rows: [["top-bricks", 3], ["left-bricks", 3], ["right-bricks", 3], ["bottom-bricks", 3], ["enter-bricks", 6, 3]],
+  },
+  {
+    id: "Snow", name: "Snow Tiles", folder: "snow_tile", icon: "center-snow-2",
+    rows: [["top-snow", 3], ["top-inner-snow", 5], ["center-snow", 5], ["bottom-inner-snow", 5], ["bottom-snow", 3],
+      ["snow-tile-6-part", 10, 5], ["snow-dark-tile-6-part", 10, 5]],
+  },
+  {
+    id: "Mountain", name: "Mountain Tiles", folder: "mountain", icon: "center-wall-mountain-3",
+    rows: [["top-mountain", 4], ["top-inner-mountain", 6], ["center-mountain", 12, 6], ["bottom-inner-mountain", 6],
+      // bottom-mountain's first and last tiles are the wall corners, named separately
+      [["top-left-wall-mountain", "bottom-mountain-1", "bottom-mountain-2", "bottom-mountain-3", "bottom-mountain-4", "top-right-wall-mountain"]],
+      ["top-wall-mountain", 6], ["center-wall-mountain", 6], ["bottom-wall-mountain", 6], ["bottom-outer-wall-mountain", 4],
+      // snowy versions of the two bottom strips (were in the folder too)
+      ["bottom-snow-wall-mountain", 6], ["bottom-snow-outer-wall-mountain", 4]],
+  },
+];
+
+// "top-left-wall-mountain" -> "TopLeftWallMountain"
+function terrainCamel(file) {
+  return file.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
+}
+function terrainTileId(set, file) {
+  return "terrain" + set.id + terrainCamel(file);
+}
+// Every set's rows expanded to file names: [[file, file, ...], ...] —
+// a row longer than its width (3rd entry) wraps into more rows.
+function terrainTileRows(set) {
+  const out = [];
+  for (const r of set.rows) {
+    const files = Array.isArray(r[0]) ? r[0] : Array.from({ length: r[1] }, (_, i) => r[0] + "-" + (i + 1));
+    const width = r[2] || files.length;
+    for (let i = 0; i < files.length; i += width) out.push(files.slice(i, i + width));
+  }
+  return out;
+}
+for (const set of TERRAIN_TILE_SETS) {
+  for (const row of terrainTileRows(set)) {
+    for (const file of row) {
+      const key = terrainTileId(set, file);
+      assets[key] = new Image();
+      assets[key].src = "assets/tiles/" + set.folder + "/" + file + ".png";
+    }
+  }
+}
+
 const assetsNeededCount = Object.keys(assets).length;
 let onAssetsReadyCallback = null;
 

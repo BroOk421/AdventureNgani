@@ -3832,6 +3832,29 @@ pixels can't be read on a file:// page).
      81 files. `assets/tiles/mountain/` was not in the list and was left
      uncropped. Not added to `assets.js` / `itemDefs` yet.
 
+123. **Terrain tile sets in the inventory (grass / bricks / snow /
+     mountain); mountain cropped; source sheets removed.**
+     - The leftover source sheets in grass_tile/bricks_tile/snow_tile were
+       deleted (only the 16x16 crops remain).
+     - assets/tiles/mountain/ cropped per the user's names: top 4,
+       top-inner 6, center 12, bottom-inner 6, bottom 6 (first/last named
+       top-left-wall-mountain / top-right-wall-mountain, the 4 between
+       bottom-mountain-1..4), top-wall 6, center-wall 6, bottom-wall 6,
+       bottom-outer-wall 4 — plus bottom-snow-wall 6 and
+       bottom-snow-outer-wall 4 (in the folder but not on the list).
+       Sources removed. 66 files.
+     - `TERRAIN_TILE_SETS` (assets.js) lists every set: folder, the icon
+       tile, and its rows BY NAME (a long name wraps at its sheet width).
+       Assets and itemDefs are generated from it, id =
+       "terrain" + Set + CamelName + n (e.g. terrainMountainCenterWallMountain3).
+       Flat, unlimited, ground layer 2 (`[2, /^terrain/]`).
+     - One inventory slot per set (TILE_GROUP_META `terrain<Set>`,
+       singleIcon): enter-grass-1, enter-bricks-6, center-snow-2,
+       center-wall-mountain-3. Clicking opens the picker laid out with
+       `meta.rows` — one row per name, in order, not a shuffled wrap.
+     - Verified: 147 tiles load (22/18/41/66), none broken; placed on the
+       map the mountain/snow pieces join up.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

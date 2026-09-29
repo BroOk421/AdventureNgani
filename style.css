@@ -1415,3 +1415,27 @@ html, body {
   border-color: #4ade80;
   box-shadow: 0 0 6px rgba(74, 222, 128, 0.7), inset 0 0 4px rgba(74, 222, 128, 0.35);
 }
+
+/* Terrain tile sets (grass/bricks/snow/mountain): the picker shows one row
+   per tile name, in order, instead of one long wrapped list. */
+.tile-variant-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.tile-variant-row {
+  display: flex;
+  gap: 3px;
+}
+.tile-variant-rows .tile-variant-item {
+  width: 28px;
+  height: 28px;
+}
+.tile-variant-rows .tile-variant-item img {
+  width: 22px;
+  height: 22px;
+  max-width: none;
+  max-height: none;
+}

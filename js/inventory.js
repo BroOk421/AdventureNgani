@@ -72,6 +72,9 @@ const ITEM_LAYER_RULES = [
 
   // --- 2. the ground itself: grass, water, the port tileset ---
   [2, /^(grass|water|port)/],
+  // the terrain tile sets (grass_tile / bricks_tile / snow_tile /
+  // mountain — TERRAIN_TILE_SETS in js/assets.js) are ground too
+  [2, /^terrain/],
 
   // --- 2 (overlay): lies ON the ground without replacing it ---
   // Per request these keep every behaviour they already have (shadow,
@@ -3356,6 +3359,26 @@ const itemDefs = {
   },
 };
 
+// The terrain tile sets (TERRAIN_TILE_SETS, js/assets.js): one flat,
+// unlimited ground item per tile, e.g. terrainGrassTopGrass1. The set's
+// `icon` tile is flagged groupIcon — it's the picture on the set's one
+// inventory slot.
+for (const set of TERRAIN_TILE_SETS) {
+  for (const row of terrainTileRows(set)) {
+    for (const file of row) {
+      const id = terrainTileId(set, file);
+      itemDefs[id] = {
+        id,
+        name: set.name.replace(/ Tiles$/, "") + " (" + file + ")",
+        icon: assets[id],
+        unlimited: true,
+        flat: true,
+        groupIcon: file === set.icon || undefined,
+      };
+    }
+  }
+}
+
 /* ---------------- tile groups (consolidated inventory slots) ----------------
    Per request: families of near-identical/same-purpose items (the grass
    3x3 autotile set, the 3 dirt variants, the 3 water variants, the
@@ -3433,6 +3456,19 @@ const TILE_GROUP_META = {
   floorDarkGreenTile: { name: "Dark Green Floor Tiles", match: (t) => t.startsWith("floorDarkGreenTile"), singleIcon: true },
   floorGreenTile: { name: "Green Floor Tiles", match: (t) => t.startsWith("floorGreenTile"), singleIcon: true },
 };
+
+// One slot per terrain tile set, showing its `icon` tile. `rows` lays the
+// picker out by name (one row per name, in order) instead of one long
+// wrapped list.
+for (const set of TERRAIN_TILE_SETS) {
+  const prefix = "terrain" + set.id;
+  TILE_GROUP_META[prefix] = {
+    name: set.name,
+    match: (t) => t.startsWith(prefix) && !!itemDefs[t],
+    singleIcon: true,
+    rows: terrainTileRows(set).map((row) => row.map((file) => terrainTileId(set, file))),
+  };
+}
 
 function tileGroupIdForType(type) {
   for (const gid of Object.keys(TILE_GROUP_META)) {
@@ -4794,9 +4830,35 @@ function openTileVariantPicker(group, anchorEl) {
   label.textContent = group.name;
   tileVariantPickerEl.appendChild(label);
 
+  const meta = TILE_GROUP_META[group.id];
+  if (meta && meta.rows) {
+    // Laid out by name: each row of the set is its own row here.
+    const rowsEl = document.createElement("div");
+    rowsEl.className = "tile-variant-rows";
+    for (const row of meta.rows) {
+      const rowEl = document.createElement("div");
+      rowEl.className = "tile-variant-row";
+      for (const type of row) rowEl.appendChild(makeTileVariantButton(type));
+      rowsEl.appendChild(rowEl);
+    }
+    tileVariantPickerEl.appendChild(rowsEl);
+    positionPopupNear(tileVariantPickerEl, anchorEl);
+    return;
+  }
+
   const grid = document.createElement("div");
   grid.className = "tile-variant-grid";
-  group.members.forEach((type) => {
+  group.members.forEach((type) => grid.appendChild(makeTileVariantButton(type)));
+  tileVariantPickerEl.appendChild(grid);
+
+  // beside the group slot, nudged back on-screen if it would overflow
+  positionPopupNear(tileVariantPickerEl, anchorEl);
+}
+
+// One mini icon in the variant picker; clicking it opens that tile's own
+// Hold / hotkey menu.
+function makeTileVariantButton(type) {
+  {
     const slotIndex = inventoryIndexByType[type];
     const btn = document.createElement("button");
     btn.className = "tile-variant-item";
@@ -4820,12 +4882,8 @@ function openTileVariantPicker(group, anchorEl) {
       closeTileVariantPicker();
       openItemActionMenu(slotIndex, { getBoundingClientRect: () => rect });
     });
-    grid.appendChild(btn);
-  });
-  tileVariantPickerEl.appendChild(grid);
-
-  // beside the group slot, nudged back on-screen if it would overflow
-  positionPopupNear(tileVariantPickerEl, anchorEl);
+    return btn;
+  }
 }
 
 // Close on click-outside, same pattern as the item action menu/equipment
