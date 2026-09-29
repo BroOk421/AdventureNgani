@@ -1489,3 +1489,33 @@ html, body {
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.15);
 }
+
+/* ---------- top-left HUD v2: day/night monitor + stats beside it ----------
+   Per request: the day/night monitor (js/daycyclehud.js) is the top-left
+   corner; health/stamina/food/exp follow right after it; the date + clock
+   and season + weather sit underneath the monitor. */
+#left-hud {
+  width: auto;
+}
+#hud-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#daycycle-hud {
+  width: 124px;
+  height: 133px;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+}
+#stat-section {
+  width: 168px;
+}
+#calendar-section,
+#position-section {
+  width: 124px;
+  box-sizing: border-box;
+}
+#calendar-section .hud-row {
+  gap: 6px;
+}

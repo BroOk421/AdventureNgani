@@ -3949,6 +3949,24 @@ pixels can't be read on a file:// page).
      Saves/layers are untouched, so the grass is back when it stops
      snowing. The minimap still shows grass (it reads worldCanvas).
 
+131. **Day/night monitor in the top-left HUD; HUD re-laid.** Per request,
+     with the user's assets/asset/sunny_cycle_monitoring.png and
+     night_cycle_monitoring.png (36 frames of 881x943 each, from
+     dayandnightmonitoring.aseprite). The frames are the sun (moon) rising
+     on the right, crossing the top and setting on the left, so
+     js/daycyclehud.js picks the frame from the GAME CLOCK: 06:00-18:00 ->
+     sunny frames 0-35, 18:00-06:00 -> night frames 0-35 (one per 20 game
+     minutes; noon = sunny 18, midnight = night 18). It draws into
+     `#daycycle-hud` (264x283 canvas shown at 124px), redrawing only when
+     the frame changes (checked every 250ms). The full sheets are 31716px
+     wide (~120 MB each decoded), so it uses *_hud.png copies scaled to
+     264x283 per frame (~320 KB each); the originals are kept.
+     Layout: `#hud-top` = monitor + the stat bars beside it; under the
+     monitor `#calendar-section` = date with the clock next to it (the
+     clock replaced the "Day N" counter) and season + weather; then
+     Col/Row. The play-time timer is gone from the HUD (hud.js writes to
+     it and to Day N only if they exist; play time is still tracked/saved).
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order

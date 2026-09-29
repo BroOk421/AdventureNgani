@@ -87,13 +87,13 @@ function updateStatsHUD() {
   setBar(foodBarFillEl, foodBarTextEl, player.food, player.maxFood);
   setBar(expBarFillEl, expBarTextEl, player.exp, player.maxExp);
 
-  durationHudTextEl.textContent = formatDuration(player.playTimeSeconds);
+  if (durationHudTextEl) durationHudTextEl.textContent = formatDuration(player.playTimeSeconds); // timer removed from the HUD
 
   const tile = getPlayerTile();
   positionHudColEl.textContent = tile.col;
   positionHudRowEl.textContent = tile.row;
 
-  dayHudNumberEl.textContent = getGameDay();
+  if (dayHudNumberEl) dayHudNumberEl.textContent = getGameDay(); // "Day N" replaced by the clock
 
   const date = getCalendarDate(); // js/calendar.js
   calendarHudDateEl.textContent = date.weekdayAbbr + ", " + date.monthAbbr + " " + date.dayOfMonth; // weekday shown so Maria's work/weekend schedule (js/npc.js) is readable
