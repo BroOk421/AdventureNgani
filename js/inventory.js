@@ -3368,14 +3368,15 @@ const itemDefs = {
 
 // Plateau tiles that collide too — per request: "top-mountain 1 to 4,
 // top-inner-mountain 1 and 6, center-mountain 1, 6, 7, 12,
-// bottom-inner-mountain 1 and 6, bottom-mountain 1 and 4" (the plateau's
+// bottom-inner-mountain 1 and 6, bottom-mountain 1 and 4", later all of
+// bottom-mountain 1-4 (the plateau's
 // outer rim).
 const MOUNTAIN_SOLID_TILES = new Set([
   "top-mountain-1", "top-mountain-2", "top-mountain-3", "top-mountain-4",
   "top-inner-mountain-1", "top-inner-mountain-6",
   "center-mountain-1", "center-mountain-6", "center-mountain-7", "center-mountain-12",
   "bottom-inner-mountain-1", "bottom-inner-mountain-6",
-  "bottom-mountain-1", "bottom-mountain-4",
+  "bottom-mountain-1", "bottom-mountain-2", "bottom-mountain-3", "bottom-mountain-4", // 2 and 3 added per request
 ]);
 
 // The terrain tile sets (TERRAIN_TILE_SETS, js/assets.js): one flat,

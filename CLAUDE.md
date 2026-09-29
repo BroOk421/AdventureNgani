@@ -3927,6 +3927,10 @@ pixels can't be read on a file:// page).
        RrCc tile, diff 0.2-0.5). The three existing corner pieces (R0C0,
        R0C4, R4C0) are listed underneath.
 
+129. **bottom-mountain 2 and 3 collide too** (per request, same as 1 and
+     4) — added to `MOUNTAIN_SOLID_TILES`; 50 of 66 mountain tiles are
+     solid now, each the full 16x16.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order
