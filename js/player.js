@@ -6,6 +6,8 @@
    mechanic, see tryGrabOrPlaceInFront() in inventory.js), and the
    one-shot collect/put-down action, plus the per-frame update logic.
 ================================================================= */
+// After the last swing on a tree, how long it stays solid if you just stand there (ms).
+const CHOP_KEEP_SOLID_MS = 1500;
 const player = {
   x: MAP_W / 2,
   y: MAP_H / 2,
@@ -16,6 +18,7 @@ const player = {
                   // kept up to date even while carrying (mode picks the sheet)
   mode: "normal", // "normal" | "carrying" — now driven by whether `grabbedType` is set (see below), not a bare toggle
   action: null,   // null | "collect" | "crush" | "slice" | "hit" | "pierce" — a one-shot animation that locks movement
+  chopTree: null,       // { col, row, x, y, until } — the tree last swung at; it stays solid (no see-through fade) while you keep chopping it (isTreeBeingChopped(), js/camera.js)
   harvestTarget: null,  // { col, row, type } while action is an attack — which tile the hit resolves against (if any)
   equippedWeapon: null, // null | an itemDefs type with equipSlot === "weapon" (see equipWeapon(), inventory.js)
   grabbedType: null, // null | an itemDefs type — the world object (wild grass/flower/stone/tree) currently held via the E-key grab/place mechanic (tryGrabOrPlaceInFront(), inventory.js). Distinct from `heldItem` (the inventory-based hold-to-place system) — this one is pulled directly OUT of the world, not out of a slot, so unlike heldItem it IS saved (save.js) — losing track of it on reload would silently delete whatever was grabbed, since it's already removed from the world the moment it's picked up.
@@ -33,6 +36,11 @@ const player = {
   sitDrawOffsetX: 0, sitDrawOffsetY: 0, // per-seat nudge for the DRAWN seated sprite only (itemDefs' `poseOffsetX`/`poseOffsetY`) — never moves the player herself
   // --- interior scenes (js/interior.js) ---
   scene: "outside", // "outside" | "inside" — which coordinate space x/y are currently in
+  // Up on a mountain plateau / walking on a Port Bridge (true) vs down on
+  // the ground (false). Decides whether the bridge draws under or over the
+  // player (camera.js) and whether its tiles are walkable (isBodyBlockedAt()).
+  // Updated every frame by updatePlayerElevation().
+  elevated: false,
   activeInteriorType: null, // itemDefs type (e.g. "tavern") of the interior currently inside, or null while outside
   activeRoomId: null, // INTERIOR_ROOMS key (e.g. "tavern_room@40,22") the above type's `interior.roomId` resolved to — what rendering/collision actually look the room up by
   outsideReturn: null, // { x, y } saved the moment they entered — restored on exit so they come back exactly where they left off
@@ -126,22 +134,51 @@ function feetTileAt(x, y) {
 // that actually collides (trees, stones, the house, etc.).
 // `skipWallColliders`: leave out `wallColliderPx` items (tavern/abandonHouse) —
 // isBodyBlockedAt() below tests those pixel-accurately on its own.
-function isTileBlocked(col, row, skipWallColliders = false) {
-  if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return false; // clamp() already keeps the player on the map; nothing to block here
-
-  const layers = ALL_LAYERS;
-  for (const layer of layers) {
+// PERFORMANCE (per request, "optimize mo medyo lag"): this used to walk
+// EVERY item on EVERY layer (thousands — the whole map's grass and
+// mountain tiles) and rebuild each one's footprint, on every call — and
+// it's called several times a frame by the player, the NPCs, citizens
+// and animals. Now the blocked tiles are collected once into a Set and
+// reused until a layer changes (every layer Map's set/delete/clear bumps
+// `layerVersion`, hooked below) — plus a 1s refresh, since a footprint
+// can still change once its art finishes loading (computeFootprintOpacityGrid()).
+let layerVersion = 0;
+(function hookLayerVersion() {
+  for (const layer of ALL_LAYERS) {
+    const set = layer.set, del = layer.delete, clr = layer.clear;
+    layer.set = function (k, v) { layerVersion++; return set.call(this, k, v); };
+    layer.delete = function (k) { layerVersion++; return del.call(this, k); };
+    layer.clear = function () { layerVersion++; return clr.call(this); };
+  }
+})();
+let blockedTileIndex = null;
+function getBlockedTileIndex() {
+  const now = performance.now();
+  const idx = blockedTileIndex;
+  if (idx && idx.version === layerVersion && now - idx.at < 1000) return idx;
+  const all = new Set(), noWall = new Set();
+  for (const layer of ALL_LAYERS) {
     for (const [key, type] of layer) {
-      if (!itemDefs[type].collides) continue;
-      if (skipWallColliders && (itemDefs[type].wallColliderPx || itemDefs[type].depthBand || itemDefs[type].splitDepthTopRows)) continue; // pixel-tested in isBodyBlockedAt()
-      const [placedCol, placedRow] = key.split(",").map(Number);
-      const blockedTiles = getObjectFootprintBlockedTiles(type, placedCol, placedRow);
-      for (let i = 0; i < blockedTiles.length; i++) {
-        if (blockedTiles[i].col === col && blockedTiles[i].row === row) return true;
+      const def = itemDefs[type];
+      if (!def || !def.collides) continue;
+      const pixelTested = !!(def.wallColliderPx || def.depthBand || def.splitDepthTopRows); // isBodyBlockedAt() tests these itself
+      const comma = key.indexOf(",");
+      const tiles = getObjectFootprintBlockedTiles(type, +key.slice(0, comma), +key.slice(comma + 1));
+      for (let i = 0; i < tiles.length; i++) {
+        const k = tiles[i].col * 65536 + tiles[i].row;
+        all.add(k);
+        if (!pixelTested) noWall.add(k);
       }
     }
   }
-  return false;
+  blockedTileIndex = { version: layerVersion, at: now, all, noWall };
+  return blockedTileIndex;
+}
+
+function isTileBlocked(col, row, skipWallColliders = false) {
+  if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return false; // clamp() already keeps the player on the map; nothing to block here
+  const idx = getBlockedTileIndex();
+  return (skipWallColliders ? idx.noWall : idx.all).has(col * 65536 + row);
 }
 
 // The check the player's and the NPC's movement actually use: everything
@@ -162,11 +199,170 @@ function bodyFeetCols(x) {
   return c0 === c1 ? [c0] : [c0, c1];
 }
 
+/* --- Port Bridge (bridgeLayer, js/inventory.js) ---------------------
+   Per request: the bridge is HIGH — hooked onto a mountain. Coming onto
+   it from the mountain you walk ON it (drawn over it); anywhere else, down
+   on the ground, you walk UNDER it (it's drawn over you).
+     - `player.elevated` is set by where the feet are: a walkable mountain
+       tile (plateau) -> up, plain ground -> down, a bridge tile -> keep
+       whatever it was (so you stay up all the way across, and stay down
+       all the way under).
+     - While up, a bridge tile is always walkable, even over a solid
+       mountain rim/wall tile (that's where it's hooked on) or anything
+       else below it; and from a bridge you can't step off its side into
+       the air — only onto more bridge or onto the mountain.
+     - While down, the bridge doesn't exist for collision at all.
+   Only the PLAYER does this (`collisionForPlayer`); NPCs never go up. */
+let collisionForPlayer = false;
+
+// bridgeLayer holds both the bridge tiles and the stairs — tell them apart.
+function hasBridgeAt(col, row) {
+  const type = bridgeLayer.get(tileKey(col, row));
+  return !!type && !!itemDefs[type].isBridge;
+}
+
+// Dirt Stairs (per request): walkable for the player even over a solid
+// mountain wall — the way up and down the cliff. Like the bridge they keep
+// `elevated` as it was, so you only become "up" once you reach the
+// plateau at the top, and "down" once you reach the ground at the bottom.
+function hasStairsAt(col, row) {
+  const type = bridgeLayer.get(tileKey(col, row));
+  return !!type && !!itemDefs[type].isStairs;
+}
+
+// Ground a bridge can be hooked onto — where the player counts as "up":
+// a walkable mountain-top tile, or (per request) a Grass / Brick / Snow
+// tile-set tile (grass_tile, bricks_tile, snow_tile). Lay a few of those
+// at the bridge's ends and walking from them takes you ON the bridge.
+// A mountain wall on top of the cell still wins (not walkable = not up).
+const BRIDGE_LANDING_GROUND = /^terrain(Grass|Bricks|Snow)/;
+// A collidable mountain tile (rim / wall) on either terrain layer.
+function isSolidMountainAt(col, row) {
+  const key = tileKey(col, row);
+  for (const layer of [groundOverlayLayer, groundLayer]) {
+    const t = layer.get(key);
+    if (t && t.startsWith("terrainMountain") && itemDefs[t] && itemDefs[t].collides) return true;
+  }
+  return false;
+}
+
+function isHighGroundAt(col, row) {
+  const key = tileKey(col, row);
+  const over = groundOverlayLayer.get(key);
+  if (over && over.startsWith("terrainMountain")) return !itemDefs[over].collides;
+  const ground = groundLayer.get(key);
+  return !!ground && BRIDGE_LANDING_GROUND.test(ground);
+}
+
+// How far below the feet line (SPRITE_FEET_FRACTION) the drawn soles
+// are: every player sprite sheet's frames are 64px tall with the feet's
+// lowest pixel at row 48 (= 0.75 of the frame), drawn DRAW_SIZE tall.
+// Used only for walking on a Port Bridge (isBodyBlockedAt()).
+const BRIDGE_SOLE_DROP = (48 / 64 - SPRITE_FEET_FRACTION) * DRAW_SIZE - 0.01;
+
+// Is this pixel (tile-local lx, ly) of the bridge tile at col,row drawn?
+// Drawn = deck you can stand on; transparent = deadspace.
+function isBridgePixelDrawn(col, row, lx, ly) {
+  const type = bridgeLayer.get(tileKey(col, row));
+  const mask = type && BRIDGE_TILE_ALPHA[type.slice("bridgeTile".length)];
+  if (!mask) return true;
+  return ((mask[ly] >> lx) & 1) === 1;
+}
+
+function updatePlayerElevation() {
+  if (player.scene !== "outside") return;
+  const t = feetTileAt(player.x, player.y);
+  if (hasBridgeAt(t.col, t.row) || hasStairsAt(t.col, t.row)) return; // on/under the bridge, or on the stairs: stay as we were
+  // the soles (what the bridge collision uses) can still be on the planks
+  // while the feet line is just past them — still on the bridge then
+  const soleRow = Math.floor((player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE + BRIDGE_SOLE_DROP) / TILE);
+  if (hasBridgeAt(t.col, soleRow)) return;
+  player.elevated = isHighGroundAt(t.col, t.row);
+}
+
+// Does this bridge tile have a closed rail on that side?
+// (BRIDGE_TILE_CLOSED_EDGES, js/assets.js)
+function bridgeEdgeClosed(col, row, side) {
+  const type = bridgeLayer.get(tileKey(col, row));
+  const edges = type && itemDefs[type].isBridge && BRIDGE_TILE_CLOSED_EDGES[type.slice("bridgeTile".length)];
+  return !!edges && edges.includes(side);
+}
+
 function isBodyBlockedAt(x, y) {
   const feetY = y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
   const row = Math.floor(feetY / TILE);
-  for (const col of bodyFeetCols(x)) {
+  const cols = bodyFeetCols(x);
+  const onBridge = collisionForPlayer && player.elevated;
+  if (onBridge) {
+    // Pixel-exact, per request: on a bridge tile only its DRAWN pixels are
+    // walkable — the transparent deadspace around the planks is solid.
+    // Every pixel of the 12px feet line is checked. Deadspace over a
+    // walkable mountain tile (where the bridge meets the plateau) stays
+    // walkable, since there's ground under it there.
+    //
+    // Up on the bridge this is measured at the SOLES — the bottom of the
+    // drawn feet — not at the usual feet line (SPRITE_FEET_FRACTION, ~6
+    // world px higher, about ankle/shin level on the sprite). With the feet
+    // line, the drawn feet hung ~6px past the planks' edge (the user's
+    // video, R5C1's bottom edge); with the soles they stop right on it.
+    const soleY = feetY + BRIDGE_SOLE_DROP;
+    const srow = Math.floor(soleY / TILE);
+    const ly = Math.min(TILE - 1, Math.max(0, Math.floor(soleY) - srow * TILE));
+    const px0 = Math.floor(x - BODY_COLLISION_HALF_W);
+    const px1 = Math.floor(x + BODY_COLLISION_HALF_W - 0.001);
+    // Closed rails (BRIDGE_TILE_CLOSED_EDGES): the soles can't cross a
+    // closed side of the bridge tile they're on now — e.g. the bottom of
+    // R5C1 — no matter what's past it.
+    const curSoleY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE + BRIDGE_SOLE_DROP;
+    const curRow = Math.floor(curSoleY / TILE);
+    if (srow !== curRow) {
+      const side = srow > curRow ? "bottom" : "top";
+      for (let px = px0; px <= px1; px++) {
+        if (bridgeEdgeClosed(Math.floor(px / TILE), curRow, side)) return true;
+      }
+    }
+    for (let px = px0; px <= px1; px++) {
+      const col = Math.floor(px / TILE);
+      if (!hasBridgeAt(col, srow)) continue;
+      if (isBridgePixelDrawn(col, srow, px - col * TILE, ly)) continue;
+      if (!isHighGroundAt(col, srow)) return true;
+    }
+    const hereCol = Math.floor(player.x / TILE);
+    const standingOnBridge = hasBridgeAt(hereCol, curRow);
+    let allBridge = true;
+    for (const col of cols) {
+      if (hasBridgeAt(col, srow) || hasStairsAt(col, srow)) continue;
+      allBridge = false;
+      // stepping off the bridge's side into thin air
+      if (standingOnBridge && !isHighGroundAt(col, srow)) return true;
+    }
+    if (allBridge) return false; // on the bridge deck — nothing below it matters
+  }
+  for (const col of cols) {
+    if (onBridge && hasBridgeAt(col, row)) continue;
+    if (collisionForPlayer && hasStairsAt(col, row)) continue; // stairs: walkable, up or down
     if (isTileBlocked(col, row, true)) return true;
+  }
+  // Solid mountain tiles vs the drawn SOLES, not just the feet line — per
+  // request ("nakakapatong kasi yung character sa collisions" at the
+  // mountain's top corner/rim): the feet line sits ~6 world px above the
+  // soles, so walking DOWN onto the plateau's top rim the feet stopped at
+  // the tile's edge while the shoes were already standing on it. Now the
+  // soles stop at the rim's top edge. (Coming from below nothing changes —
+  // the feet line hits first.) If the soles are already inside such a tile
+  // (an old save / a spawn), moving within it is allowed so you can't get
+  // stuck — only stepping deeper into a NEW solid row is refused.
+  if (!onBridge) {
+    const soleRow = Math.floor((feetY + BRIDGE_SOLE_DROP) / TILE);
+    if (soleRow !== row) {
+      const curSoleRow = Math.floor((player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE + BRIDGE_SOLE_DROP) / TILE);
+      for (const col of cols) {
+        if (!isSolidMountainAt(col, soleRow)) continue;
+        if (hasStairsAt(col, soleRow) || hasBridgeAt(col, soleRow)) continue;
+        if (soleRow === curSoleRow && isSolidMountainAt(Math.floor(player.x / TILE), curSoleRow)) continue;
+        return true;
+      }
+    }
   }
   for (const [key, type] of objectLayer) {
     if (!itemDefs[type].wallColliderPx) continue;
@@ -258,6 +454,29 @@ function updatePlayer(dt) {
   // collect/throw/harvest/movement logic below (none of which means
   // anything indoors: no world objects in there to grab or harvest).
   if (player.scene === "inside") {
+    // Room tools (js/roomCustomizer.js): F with the Room Pickaxe / Room
+    // Hammer equipped plays the Crush swing, then digs or fills the 2x2
+    // in front. Movement waits for the swing, like outdoors.
+    if (player.action && player.indoorTool) {
+      player.frameTimer += dt;
+      if (player.frameTimer >= 1 / ANIM_FPS[player.action]) {
+        player.frameTimer = 0;
+        player.frame++;
+        if (player.frame >= FRAME_COUNTS[player.action]) {
+          const tool = player.indoorTool;
+          player.action = null; player.indoorTool = null; player.frame = 0;
+          resolveRoomTool(tool);
+        }
+      }
+      return;
+    }
+    if (harvestRequested && isRoomTool(player.equippedWeapon)) {
+      harvestRequested = false;
+      startRoomToolSwing(player.equippedWeapon, null); // 5-tile strip in front (js/roomCustomizer.js)
+      return;
+    }
+    // The mines (js/mines.js): mobs move every frame; F swings at them.
+    if (typeof mineIndoorUpdate === "function" && mineIndoorUpdate(dt)) return;
     updatePlayerInsideInterior(dt);
     // E/T/R for a placed Collision Block (js/interior.js) — the same
     // one-shot flags input.js already tracks for the outdoor versions,
@@ -279,6 +498,9 @@ function updatePlayer(dt) {
     return;
   }
 
+  // Mobs in the east worlds (js/mines.js): they move every frame, and F swings at one in front.
+  if (typeof mobOutdoorUpdate === "function" && mobOutdoorUpdate(dt)) return;
+
   // --- one-shot action animations: lock movement until they finish ---
   if (player.action) {
     const fps = ANIM_FPS[player.action];
@@ -288,7 +510,12 @@ function updatePlayer(dt) {
       player.frameTimer = 0;
       player.frame++;
       if (player.frame >= frameCount) {
-        if (player.action === "collect") {
+        if (player.farmAction) {
+          // till / water / harvest (js/farm.js)
+          const fa = player.farmAction;
+          player.farmAction = null;
+          farmResolveAction(fa);
+        } else if (player.action === "collect") {
           // animation finished — grab whatever's on the tile directly in
           // front of the player, or if already holding something from a
           // previous grab, place it back down there instead
@@ -348,12 +575,18 @@ function updatePlayer(dt) {
   // does the equipped weapon's animation (or a bare-handed "hit") show.
   if (harvestRequested) {
     harvestRequested = false;
+    if (typeof farmTryToolAction === "function" && farmTryToolAction(null)) return; // hoe / watering can (js/farm.js)
     const target = findHarvestableTarget();
     const attackAnim = target
       ? itemDefs[target.type].resource.breakAnim
       : (player.equippedWeapon ? itemDefs[player.equippedWeapon].weapon.attackAnim : "hit");
     player.action = attackAnim;
     player.harvestTarget = target; // null is fine — just a swing
+    // Chopping a tree: keep THAT tree solid while you work on it (see
+    // isTreeBeingChopped(), js/camera.js). Renewed every swing.
+    player.chopTree = target && typeof isShakingTree === "function" && isShakingTree(target.type)
+      ? { col: target.col, row: target.row, x: player.x, y: player.y, until: performance.now() + CHOP_KEEP_SOLID_MS }
+      : null;
     player.frame = 0;
     player.frameTimer = 0;
     return;
@@ -413,8 +646,8 @@ function updatePlayer(dt) {
     vx /= len; vy /= len;
     const speed = player.speed * (running ? player.runMult : 1) * (starving ? HUNGRY_WALK_MULT : 1);
 
-    const wantX = clamp(player.x + vx * speed * dt, DRAW_SIZE / 2, MAP_W - DRAW_SIZE / 2);
-    const wantY = clamp(player.y + vy * speed * dt, DRAW_SIZE / 2, MAP_H - DRAW_SIZE / 2);
+    const wantX = clamp(player.x + vx * speed * dt, DRAW_SIZE / 2, worldW() - DRAW_SIZE / 2); // js/worlds.js
+    const wantY = clamp(player.y + vy * speed * dt, DRAW_SIZE / 2, worldH() - DRAW_SIZE / 2);
 
     // Separate-axis collision: try moving on X and Y independently rather
     // than as one combined step, so bumping into a tree/rock on one axis
@@ -425,6 +658,7 @@ function updatePlayer(dt) {
     // save from before a collision change put them right against a wall
     // that's now a few px wider), let them walk freely until they're out,
     // instead of every direction being refused forever.
+    collisionForPlayer = true; // bridge rules apply to the player only (see isBodyBlockedAt())
     if (isBodyBlockedAt(player.x, player.y)) {
       player.x = wantX;
       player.y = wantY;
@@ -445,6 +679,8 @@ function updatePlayer(dt) {
         }
       }
     }
+    collisionForPlayer = false;
+    updatePlayerElevation();
 
     // Any horizontal input at all (including diagonals like top-left,
     // top-right, bottom-left, bottom-right) uses the left/right side

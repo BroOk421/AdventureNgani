@@ -140,7 +140,148 @@ const MINIMAP_WORLD_SPAN = 640; // world px across the dial — 40 tiles; lower 
 // smear. Only things that stand up get the boost.
 const MINIMAP_ITEM_SCALE = 1.5;
 
+
+/* ---------------- map icons ----------------
+   Per request: instead of plain dots, the minimap and the world map show
+   each townsperson's own HEAD (cropped from their sprite — the front view
+   when they have one, else their side view) and each animal's head, and
+   the player is an arrow pointing the way they face. Each icon is cut
+   once from the loaded art and cached. */
+const MAP_ICON_PX = 12; // drawn size on the 110px dial
+const mapIconCache = new Map();
+
+// Crops the opaque part of `rows` (frame rows) of frame 0 of a sheet.
+function cropMapIcon(key, sheet, fw, fh, y0, y1, x0 = 0, x1 = fw) {
+  if (mapIconCache.has(key)) return mapIconCache.get(key);
+  if (!sheet || !sheet.width) return null;
+  const c = document.createElement("canvas");
+  c.width = fw; c.height = fh;
+  const g = c.getContext("2d");
+  g.drawImage(sheet, 0, 0, fw, fh, 0, 0, fw, fh);
+  let d;
+  try { d = g.getImageData(0, 0, fw, fh).data; } catch (e) { mapIconCache.set(key, null); return null; }
+  let minX = fw, minY = fh, maxX = -1, maxY = -1;
+  for (let y = Math.max(0, y0); y < Math.min(fh, y1); y++) {
+    for (let x = Math.max(0, x0); x < Math.min(fw, x1); x++) {
+      if (d[(y * fw + x) * 4 + 3] > 40) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) { mapIconCache.set(key, null); return null; }
+  const w = maxX - minX + 1, h = maxY - minY + 1, sz = Math.max(w, h);
+  const out = document.createElement("canvas");
+  out.width = sz; out.height = sz;
+  out.getContext("2d").drawImage(c, minX, minY, w, h, Math.floor((sz - w) / 2), Math.floor((sz - h) / 2), w, h);
+  mapIconCache.set(key, out);
+  return out;
+}
+
+// A townsperson's head: the 64x64 character frame, rows from the top of the
+// hair down to the chin (the collar line sits at about row 31).
+function citizenMapIcon(id) {
+  const down = assets["citizen" + id + "IdleDown"];
+  const sheet = down && down.width ? down : assets["citizen" + id + "IdleRight"];
+  return cropMapIcon("cit" + id, sheet, FRAME_SIZE, FRAME_SIZE, 0, 31);
+}
+function mariaMapIcon() { return cropMapIcon("maria", assets.npcIdleRight, FRAME_SIZE, FRAME_SIZE, 0, 31); }
+
+// An animal's head, from its front (idle, facing down) frame: the top part
+// for the big ones (cow: head and horns, sheep: face and wool cap, pig:
+// face), the whole little chicken.
+const ANIMAL_HEAD_ROWS = { chicken: [0, 1], pig: [0.15, 0.8], cow: [0, 0.68], sheep_white: [0.1, 0.78], sheep_blackface: [0.1, 0.78], sheep_cream: [0.1, 0.78] };
+function animalMapIcon(id) {
+  const sheet = assets["animal_" + id + "_idle_down"];
+  if (!sheet || !sheet.width) return null;
+  const fw = Math.floor(sheet.width / 4), fh = sheet.height;
+  const r = ANIMAL_HEAD_ROWS[id] || [0, 1];
+  return cropMapIcon("ani" + id, sheet, fw, fh, Math.floor(fh * r[0]), Math.ceil(fh * r[1]));
+}
+
+function drawMapIcon(g, icon, x, y, size) {
+  if (!icon) { // art can't be read (e.g. a file:// page taints the canvas) — a plain dot instead
+    g.beginPath(); g.arc(x, y, Math.max(2, size * 0.2), 0, Math.PI * 2);
+    g.fillStyle = "#ffffff"; g.fill(); g.lineWidth = 1; g.strokeStyle = "rgba(0,0,0,0.6)"; g.stroke();
+    return true;
+  }
+  g.imageSmoothingEnabled = false;
+  g.drawImage(icon, Math.round(x - size / 2), Math.round(y - size / 2), size, size);
+  return true;
+}
+
+// The player: an arrow pointing the way they face.
+function drawPlayerArrow(g, x, y, size) {
+  const ang = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }[player.facing] ?? -Math.PI / 2;
+  g.save();
+  g.translate(x, y);
+  g.rotate(ang);
+  g.beginPath();
+  g.moveTo(size * 0.6, 0);
+  g.lineTo(-size * 0.45, -size * 0.42);
+  g.lineTo(-size * 0.18, 0);
+  g.lineTo(-size * 0.45, size * 0.42);
+  g.closePath();
+  g.fillStyle = "#ffffff";
+  g.fill();
+  g.lineWidth = Math.max(1, size * 0.14);
+  g.strokeStyle = "rgba(0,0,0,0.85)";
+  g.lineJoin = "round";
+  g.stroke();
+  g.restore();
+}
+
+// Performance: the dial is its own small canvas and keeps its picture
+// between draws, so it's only redrawn every MINIMAP_EVERY frames (the dots
+// still move at ~20 fps) — it walks every placed item in its window.
+// The items layer of the dial, for the whole map, at the dial's scale.
+const MINIMAP_BAKE_PAD = 256; // world px of margin round the map — tall art pokes above row 0
+let minimapBake = null;
+function minimapItemsCanvas(scale) {
+  const ver = typeof layerVersion !== "undefined" ? layerVersion : 0;
+  const b = minimapBake;
+  // also refreshed every few seconds while art is still loading in
+  if (b && b.scale === scale && b.version === ver && (b.complete || performance.now() - b.at < 3000)) return b;
+  let maxCol = 0, maxRow = 0;
+  for (const layer of ALL_LAYERS) for (const key of layer.keys()) {
+    const comma = key.indexOf(",");
+    maxCol = Math.max(maxCol, +key.slice(0, comma)); maxRow = Math.max(maxRow, +key.slice(comma + 1));
+  }
+  const W = Math.ceil(((maxCol + 1) * TILE + MINIMAP_BAKE_PAD * 2) * scale);
+  const H = Math.ceil(((maxRow + 1) * TILE + MINIMAP_BAKE_PAD * 2) * scale);
+  const cv = b && b.canvas.width === W && b.canvas.height === H ? b.canvas : document.createElement("canvas");
+  cv.width = W; cv.height = H; // also clears it
+  const g = cv.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  let complete = true;
+  for (const layer of ALL_LAYERS) {
+    for (const [key, type] of layer) {
+      const comma = key.indexOf(",");
+      const col = +key.slice(0, comma);
+      const row = +key.slice(comma + 1);
+      const def = itemDefs[type];
+      if (!def || !def.icon) continue;
+      if (!def.icon.width) { complete = false; continue; } // art not loaded yet
+      const icon = def.icon;
+      // Grown from the BASE of its tile (so a bigger tree only gets taller),
+      // shifted by `artRoot` like the real sprite — same as camera.js.
+      const bump = def.flat ? 1 : MINIMAP_ITEM_SCALE;
+      const dw = icon.width * scale * bump;
+      const dh = icon.height * scale * bump;
+      const root = def.artRoot;
+      const dx = ((col + 0.5) * TILE + MINIMAP_BAKE_PAD) * scale - dw / 2 - (root ? root.x * scale : 0);
+      const dy = ((row + 1) * TILE + MINIMAP_BAKE_PAD) * scale - dh - (root ? root.y * scale : 0);
+      g.drawImage(icon, dx, dy, dw, dh);
+    }
+  }
+  minimapBake = { canvas: cv, scale, version: ver, at: performance.now(), complete };
+  return minimapBake;
+}
+
+const MINIMAP_EVERY = 3;
+let minimapFrame = 0;
 function drawMinimap() {
+  if (++minimapFrame % MINIMAP_EVERY !== 0) return;
   const w = minimapCanvas.width;
   const h = minimapCanvas.height;
   const radius = Math.min(w, h) / 2;
@@ -149,8 +290,16 @@ function drawMinimap() {
   // the canvas's own proportions so nothing is stretched.
   const spanW = MINIMAP_WORLD_SPAN;
   const spanH = (spanW * h) / w;
-  const originX = player.x - spanW / 2;
-  const originY = player.y - spanH / 2;
+  // Per request: the dial only ever shows the map itself — near an edge it
+  // stops at the border (the player's arrow moves off-centre instead) rather
+  // than showing the dark/brown nothing past it. Uses the CURRENT world's
+  // size (the wild world is smaller than the town).
+  const mapW = typeof worldW === "function" ? worldW() : MAP_W;
+  const mapH = typeof worldH === "function" ? worldH() : MAP_H;
+  const clampTo = (v, span, size) => (size <= span ? (size - span) / 2 : Math.max(0, Math.min(size - span, v)));
+  const at = player.scene === "inside" && player.outsideReturn ? player.outsideReturn : player; // indoors: where you went in
+  const originX = clampTo(at.x - spanW / 2, spanW, mapW);
+  const originY = clampTo(at.y - spanH / 2, spanH, mapH);
   const scale = w / spanW; // world px -> minimap px
   const toX = (wx) => (wx - originX) * scale;
   const toY = (wy) => (wy - originY) * scale;
@@ -171,7 +320,12 @@ function drawMinimap() {
   // scales the destination to match, which is exactly the "dark past the
   // border" look we want near a map edge.
   minimapCtx.imageSmoothingEnabled = false;
-  minimapCtx.drawImage(worldCanvas, originX, originY, spanW, spanH, 0, 0, w, h);
+  // only the part of the ground canvas that is this world's map
+  {
+    const sx = Math.max(0, originX), sy = Math.max(0, originY);
+    const ex = Math.min(mapW, originX + spanW), ey = Math.min(mapH, originY + spanH);
+    if (ex > sx && ey > sy) minimapCtx.drawImage(worldCanvas, sx, sy, ex - sx, ey - sy, toX(sx), toY(sy), (ex - sx) * scale, (ey - sy) * scale);
+  }
 
   // Everything placed on top of it — same bottom-centre anchor
   // camera.js draws the real thing with, so the dial lines up with what
@@ -183,64 +337,55 @@ function drawMinimap() {
   const minRow = Math.floor(originY / TILE) - margin;
   const maxRow = Math.ceil((originY + spanH) / TILE) + margin;
 
-  for (const layer of ALL_LAYERS) {
-    for (const [key, type] of layer) {
-      const comma = key.indexOf(",");
-      const col = +key.slice(0, comma);
-      const row = +key.slice(comma + 1);
-      if (col < minCol || col > maxCol || row < minRow || row > maxRow) continue;
-      const def = itemDefs[type];
-      if (!def || !def.icon || !def.icon.width) continue; // stale/removed type, or art not loaded yet
-      const icon = def.icon;
-      // Grown from the BASE of the tile it stands on, not from its
-      // middle — so an enlarged house/tree still sits exactly where it
-      // really is and only gets taller, the same way the real sprite is
-      // anchored. Scaling about the centre would drift everything
-      // down-right of its true spot.
-      const bump = def.flat ? 1 : MINIMAP_ITEM_SCALE;
-      const dw = icon.width * scale * bump;
-      const dh = icon.height * scale * bump;
-      // `artRoot` items (lamp posts) hang off to one side of their tile
-      // rather than sitting centred on it, so the dial has to apply the
-      // same shift the world does or they'd show up a tile or two out.
-      const root = def.artRoot;
-      const dx = toX((col + 0.5) * TILE) - dw / 2 - (root ? root.x * scale : 0);
-      const dy = toY((row + 1) * TILE) - dh - (root ? root.y * scale : 0);
-      minimapCtx.drawImage(icon, dx, dy, dw, dh);
-    }
+  // PERFORMANCE: every placed item used to be redrawn into the dial on
+  // every refresh (~1,700 drawImage calls). They're now baked ONCE into a
+  // whole-map canvas at the dial's scale (minimapItemsCanvas() below) and
+  // the dial just crops it — rebuilt only when a layer changes
+  // (layerVersion, js/player.js) or the dial is resized.
+  const baked = minimapItemsCanvas(scale);
+  if (baked) {
+    minimapCtx.drawImage(baked.canvas, (originX + MINIMAP_BAKE_PAD) * scale, (originY + MINIMAP_BAKE_PAD) * scale, w, h, 0, 0, w, h);
   }
+  void minCol; void maxCol; void minRow; void maxRow;
 
   // (The white camera-viewport box that used to be drawn here was
   // removed per request — "alisin mo na yung mismong border na white".)
 
-  // NPC dot (only when they're actually inside the window)
-  const npcX = toX(npc.x), npcY = toY(npc.y);
-  if (npcX >= 0 && npcX <= w && npcY >= 0 && npcY <= h) {
-    minimapCtx.fillStyle = "#e0c56c";
-    minimapCtx.beginPath();
-    minimapCtx.arc(npcX, npcY, 2.5, 0, Math.PI * 2);
-    minimapCtx.fill();
+  // Heads instead of dots (map icons above): animals first, then the
+  // townsfolk and tavern customers outside, Maria, and the player's arrow
+  // last so nothing covers it.
+  const inDial = (x, y) => x >= -6 && x <= w + 6 && y >= -6 && y <= h + 6;
+  if (typeof animals !== "undefined") {
+    for (const a of animals) {
+      const ax = toX(a.fx), ay = toY(a.fy);
+      if (inDial(ax, ay)) drawMapIcon(minimapCtx, animalMapIcon(a.id), ax, ay, a.id === "cow" ? MAP_ICON_PX : MAP_ICON_PX - 2);
+    }
   }
-
-  // Citizen dots (js/citizens.js)
-  minimapCtx.fillStyle = "#9fd3ff";
   for (const c of citizens) {
     if (c.scene !== "outside") continue;
     const cx = toX(c.fx), cy = toY(c.fy);
-    if (cx < 0 || cx > w || cy < 0 || cy > h) continue;
-    minimapCtx.beginPath();
-    minimapCtx.arc(cx, cy, 2, 0, Math.PI * 2);
-    minimapCtx.fill();
+    if (inDial(cx, cy)) drawMapIcon(minimapCtx, citizenMapIcon(c.id), cx, cy, MAP_ICON_PX);
+  }
+  if (typeof customers !== "undefined") {
+    for (const cu of customers) {
+      if (cu.scene !== "outside" || cu.state === "away" || !cu.look) continue;
+      const cx = toX(cu.fx), cy = toY(cu.fy);
+      if (inDial(cx, cy)) drawMapIcon(minimapCtx, citizenMapIcon(cu.look), cx, cy, MAP_ICON_PX);
+    }
+  }
+  if (npc.scene === "outside") {
+    const npcX = toX(npc.x), npcY = toY(npc.y);
+    if (inDial(npcX, npcY)) drawMapIcon(minimapCtx, mariaMapIcon(), npcX, npcY, MAP_ICON_PX);
   }
 
-  // Player dot — always dead centre now, drawn last so nothing covers it.
-  minimapCtx.fillStyle = "#ffffff";
-  minimapCtx.strokeStyle = "rgba(0,0,0,0.6)";
-  minimapCtx.lineWidth = 1;
-  minimapCtx.beginPath();
-  minimapCtx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
-  minimapCtx.fill();
-  minimapCtx.stroke();
+  // The player — an arrow, always dead centre.
+  {
+    // off-centre near a map edge (the dial stops at the border); kept inside the round dial
+    let ax = toX(at.x) - w / 2, ay = toY(at.y) - h / 2;
+    const d = Math.hypot(ax, ay), lim = radius - 8;
+    if (d > lim) { ax *= lim / d; ay *= lim / d; }
+    drawPlayerArrow(minimapCtx, w / 2 + ax, h / 2 + ay, 12);
+  }
 
   minimapCtx.restore();
 
@@ -274,16 +419,18 @@ function isFullMapOpen() {
 }
 
 function drawFullMapBase() {
-  const s = Math.min((window.innerWidth * 0.9) / MAP_W, (window.innerHeight * 0.8) / MAP_H);
+  // only this world's map (the wild world is smaller than the town)
+  const MW = typeof worldW === "function" ? worldW() : MAP_W, MH = typeof worldH === "function" ? worldH() : MAP_H;
+  const s = Math.min((window.innerWidth * 0.9) / MW, (window.innerHeight * 0.8) / MH);
   fullMapScale = s;
-  const w = Math.max(1, Math.round(MAP_W * s));
-  const h = Math.max(1, Math.round(MAP_H * s));
+  const w = Math.max(1, Math.round(MW * s));
+  const h = Math.max(1, Math.round(MH * s));
   for (const c of [fullMapBaseEl, fullMapDotsEl]) { c.width = w; c.height = h; }
   const g = fullMapBaseEl.getContext("2d");
   g.imageSmoothingEnabled = true;
   g.fillStyle = "#14100a";
   g.fillRect(0, 0, w, h);
-  g.drawImage(worldCanvas, 0, 0, MAP_W, MAP_H, 0, 0, w, h);
+  g.drawImage(worldCanvas, 0, 0, MW, MH, 0, 0, w, h);
   for (const layer of ALL_LAYERS) {
     for (const [key, type] of layer) {
       const def = itemDefs[type];
@@ -313,11 +460,14 @@ function drawFullMapDots() {
     g.strokeStyle = "rgba(0,0,0,0.7)";
     g.stroke();
   };
-  if (npc.scene === "outside") dot(npc.x, npc.y, 4, "#e0c56c");
-  for (const c of citizens) if (c.scene === "outside") dot(c.fx, c.fy, 3, "#9fd3ff"); // wandering citizens (js/citizens.js)
+  const icon = (ic, x, y, sz) => { if (!drawMapIcon(g, ic, x * s, y * s, sz)) dot(x, y, 3, "#ffffff"); };
+  if (typeof animals !== "undefined") for (const a of animals) icon(animalMapIcon(a.id), a.fx, a.fy, a.id === "cow" ? 16 : 13); // farm animals (js/animals.js)
+  for (const c of citizens) if (c.scene === "outside") icon(citizenMapIcon(c.id), c.fx, c.fy, 16); // townsfolk (js/citizens.js)
+  if (typeof customers !== "undefined") for (const cu of customers) if (cu.scene === "outside" && cu.state !== "away" && cu.look) icon(citizenMapIcon(cu.look), cu.fx, cu.fy, 16);
+  if (npc.scene === "outside") icon(mariaMapIcon(), npc.x, npc.y, 16);
   // Indoors, player.x/y are room coordinates — show where they went in.
   const p = player.scene === "inside" && player.outsideReturn ? player.outsideReturn : player;
-  dot(p.x, p.y, 5, "#ffffff");
+  drawPlayerArrow(g, p.x * s, p.y * s, 14);
 }
 
 function openFullMap() {

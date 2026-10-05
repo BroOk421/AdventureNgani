@@ -3339,6 +3339,378 @@ night shadow. It now checks the actual pixel under the light
 (iconOpaqueNear(), alpha cached per image; falls back to the box if the
 pixels can't be read on a file:// page).
 
+### Farm animals (js/animals.js)
+
+Per request ("animate mo na lagay mo na sa map random map muna gawa ka
+ng folder niyan like animals"): chickens, pigs, cows and three kinds of
+sheep wander the outdoor map.
+
+- Art: `assets/animals/<id>/idle/Idle_<Dir>.png` and `walk/Walk_<Dir>.png`
+  (Dir = Down/Up/Left/Right), each ONE horizontal strip of 4 frames. Ids:
+  chicken, pig, cow, sheep_white, sheep_blackface, sheep_cream. Frame size
+  differs per animal and is read from the image (width / 4, full height);
+  feet sit 1px above each frame's bottom edge. Loaded in js/assets.js.
+- Groups (`ANIMAL_GROUPS`) spawn at random free spots 8-30 tiles from the
+  player on load and wander within `wander` tiles of their group's spot.
+  Not saved, re-rolled each load (same as the citizens).
+- Pathing/avoidance reuses the citizens' tools: findNpcTilePath() over
+  customerOutdoorBlocked(); people and other animals count as blocked
+  when planning; wait / re-plan / give up when someone is in front.
+- Size per type via `scale` in `ANIMAL_TYPES` (world px per art px;
+  characters are 0.75). Speeds, idle times, fps also live there.
+- Drawing: feet Y-sort in renderWorldObjectsSorted(), own sun-driven
+  silhouette shadow (drawAnimalShadow), cut-outs for the night relight
+  (animalRelightOccluders in relightOccluders()). At night they darken
+  like the scenery and mostly stand still.
+- Lit at night (per request "kapag tumama yung circle light sa mga animals
+  is mag normal yung kulay... hindi agad agad... langyan mo ng shadow"):
+  each animal's `lit` (0..1) eases (ANIMAL_LIGHT_EASE) toward how deep it
+  stands in any light — the player's/Maria's/citizens' candles and lamp
+  posts (animalLightSources()) — and animalRelightList() paints its true
+  colours back at night * lit through drawMaskedRelight(). In a light
+  they're occluders too: collectLightOccluders(..., { withAnimals: true })
+  from drawCharacterGlow() and getShadowedPostGlow(), so the light throws
+  their shadow away from the source. Their frame canvases carry a
+  `lightSig` so the lamps' shadow cache notices when they move.
+
+### Mountain plateau casts no night shadow
+
+Per request: the top / inner / center / bottom mountain grass tiles (every
+Mountain tile without "wall" in its name) are flagged `noLightShadow`
+(js/inventory.js) and skipped by collectLightOccluders(). Some of them
+collide (MOUNTAIN_SOLID_TILES, the plateau rim), which is why they used to
+throw shadows from candles and lamps. Walls still do.
+
+### Birds (js/birds.js)
+
+Per request ("randomly lumilipad sa map ... minsan isa minsan dalawa minsan
+tatlo pero sa umaga lang sila lumilipad kapag sunny lang"): flocks of 1-3
+birds (maya, white dove, blue bird) cross the view left->right or
+right->left in a loose V, flapping with the odd glide.
+
+- Art: `assets/animals/bird_<kind>/fly/Fly_Right.png` + `Fly_Left.png`,
+  4-frame wing-flap strips, side view, no feet. Loaded in js/assets.js.
+- Only spawn between BIRD_START_HOUR and BIRD_END_HOUR (06:30-17:30) while
+  getCurrentWeather().name is "Sunny", outdoors. A flock already flying
+  when that stops finishes its crossing. Spawned just off-screen, removed
+  once past the far side. At most BIRD_MAX_FLOCKS at once.
+- Drawn above every object (drawBirds(), before the clouds in render());
+  their shadow is drawn on the ground before renderWorldObjectsSorted()
+  (drawBirdShadows()), offset down by each bird's altitude.
+- Pure ambience: no collision, not saved.
+- Made smaller per request: BIRD_SCALE 0.55 -> 0.38.
+
+### Cows and sheep graze
+
+Per request (cows/sheep "kumakain", no grass drawn; the pig and chicken
+versions were rejected): `assets/animals/{cow,sheep_*}/eat/Eat_<Dir>.png`,
+4 frames, head lowered and bobbing as they chew. When a grazer stops
+walking in the daytime, ANIMAL_EAT_CHANCE decides if that stop is spent
+eating (ANIMAL_EAT_TIME seconds, `a.eating`, anim "eat") instead of
+standing. Types opt in with `eats: true` in ANIMAL_TYPES. Frame sizes match
+their walk/idle strips exactly.
+
+### Bird sizes
+
+Per request, each flock gets a random scale between the first (0.55) and
+the smaller (0.38) size (BIRD_SCALE_RANGE), each bird +/- BIRD_SCALE_JITTER.
+
+### Breathing side sit + citizens sitting
+
+- assets/sprites/Sit/sitv.png (player's side sit) had 6 identical frames;
+  it now breathes exactly like sith.png does: in frames 3-4 the head and
+  torso (rows 0-33) sink 1px, the legs stay put. Customers use the same
+  sheet, so they breathe too.
+- Per request (the other NPCs sit in that style, "wag mo baguhin yung
+  istura nila"): assets/npc/Citizen_{A..E}/sit/Sit.png + Sit_Left.png,
+  built from sitv.png's pose with each citizen's own head (idle rows 0-30,
+  moved 5px right / 5px up onto the sit pose's head spot) and the base
+  body's skin recoloured to their shirt / trousers / shoes (sampled from
+  their idle frame). Same breathing. Side pose only — they have no front art.
+- js/citizens.js: in daytime a stroll becomes "go sit" with
+  CITIZEN_SIT_CHANCE — a free left/right-facing outdoor seat within
+  CITIZEN_SEAT_SEARCH_TILES of home (citizenSideSeats(), not taken by the
+  player or another citizen), walked to as an errand (allowed onto the
+  solid seat tile), then state "sit" for CITIZEN_SIT_TIME seconds, with
+  the seat's poseOffsetX/Y. They get up at the end, at night, or if the
+  seat is removed, onto a free tile next to it.
+- camera.js pulls a bench behind whoever sits on it (citizenSittingOn(),
+  topmost sitter), like it does for the player; furniture.js refuses to
+  sit the player on a seat a citizen is on (citizenOnSeatTile()).
+- Citizen_A (Maria) has a sit sheet too but no sitting behaviour yet.
+
+### Eating while seated (tavern customers)
+
+Per request (eating animation; "spoon na lang ... mug ... grilled meat nasa
+folder"): assets/sprites/Sit_Eat/Eat_{Front,Side}_{Meat,Spoon,Mug}.png,
+6 frames each on the sit pose — the hand comes up to the mouth and back,
+with a chew (head/torso dip 1px) in frames 4 and 6. Meat is the Grilled
+Meat from assets/interior/foods/grilled_meat_icon.png taken off its plate
+and shrunk to hand size; the spoon and mug are small drawn props. Side
+sheets face right (flipped in code for left). drawCustomer() swaps them in
+while `state === "eating"`, picked by the order (CUSTOMER_EAT_HELD:
+meatItem -> Meat, foodSalad -> Spoon, foodBeer -> Mug).
+Refined per request: the spoon is tilted toward the top-right with its bowl
+at the mouth; each prop is placed by its grip point (held.py's GRIP — bone
+end, spoon handle end, mug handle) and the at-mouth hand spot is per prop,
+so in the side views the meat tip / spoon bowl / mug rim meet the front of
+the face. While a customer eats the Grilled Meat the plate on the table
+shows its empty frame, since the meat is in their hand.
+
+### NPC-look tavern customers
+
+Per request ("palitan mo yung ibang customer ng npc tapos apply mo rin yung
+pag eating"): every other customer (customerLookFor(): odd ids) looks like
+Citizen B, C, D or E instead of the player's placeholder look. Those looks
+only have side art, so customerSprites() marks them `sideOnly`: walking
+up/down keeps their last side (`c.side`), the right-facing sheets are
+flipped in code for left, and freeSeatFor(room, who) only gives them seats
+facing left or right. Their eating sheets are
+assets/npc/Citizen_X/sit/Eat_{Meat,Spoon,Mug}.png — their own sit pose with
+the same hand-to-mouth motion, the arm in their sleeve colour and the hand
+in their own skin tone (customerEatSheets(orderType, look)).
+
+### Eating props placed on the mouth; skirts fold when sitting
+
+- Every eating prop is now placed by TWO points: its grip (in the hand)
+  and its mouth point (spoon bowl, mug rim, meat end), and the hand is put
+  wherever makes the mouth point land exactly on the mouth: (31,28) on
+  sith.png, (41,25) — the front edge of the face under the eye — on
+  sitv.png. Side views use mirrored props (spoon bowl and meat end toward
+  the face) and a mug tipped so its rim meets the lips.
+- Citizen E (skirt): her sit pose trims the 3px of skirt that stuck out
+  behind the hips (rows 34-37), as if folded under her (SKIRTS in the
+  generator). Her eat sheets are rebuilt from that.
+
+### Player outfit, new townsfolk F/G, front & back views for every NPC
+
+Per request (picked sample #2 for the player; #1 and #3 become NPCs with
+different hair; every NPC gets front and back, same look):
+- Generator (outside the repo): the bald base sheets are "dressed" by
+  rows relative to the head top (first row with a run of skin) and the
+  collar line under the chin: shirt N+1..N+6 (hands stay skin), pants
+  below, boots from N+13, plus a hair style per view (short, ponytail,
+  spiky, long, bob, bun, high bun) and an optional skirt + apron.
+- Player: EVERY sheet in assets/sprites/ is now outfit #2 (black hair, red
+  tee, grey pants, black boots), Sit_Eat included.
+- Citizen_F (white tee, jeans, auburn ponytail) and Citizen_G (green tee,
+  brown pants, spiky brown hair): full sets — idle/walk side + _Left +
+  _Down + _Up, sit side/left/front, eat side and front for meat/spoon/mug.
+- Citizen_A..E keep their original side art; added idle/Idle_Down,
+  Idle_Up, walk/Walk_Down, Walk_Up, sit/Sit_Front and
+  sit/Eat_Front_{Meat,Spoon,Mug} matched to their colours and hair.
+- citizens.js: CITIZEN_IDS now B..G; they face down/up/left/right and can
+  sit on seats facing down too (front sit).
+- customers.js: every customer is a townsperson (B..G, customerLookFor());
+  all looks have full art, so no seat restriction any more.
+- Maria: npc.view (trackNpcView(), js/npc.js, called from main.js) picks
+  npcIdleDown/Up / npcWalkDown/Up when she walks toward/away from the camera.
+
+### Old NPCs back to side-only; F..K are the 4-direction townsfolk; lamps behind trees
+
+- Per request the generated front/back of Citizen_A..E was removed (it
+  didn't match their original hair). They are side-only again, as before:
+  citizens B..E face left/right only, take only left/right seats, and as
+  customers are `sideOnly` (customerSprites() checks for WalkDown art).
+  Maria's front/back (npc.view / trackNpcView) was removed too.
+- New townsfolk with full art (assets/npc/Citizen_F..K): F (ponytail, white
+  tee, jeans), G (spiky, green tee), H (long blonde, blue dress), I (black
+  bob, yellow tee), J (brown bun, purple top), K (spiky ginger, brown tee).
+  H (long blonde, blue dress) was removed afterwards, per request.
+  idle/walk side + _Left + _Down + _Up, sit side/left/front, eat side and
+  front (meat/spoon/mug). CITIZENS_WITH_FRONT_BACK (assets.js) loads their
+  front/back sheets; citizenHasFrontBack() (citizens.js) lets them face
+  four ways and sit on seats facing down. All of B..K wander and come in
+  as tavern customers (CUSTOMER_NPC_LOOKS).
+- Lamp posts at night: a lamp BEHIND something no longer lights it up.
+  drawPostLightGlows() passes relightOccluders(lampSortY) as `cutouts` to
+  addSceneLight(), which paints their silhouettes black into that light
+  before it's merged (black = no light on the additive buffer). The lit
+  lantern relight (drawLampNightRelight()) goes through drawMaskedRelight()
+  so a tree in front covers it. A lamp in front of a tree still lights it.
+
+### Performance pass
+
+Per request ("medyo naglalag"). Measured per function in a headless
+browser: night frames were ~17 ms, 12 ms of it drawCharacterGlow (every
+candle — player, Maria, each citizen — projecting shadows + a blur at full
+screen resolution); day frames ~7 ms, mostly drawSunRays. Changes:
+- drawCharacterGlow builds the light and its shadow mask at
+  SCENE_LIGHT_SCALE (half) resolution — the shared light buffer is half
+  res anyway, so it looks the same. ~2 ms -> ~0.35 ms per candle.
+- drawShadow() / drawAnimalShadow(): no more per-character canvas blur
+  filter on the main canvas each frame; cachedSoftSilhouette() keeps a
+  pre-tinted, pre-blurred silhouette per sheet frame (2x res).
+- drawSunRays: rebuilt every SUNRAY_REBUILD_EVERY (2) frames; in between
+  the last buffer is redrawn shifted by the camera's movement.
+- Lamp shadow cache signature rounds animal positions to 2 world px;
+  animals read the lamp list from a once-a-second cache.
+Result in the same test: night ~3.8 ms/frame, day ~4.1 ms/frame.
+
+Second pass, measured on the user's real save (8,378 placed items):
+night ~63 -> ~28 ms/frame, day ~16.5 -> ~7.8 ms/frame (headless, software
+rendering — a real GPU browser is faster).
+- forEachTileInView(): the flat layers (dirt, ground, ground overlay,
+  upper, wall, ceiling) only look up the tiles around the view once the
+  layer is bigger than the view; drawGroundItemAt() itself never culled, so
+  every tile on the map used to be drawn every frame.
+- collectLightOccluders(): looks up the tiles in reach of the light rather
+  than walking every layer entry for every candle/lamp.
+- Lamp shadow caches no longer include animals (an idling animal in a
+  pool forced a ~9 ms rebuild every frame); animals still cast shadows in
+  candles and are cut out of lamp light when in front of it.
+- Candles: other people's use NPC_LIGHT_MAX_OCCLUDERS / NPC_LIGHT_SHADOW_
+  MAX_STEPS; shadows are projected only to just past the glow edge (1.1x
+  radius, was 2x); a candle whose position and surroundings didn't change
+  is reused from candleCache.
+- addSceneLight(): lights with no cutouts are drawn straight into the
+  (opaque black, additive) buffer — same result, no scratch canvas.
+- drawMaskedRelight(): scratch area 1.5 x 2 sprite sizes (was 2 x 2.5).
+- drawMinimap(): redrawn every MINIMAP_EVERY (3) frames.
+
+### Map head icons; the mug while drinking
+
+- Minimap + world map (js/hud.js): instead of dots, each townsperson /
+  outdoor customer / Maria shows their own HEAD (citizenMapIcon(),
+  mariaMapIcon() — rows 0-30 of frame 0, front view if they have one, else
+  side) and each animal its head (animalMapIcon(), ANIMAL_HEAD_ROWS of its
+  idle-down frame), cut once and cached (cropMapIcon()). The player is an
+  arrow pointing along player.facing (drawPlayerArrow()). If the art can't
+  be read (tainted canvas on file://) a plain dot is drawn instead.
+- Beer: while a customer drinks, the mug is NOT drawn on the table (it's in
+  their hand). When they leave, the empty mug appears as a leftover — for
+  Maria-served customers too, and those clear themselves after
+  LEFTOVER_AUTO_CLEAR_MS (js/waiter.js), since nobody else picks them up.
+
+### Axe (Slice) frames fixed
+
+Per request (the axe swing looked different from the pickaxe): in Slice's
+leaning frames the generator found the wrong collar row, so the lower face
+got the shirt colour and the hair landed off the head. The player sheets
+are now dressed from the EYES (eye_anchor(): collar = lowest green iris
+row + 3, head top = collar - 13, head columns grown out from the eye), with
+the old head/collar search only where no eye shows (back views). All
+(Follow-up: frames with the eyes SHUT mid-swing fell back to that search
+and measured the head's width across the white swish too, so the fringe
+and top tuft landed beside the head and its top looked bald. With no eye,
+the head's columns are now grown out from the middle of its top row of
+skin instead.)
+player sheets were rebuilt; only the leaning action frames changed.
+
+### Outlined hair on the old townsfolk; soldiers
+
+- Citizen_B..E: their hair had no black outline (unlike A and the newer
+  ones). Every sheet of theirs (idle, walk, sit, eat — both directions) now
+  has a 1px black outline on the transparent pixels touching their hair
+  colours (sampled from the top of their idle frame).
+- Soldiers (assets/npc/Citizen_L..O), full 4-direction sets like F..K:
+  L steel helmet + red tabard, M steel helmet with blue plume + blue
+  tabard, N steel helmet + green tabard, O gold helmet with red plume +
+  navy tabard (captain). Generator: hairstyle "helmet" (cap, rim, cheek
+  and nose guards, neck guard from the side, optional plume) and `armor`
+  (metal shoulder pads + belt). They wander, sit and come to the tavern
+  like the other townsfolk.
+- Soldiers redone after feedback ("ang pangit") with a proper kit
+  (soldier.py in the generator): helmet following the head with the face
+  open, brow band + rivets, nose/cheek guards, centre ridge, optional plume;
+  breastplate, pauldrons, gauntlets, greaves; tabard strip with an emblem,
+  belt + buckle; a spear in idle/walk (L, M, N); the captain (O) in gold
+  with a red cape (idle/walk only, tucked away when seated).
+- Weapons held in the actual hand (follow-up): find_hand() locates the
+  weapon hand in every frame on the undressed base (front: viewer's right,
+  back: left, side: near hand), so the weapon swings with the walk. L and M
+  carry spears (front/back: along the outer edge of the fist; side: leaning
+  back over the shoulder, behind the head); N and the captain O carry
+  swords pointing down from the fist (side: angled forward). The fist is
+  redrawn over the shaft/grip (grip()) so it reads as held.
+
+### Wind: trees, bushes and grass sway; leaves fall
+
+Per request (js/plantfx.js): an always-on gentle wind. windWave(col,row)
+is a wave travelling across the map; windStrength eases toward
+WIND_BY_WEATHER (Sunny 0.55 ... Thunderstorm 1.7).
+- Trees (isWindTree(): ids starting "tree", not stumps/trunk pieces) and
+  bushes lean their top by WIND_TREE_PX / WIND_BUSH_PX world px, base
+  planted — applyPlantFxTransform(col, row, type) now gets the type and
+  does this whenever no chop-shake / walk-through sway is running. A
+  two-piece tree's canopy pivots on its own base, so it stays on its trunk.
+- Wild grass: windGrassAngle() is added to its walk-through sway angle in
+  drawWildgrassWhole() (js/camera.js).
+- Falling leaves: leafy trees on screen (list refreshed twice a second)
+  drop LEAVES_PER_SECOND * wind leaves from inside their canopy (opaque
+  bbox), coloured like the tree; they flutter down, settle on the ground
+  around the trunk and fade. Drawn with a dark rim so they show on grass.
+
+### Chopping trees: cracks, chips, leaves — leaves are Leaf.png
+
+- Chopping (resolveHarvestHit(), js/resources.js -> treeChopFx(),
+  js/plantfx.js): every chop sends wood chips out of the cut and knocks
+  CHOP_LEAVES leaves out of the canopy; the felling chop a FELL_LEAVES
+  shower. A notch with cracks (CRACK_STAGES, bigger each hit) is drawn on
+  the trunk (treeTrunkSpot(): the narrowest run of pixels just above the
+  roots) by drawTreeCrack() from drawObjectLayerItem() (js/camera.js),
+  inside the shake transform so it moves with the tree.
+- Every falling leaf — wind, chopping, bushes walked through — is now
+  assets/particles/Leaf.png (6 frames of 12x7, tumbling while it falls,
+  lying flat once landed), drawn at LEAF_SPRITE_SCALE. Green trees use
+  the art as is; other leaf colours get a recoloured copy
+  (leafSpriteFor(), cached), its shading mapped onto the tree's colours.
+
+### Felled trees topple over (Stardew-style)
+
+On the felling chop resolveHarvestHit() (js/resources.js) calls
+startTreeFall() (js/plantfx.js) before swapping in the stump: the part of
+the tree ABOVE the cut (treeTrunkSpot()) is drawn on its own, pivoting on
+the cut — fallAngle() eases from upright to flat over FELL_TIP_SECONDS
+(slow start, then fast), bounces a little (FELL_SETTLE_SECONDS) and fades
+(FELL_FADE_SECONDS). It falls AWAY from the player (fellDirection()).
+On landing, landingBurst() throws Leaf.png leaves and wood chips along the
+fallen tree, and the wood's floating pickups pop out there (onLand) instead
+of at the base. Drawn in the depth sort on the stump's row
+(fallingTreeDrawables(), js/camera.js). Cosmetic only — the wood is
+granted on the chop, as before.
+
+### Every tree in the trees folder can be chopped; vignette blur via CSS
+
+- treeMediumGreen / LightGreen / Red / Yellow had no `resource`, so they
+  couldn't be chopped. Now: 3 hits, slice, 3 wood, and they leave their
+  trunk (green -> treeMediumGreenTrunk, red/yellow ->
+  treeMediumRedYellowTrunk). The two trunks are chopped like the other
+  stumps (2 hits, 2 wood, gone; no respawn).
+- isStumpType() (CutStump / Trunk): no leaves from them (treeLeafColors()
+  returns null) and they don't topple (startTreeFall() skips them) — just
+  cracks and chips. noLeaves trees crack and topple, with no leaves.
+- Loose leaves/chips are capped at MAX_LEAF_FLECKS (160).
+- Performance: drawVignetteBlur() (sunny-day edge blur) used to draw a
+  blurred copy of the whole canvas back over itself, reading the canvas
+  back mid-frame every frame — measured 20-70 ms on a sunny day. It's now
+  the #vignette-blur overlay (index.html / style.css): CSS
+  backdrop-filter blur masked to the four edge bands, done by the browser
+  on the GPU; JS only toggles it (setVignetteBlur(), off indoors).
+
+### Bare trees leave a stump; soldiers' side-view weapons fixed
+
+- treeThinNoLeaves1/2 now `replaceWith: \"treeThinCutStump\"` like the
+  thin trees (their 5-minute respawn still regrows the bare tree there).
+- Soldier side views: the weapon is in the FRONT hand (find_hand() side:
+  x >= 34; falls back to the near hand if it swung back), and that hand is
+  a gauntlet now. Spear: upright just in front of the face, the fist
+  closed over the shaft, butt resting on the ground (never below the
+  feet). Sword: pommel behind the fist, crossguard in front, blade down
+  and forward. Front/back sword: pommel above the fist, crossguard below
+  it, ~9px blade angled slightly away from the leg.
+- Spear overlap (follow-up): front/back the shaft goes through the MIDDLE
+  of the fist — drawn over the body in the front view (it crosses the arm
+  and shoulder, fist closed over it), behind the body in the back view
+  (only the head of the spear and its butt show).
+
+### Animals on the minimap and world map
+
+Per request ("parang wala pa sa map yung pig, chicken"): every animal is a
+small dot on the minimap dial and on the full world map (js/hud.js),
+coloured per kind by ANIMAL_MAP_COLORS (js/animals.js) — cream chickens,
+pink pigs, grey-brown cows (a bit bigger), white/cream sheep.
+
 ## Known trade-offs / things worth knowing if you keep tweaking
 
 - **Item action menu doesn't clamp to the screen edge.** `openItemActionMenu()`
@@ -3967,6 +4339,134 @@ pixels can't be read on a file:// page).
      Col/Row. The play-time timer is gone from the HUD (hud.js writes to
      it and to Day N only if they exist; play time is still tracked/saved).
 
+132. **Port Bridge cut into 16x16 tiles, own inventory slot, walk on it
+     from the mountain / under it from the ground.** Per request.
+     - assets/outdoor/port_bridge.png is 80x80, so on the 16px grid it's
+       5x5 = 25 tiles (the user said "10 by 10"; that would be 8px pieces
+       — flagged to them). Crops: assets/outdoor/port_bridge_tiles/
+       port-bridge-R<r>C<c>.png, loaded in assets.js as bridgeTileR<r>C<c>
+       (BRIDGE_TILE_ROWS/COLS). Not a "port" prefix on purpose.
+     - itemDefs generated in a loop (inventory.js, before the tile groups):
+       flat, unlimited, `isBridge`, R2C2 is `groupIcon`. The old whole-
+       sprite `portBridge` item is gone; the other port bridge pieces
+       (decor/front/wall) stay in Port Tiles.
+     - TILE_GROUP_META.bridgeTile ("Port Bridge", singleIcon, 5x5 `shape`).
+       Bridge tiles replace each other (canReplaceGroundItem). Not placeable
+       indoors.
+     - New `bridgeLayer` (layer rule "bridge", in ALL_LAYERS after the
+       overlay): sits over ground AND mountain tiles without replacing them.
+     - `player.elevated` (player.js, saved): walkable mountain tile -> true,
+       plain ground -> false, bridge tile -> unchanged
+       (updatePlayerElevation(), after movement). isBodyBlockedAt() with
+       `collisionForPlayer` (set only around the player's own movement):
+       elevated -> bridge cells always walkable (even over a solid rim/
+       wall), and from a bridge you can't step onto a cell that's neither
+       bridge nor walkable mountain; not elevated -> bridge ignored.
+       NPCs never use these rules.
+     - camera.js renderWorldObjectsSorted(): bridge drawn after the sorted
+       pass (over NPCs/objects/low player). When elevated, the player and
+       objectLayer items on walkable mountain tiles move to a second sorted
+       pass drawn after the bridge. relightOccluders() cuts bridge tiles out
+       of every night relight except the elevated player's.
+     - Old saves: a placed `portBridge` expands into the 25 tiles on the
+       cells the sprite covered; hotbar/in-hand portBridge -> bridgeTileR2C2.
+     - Verified headless: 25 tiles load, picker 5x5; plateau -> bridge ->
+       across stays elevated, side step off blocked; from the ground the
+       player walks under it (hidden by it), mountain wall still blocks;
+       migration gives 25 tiles. Known: a bridge end that stops over plain
+       ground is a dead end while up (can't step off) — end it on mountain.
+
+133. **Dirt Stairs tile set.** Per request, dirtstair.png (32x48) cut on
+     the 16px grid in reading order into assets/tiles/stairs_dirt/
+     stairs-dirt-1..6.png (2 across x 3 down; the left and right column
+     are pixel-identical, all six kept). Added as TERRAIN_TILE_SETS
+     "StairsDirt" ("Dirt Stairs", icon stairs-dirt-3, picker rows 2x3), so
+     ids are terrainStairsDirtStairsDirt1..6, one inventory slot.
+     - Layer: ["bridge", /^terrainStairs/] — on bridgeLayer so they sit
+       over a mountain wall without replacing it; `isStairs` flag.
+       Bridge-layer tiles replace each other (canReplaceGroundItem).
+     - Drawn by drawStairsLayer() right after drawGroundOverlay() (under
+       every character); skipped by drawBridgeLayer() and the bridge relight
+       occluders.
+     - Player only: a stairs cell is walkable even over a solid wall
+       (isBodyBlockedAt()), and keeps `elevated` unchanged like the bridge,
+       so climbing to the plateau turns it on and walking down to the
+       ground turns it off. NPCs don't use them. Not placeable indoors.
+     - Verified headless: 6 tiles load, picker 2x3; ground -> stairs ->
+       plateau goes elevated, back down goes low; a wall with no stairs
+       still blocks.
+
+134. **Port Bridge collision is pixel-exact (while up on it).** Per request
+     ("yung deadspace is yun yung may collissions"): on a bridge tile only
+     its drawn pixels are walkable; its transparent pixels are solid.
+     `BRIDGE_TILE_ALPHA` (assets.js) = each tile's opacity as 16 row
+     bitmasks, measured off the PNGs (no getImageData, so file:// works).
+     isBodyBlockedAt() (player.js), when the player is elevated, tests every
+     pixel of the 12px feet line on the feet row with isBridgePixelDrawn();
+     a transparent pixel blocks unless the cell under it is a walkable
+     mountain tile (where the bridge meets the plateau). The old tile-level
+     rules (no stepping off a bridge cell into air) still apply after it.
+     Down on the ground nothing changed — the bridge still doesn't collide.
+     Verified headless: on the deck the feet stop flush on the planks'
+     left/right edges (x 1594 / ~1651 for a bridge at col 99), can't walk
+     up into the deadspace beside the narrow top neck, can walk up the
+     neck onto the plateau.
+
+135. **Port Bridge hooks onto Grass/Brick/Snow tiles too; bridge is
+     depth-sorted so trees aren't covered by it.** Per the user's video (a
+     bridge built off grass over water drew on top of a tree).
+     - isHighGroundAt() (player.js) now also counts the tile-set ground
+       tiles terrainGrass* / terrainBricks* / terrainSnow* (groundLayer,
+       BRIDGE_LANDING_GROUND) as "up" ground, besides walkable mountain
+       tiles (a mountain overlay on the cell still decides first). Lay
+       those tiles at a bridge's ends to walk onto it.
+     - camera.js: no more "draw the whole bridge after everything" /
+       high-drawables second pass. computeBridgeComponents() groups
+       bridge tiles (4-connected, stairs excluded) each frame into
+       bridgeComponentsThisFrame; each is ONE drawable Y-sorted on its
+       bottom edge. So trees/NPCs/the player whose feet are below the
+       bridge draw over it, and anything with feet inside its span is
+       under it. elevatedPlayerSortY(): an elevated player whose sprite
+       overlaps a bridge sorts just past its bottom (drawn on top).
+       relightOccluders() uses the same rule (feetY < comp.bottom).
+     - Verified headless: grass tiles -> walk right onto the bridge stays
+       elevated and is drawn over it; a tree below the bridge draws over
+       the bridge; a low player walking up under it is hidden by it.
+
+136. **R5C1's bottom edge is a closed rail (Port Bridge only).** The user
+     pointed at the player walking past the bottom of R5C1 (1-based;
+     = bridgeTileR4C0, the bottom-left block with a black outline along its
+     bottom). A first attempt made Grass/Brick/Snow edge tiles pixel-exact
+     landings; the user said NOT to touch grass — only the bridge — so that
+     was fully reverted (no TERRAIN_TILE_ALPHA / isLandingPixel; landing
+     tiles count as whole tiles again, as in #135).
+     - BRIDGE_TILE_CLOSED_EDGES (assets.js) = { R4C0: ["bottom"] }: bridge
+       tile sides you can't walk across while up on the bridge, whatever is
+       past them. bridgeEdgeClosed() (player.js); isBodyBlockedAt() checks
+       it when the candidate feet row differs from the current one (top /
+       bottom sides). Other tiles with a black outline edge (R1C1-R1C4 top,
+       R2C1/R2C5 top, R4C1/R4C5 bottom, R5C2-R5C4 bottom) were left open —
+       add them to the table if asked.
+     - Verified headless: on R5C1 with a grass tile below, feet stop at its
+       bottom edge; a non-closed bottom tile still lets you step off onto
+       the grass below.
+
+137. **Bridge collision measured at the soles, not the feet line.** The
+     user's video (#136 "same parin"): the collision already stopped at
+     R5C1's bottom, but the drawn feet hung ~6 world px past the planks,
+     because the feet line (SPRITE_FEET_FRACTION = 0.62) sits above the
+     sprite's real soles (every player sheet: 64px frames, lowest opaque
+     row 48 = 0.75). BRIDGE_SOLE_DROP (player.js) = (48/64 - 0.62) *
+     DRAW_SIZE ≈ 6.2. In isBodyBlockedAt()'s elevated-bridge block, every
+     check (pixel deadspace, closed edges, stepping off, standingOnBridge)
+     now uses soleY / srow instead of feetY / row. updatePlayerElevation()
+     also treats a bridge under the soles as "on the bridge" (otherwise the
+     feet line leaving the top row dropped `elevated` and let you walk off).
+     Only affects the player while up on a bridge.
+     Verified headless: walking down on R5C1 the soles stop at its bottom
+     edge (screenshot: feet on the dark bottom line); walking up, the soles
+     stop at the top row's top edge; walking along the deck unchanged.
+
 ## Possible next steps (not done yet, just noted)
 
 - ~~Serving~~ — done, see "Waiter job" above. Still open: Carry_Order
@@ -3999,3 +4499,1333 @@ pixels can't be read on a file:// page).
   immediately on animation-state change — fine for now, could ease later).
 - Sound effects for footsteps and for the collect action, tied to the
   existing frame timing.
+
+
+### Town buildings, furnished rooms, townsfolk homes
+
+Per request ("tanggalin mo muna yung parang taniman... dagdagan mo sana
+ng bahay or may mga room na maliliit... yung mga ibang npc ilagay mo
+dun... interior may mga pader at collissions... pinto palabas at papasok
+... path way with fence at mga flowers... tuloy mo na rin yung mountain
+design").
+
+- `tools/build_town_assets.py` composes houses from the pack's wall strips
+  (Walls.png y 184-240, pieces 32/16/32/16 per style), the wide gable roof
+  (Roofs.png, 128x89 — the steep roof's ridge post is masked out of its
+  box), doors/windows/planters/chimney from Props.png. Rooms: tiled floor,
+  the wall set's 64x56 back-wall band (Interior_Walls_01.png x0+16, y 88),
+  a drawn frame with a 32px doorway and a rug as doormat.
+- `js/townBuildings.js` holds item defs, groups, layer rules and room
+  blueprints; inventory.js / interior.js merge them. Room walls use the
+  same `walls` rectangles as house_room, plus a `tileMap` for placement.
+- `defaultDecor` + `INTERIOR_SAVED_ROOM_IDS`: a room is furnished only when
+  it is created for the first time; a room present in the loaded save
+  keeps exactly what was saved (save.js fills the set before restoring).
+- citizens.js: `citizenShelters()` also lists houses with `citizenHome`;
+  `nearestShelter()` now assigns a home (`c.homeRoomId`) by kind and
+  capacity; daytime visits use `c.visitUntil`, cleared at night.
+- Map (save): farm plots/crops removed; west neighbourhood with two
+  streets, five cottages + guard house, fenced flower beds, lamps,
+  benches, a fence along the streets; plateau edges autotiled (left/right
+  edge tiles, top-inner rims + top-mountain lip on the grass above).
+
+### Town pass 2: solid gables, richer rooms, plaza, lookout
+
+- Houses: the front wall is now ONE continuous wall (wall_column() in
+  tools/build_town_assets.py — top trim once, body repeated, base once),
+  so nothing shows through under the roof ("parang may butas yung taas").
+  Plaster cottage got shuttered windows.
+- More furniture (Table (Blue Cloth), Long Shelf, Wide Cabinet) and fuller
+  defaultDecor layouts; the town rooms are dropped from the save on
+  regeneration so the new layouts apply.
+- Map: brick plaza (terrainBricks) in front of the tavern with a stone
+  bench, planter and lamp; a lookout at the top of the stairs (bench,
+  two lit lamps, stones, bare trees, flowers) and bare trees/stones
+  scattered over the plateau; extra trees, bushes, benches around the
+  neighbourhood.
+
+### Town pass 3: floating triangles, hair while sleeping, lamps, cave
+
+- Floating triangles on the gables: roof_a() copied a 128x89 box that also
+  caught the top of the steep roof below it. It now keeps only the pixels
+  connected to the roof itself (scipy label), so nothing else lands on the
+  wall.
+- Sleeping player was bald: bigbed-sheet.png (30 frames, 46x54) predates
+  outfit #2. tools/fix_sleep_hair.py finds the head per frame and draws the
+  player's black hair + bun in the Idle sheet's colours; the original is
+  kept as bigbed-sheet_bald.png.
+- Paths: postLight (plain post by day, lit lamp at night — its own
+  nightIcon swap) every ~9 tiles, alternating sides; trees, trunks, bare
+  trees, stumps, bushes, flowers, mushrooms and stones scattered 2-5 tiles
+  off every path; a tree/bush border round the map edge. The earlier
+  always-lit lamps became postLight too.
+- Cave: caveEntrance (mountain wall tiles + timbered mine mouth) set into
+  the cliff north of the pond at (120,23), path to the dock and stairs;
+  cave_room (rock walls, dark dirt floor, stones, mushrooms, a lamp, a
+  chest). Works like a house door.
+- The user's own village decor from the original save is kept — only items
+  an earlier town pass generated are rebuilt.
+
+### Grocery, more decor, room customizer (walls/floors/size)
+
+- groceryStore: twin-gable plank shop with a produce sign, east of the
+  quarry road at (152,78) with a market row of veg crates across the road.
+  grocery_room: counter (bartender pieces), veg crates, shelves, barrels.
+  Inside, P opens the shop panel (openNpcShop(stock, title) is now
+  generic) selling vegetables. Townsfolk drop in now and then
+  (CITIZEN_SHOP_VISIT_CHANCE); J works there 08:00-17:00; at night anyone
+  inside the shop heads home.
+- 17 more pieces from Interior_Props_01: chandelier (layer 6), kitchen
+  things, bottles, broom, stool, cushion, cupboard, crate, wall panel,
+  wall candle.
+- js/roomCustomizer.js: town rooms are drawn at runtime from
+  Interior_Walls_01.png (`room.custom = {wall, floor, cols, rows}`): tiled
+  floor, the set's back-wall band, a frame in the set's own trim colours
+  (sampled by the build script into TOWN_ART.wallSets) so corners follow
+  any size. H opens the panel: wall (Log/Bato/Kahoy/Plaster), floor
+  (Tabla/Bato/Herringbone/Parquet), width 10-30 (steps of 2, keeps the
+  doorway centred), height 9-24. Shrinking returns what no longer fits to
+  the inventory and moves anyone outside back in. The player's House
+  (house_room, `customizable`) keeps its art until the first change.
+  Saved as `interiorCustom`.
+
+### Rooms you dig out (Room Pickaxe / Room Hammer)
+
+Per request: expanding a room should be done with a pickaxe-like tool,
+2x2 at a time, in the direction you face; a new house starts 4x4; the
+walls and floor follow the open space.
+
+- js/roomCustomizer.js: a customizable room is a set of floor tiles
+  (`custom.tiles`) plus a 2-wide doorway (`custom.door`). The image is
+  rebuilt from that set: floor texture per tile, the wall set's back-wall
+  band (3 tiles) above every floor tile with no floor north of it, and a
+  frame (the set's trim colours, outer corners filled) round the shape.
+  `room.floorTiles` = floor + doorway; isInteriorWallAt() (interior.js)
+  only lets the feet stand there. tileMap follows the same set.
+- Tools: Room Pickaxe digs, Room Hammer fills. Equip, face a wall, F:
+  Crush swing (player.js inside branch, player.indoorTool), then
+  resolveRoomTool(). The target 2x2 is the first one past the floor in
+  that direction (up to 3 tiles). Digging never goes below the doorway
+  row; filling refuses furniture, the tiles just inside the door, the
+  player's own tile, and anything that would cut part of the room off.
+  Digging past the left/top margin shifts the whole room (tiles, door,
+  decor, collisions, player, citizens) so there's always space for the
+  back wall.
+- New houses start 4x4 (`customDefaults.start = "small"`); default
+  furniture is only placed where it fits (defaultDecorFits()). Saved room
+  shapes are known before rooms are created (INTERIOR_SAVED_CUSTOM), so a
+  saved big room gets its full furniture. Old {cols, rows} saves become
+  the same rectangle as tiles. The generator writes the town houses'
+  full-size shapes into the save.
+- H keeps wall/floor style only. Both tools are also sold at the grocery.
+
+### Second world (the wild valley), portal, neighbourhood moved
+
+- js/worlds.js: two outdoor worlds on the same tile grid. switchWorld()
+  packs the current one (placed items + grass fill) into worldStore,
+  clears ALL_LAYERS, unpacks the other, repaints the ground. Bounds via
+  worldW()/worldH() (player.js movement clamp, camera.js clamp).
+  Portals: main col 0-1 rows 39-41 walking west -> wild east pass;
+  wild east pass walking east -> main (3,40). Fade via beginSceneFade().
+  Maria, citizens, customers, animals, the waiter job and resource
+  respawns only update/draw in the main world (wrapped functions).
+  Saves: main world always in the usual fields, the wild one in
+  `worlds.wild`; the game always starts in the main world.
+- tools/build_wild_world.py -> js/wildWorld.data.js: 94x52 (half the
+  main map). Mountain ring (plateau autotiled; south faces are a 4-tile
+  cliff: TopWall, CenterWall x2, BottomWall with its grassy foot), pass in
+  the east wall at rows 24-28, grass-edged dirt trails and clearings,
+  trees, trunks, stumps, bushes, flowers, mushrooms, stones, grass tufts,
+  and trees/bushes on top of the mountain.
+- Main map: a path from the woods west to the portal at row 40 with two
+  lamps; the neighbourhood moved from the bottom-left to the bottom
+  centre (+90 cols, joined to the road at cols 140-141); the old area is
+  forest now. Saved interiors were re-keyed to the new house positions.
+
+### Ranch replaced by houses
+
+Per request: the fenced ranch south of the village is gone. In its place a
+row of four cottages (Brick, Plaster, Log, Plaster at cols 61/70/83/92,
+doors on row 92) on a new street (rows 93-94, cols 57-96), reached by a
+lane at cols 76-77 from the main road, with lamps, a bench, planter,
+barrel, flowers, and trees/bushes south of the street. Each has its full
+furnished interior (shape written to `interiorCustom` by the generator).
+The leftover boundary fence at col 94 was removed. The generator now also
+clears any standing object under a new building's footprint.
+
+### Grass on the mountain tops (both worlds)
+
+- tools/plateau_grass.py: picks blobs of plateau cells away from the rim
+  (`margin` tiles in), fixes diagonal-only corners, and returns grass_tile
+  pieces by the same 4-corner rule as the paths (corner = grass when all
+  four cells round it are grass): EnterGrass 1-3 inside (4-6 are darker
+  and checker), edge pieces round the patch. Those cells lose their
+  mountain overlay and their grass-fill bit, so the edge pieces' open
+  corners show bare soil. They still count as high ground
+  (isHighGroundAt(), player.js: terrainGrass is a landing tile).
+- Main map (generator): grass patches on the plateau (not near stairs or
+  bridges), then trees, bushes, flowers, mushrooms and stones scattered
+  over the plateau top.
+- Wild world: the north mountain band is 5 tiles deep now (room for grass
+  on top); grass patches on all bands, margin 1.
+
+### Wild world is home; caves with inner doors; Pixel Crawler props
+
+- The game opens in the wild world at the player's House
+  (startInDefaultWorld(), worlds.js, called from start()). The wild world
+  is 80x46 now, trees right up to its edges, with a homestead: the House
+  (door (40,21)), a fenced bare-earth plot for farming, a bench, lamp,
+  barrel, planter; house_room starts with a Big Bed, table, chairs,
+  plants, chest, windows (defaultDecor).
+- The little House in town is a townsperson's now: `townCabin` (same art),
+  room `cabin_room` (house_room without the player's lights); the save's
+  house_room@96,56 data moved there.
+- Minimap hidden while inside a room. Citizens' town centre is fixed to
+  the village (citizenTownCentre override) since the player starts away.
+- Caves: cave_room (town) and tunnel_room (the new tunnelEntrance in the
+  wild world's north cliff, top right) are tile-shaped rooms
+  (lockedLayout — no room tools) generated by build_town_assets.py:
+  a winding tunnel from the entrance that widens into a cavern; an inner
+  door at the cavern's top warps (indoorWarp) into a separate deeper
+  chamber with a chest. Rock walls/floor from Pixel Crawler's
+  Wall_Tiles.png (TOWN_ART.wallSets_extra/floors_extra.cave, own sheet).
+- Pixel Crawler pack in assets/pixelcrawler/source; ~280 props cut
+  automatically (one per separate picture) from its static prop sheets,
+  plus its trees, grouped per sheet in the inventory (pc*). Rocks,
+  furniture, dungeon pieces and trees collide.
+
+### Caves back to dirt + mountain wall, smoother curves
+
+Per request the Pixel Crawler rock looked worse: cave_sheet is the first
+cave's look again — back wall from the mountain cliff tiles (top-wall +
+center-wall), floor from the map's dirt tiles, both darkened; warmer
+frame. The winding layout stays but is smoother: Chaikin-rounded path,
+tunnels 2 tiles each side, gentler cavern outline, and smooth_tiles()
+fills one-tile notches and drops one-tile spurs so the curve doesn't look
+broken. The tunnel mouth uses the cave mouth's timber art again.
+
+### Caves joined underground; a third cave; fuller townsfolk houses
+
+- bldWallCaveHole: a plain opening in the rock (no timber), used for the
+  inner doors and for the passages between caves.
+- Each cave layout now has `links` — the top tile of its deep chamber at
+  the left (A) / right (B). worlds.js CAVE_LINKS: tunnel A <-> town cave
+  A, tunnel B <-> west cave A. Walking up into a link (checkCaveLinks(),
+  wrapped round updatePlayerInsideInterior) fades to the other cave's
+  opening, switching worlds underneath if needed, and sets outsideReturn
+  to the front of THAT cave's entrance so leaving puts you there.
+- caveEntranceB / cave2_room: third cave in the wild world's north cliff,
+  west side (14,8), with a path down to the trail.
+- Townsfolk homes: more pieces in the cottage, plaster, guard and grocery
+  defaults (Pixel Crawler shelves, vases, jars, banners, books, potions);
+  the generator furnishes the empty Abandoned House and adds to the
+  cabin. The cabin room isn't customizable (it's not the player's).
+
+### Old saves get the new caves
+
+Reported: the caves in both worlds still showed the old shape. A cave
+room's shape and props are saved like any room, and the save wins — so a
+save made with the old cave kept it. Now each generated cave layout has a
+`version` (hash of tiles + props); applySaveData() drops everything saved
+for a locked room whose saved version differs, so it's rebuilt from
+today's layout. A wild world saved before the west cave/tunnel existed
+gets that corner copied in from the default layout (addMissingWildPlaces,
+worlds.js). Generated images are loaded with ?v=TOWN_ART.version so the
+browser can't show a stale cave texture.
+
+## Room tools 1-tile, tool highlight, full-tile room walls, snowy trees
+
+- **Room Pickaxe / Room Hammer now change ONE tile** (js/roomCustomizer.js):
+  `roomToolTarget()` picks the tile — pickaxe: first wall tile in front
+  (up to 3 away); hammer: the floor tile right in front. `checkDig()` /
+  `checkFill()` hold the rules (doorway, under your body, furniture, room
+  split, size limits) and are shared by the swing and the highlight.
+- **Highlight while a room tool is equipped** (`drawRoomToolHighlight()`,
+  js/camera.js): same white tile grid as holding an item, plus the target
+  tile outlined thick — white = F will work, red = it won't.
+- **Room walls are full 16x16 solids** (`isInteriorWallAt()`, js/interior.js):
+  tile-shaped rooms now test the whole feet area (feet line down to the
+  soles, 12px wide), so the shoes no longer sink into the wall trim.
+- **Snow on trees** (js/snowground.js `snowTreeIcon()`): while it snows every
+  tree* item is drawn with a snow cap on its top edges, light frost and
+  stuck flakes — built with compositing only (works on file://). Used by
+  drawObjectLayerItemRaw() and the felling animation, so it moves with the
+  wind sway / chop shake / fall. Chops and falls also shed snow puffs.
+
+## Seamless walls, head-only fade, round-table strip, performance pass
+
+- **Seamless room walls** (js/roomCustomizer.js `ROOM_WALL_SEAMLESS`,
+  `drawSeamlessBandSlice()`): each wall set's 64px band has end caps, so
+  tiling the whole band drew a vertical line every 4 tiles. Now only a
+  measured cap-free span repeats (log 11+40, stone 16+32, wood 8+48,
+  plaster 7+44). Every custom room (all town houses) uses it.
+- **Fade only when the head is covered** (js/camera.js
+  `PLAYER_HEAD_BOTTOM_SPRITE = 32`): characterTouchesObjectPixels() only
+  tests sprite rows above the chin, plus a cheap early-out when the
+  object's top is below the chin. Fences, stones, bushes etc. that only
+  cover the legs/body stay solid. `fadeBoundingBoxOnly` stones follow the
+  same pixel rule now. Chairs/benches/stools (and anything sittable) never fade.
+- **Round table**: `collisionTopStrip: 0.25` on tableCircle and
+  bldTableRound — a 4px solid strip along the bottom of the tile row above
+  the footprint (interiorTopStrips(), js/interior.js), so walking down from
+  behind stops before sinking into the table top.
+- **Performance**:
+  - isTileBlocked() (js/player.js) used to scan every item on every layer
+    per call; now a cached Set of blocked tiles, invalidated by
+    `layerVersion` (each layer Map's set/delete/clear is hooked) + a 1s refresh.
+    updatePlayer went from ~3-6ms to ~0.5ms a frame.
+  - Minimap items are baked once into a whole-map canvas
+    (minimapItemsCanvas(), js/hud.js) instead of ~1,700 drawImage calls
+    per refresh.
+  - Cloud shadows (blur filter) rebuild every 3 frames and are shifted by
+    the camera in between; sun rays rebuild every 4 frames (was 2).
+
+## Left-click to put down a carried item
+
+- While carrying something grabbed with E (`player.grabbedType`) and not
+  holding an inventory item, a left-click on any tile inside the white
+  placement grid (PLACEMENT_RANGE round the player) puts it down there.
+  Outdoors: canPlaceGrabbedOutdoorAt() / placeGrabbedAtClick()
+  (js/inventory.js) — in range, tile free on the item's layer, nothing
+  solid on the player's own feet. Indoors: grabbedIndoorTarget() /
+  placeGrabbedIndoorAt() (js/interior.js) — same checks as placing decor,
+  and small layer-4 things clicked onto a table go on the table top.
+- A see-through ghost of the carried item follows the cursor inside the
+  grid (white = will place, red = won't), in drawHeldItemGhost() /
+  drawInteriorHeldItemGhost() (js/camera.js). E still works as before.
+
+## Seamless house walls + farming
+
+- **House front walls** (tools/build_town_assets.py `wall_block()` /
+  `WALL_SEAMLESS`): every 32/16px wall piece had its own outline, so the
+  houses showed a vertical line every 1-2 tiles. Now one cap-free span per
+  style repeats, with an outline only at the wall's two outer edges.
+  Regenerated cottageLog / cottagePlaster / cottageBrick / guardHouse /
+  groceryStore (TOWN_ART.version bumped so browsers reload them).
+- **Farming** (js/farm.js, icons by tools/build_farm_icons.py into
+  assets/items/farm/):
+  - Hoe (`farmHoe`, F or click a tile within FARM_RANGE = 2): tillable
+    ground (plain dirt or grass, nothing else on it) becomes `dirtRake`.
+  - Watering Can (`farmCan`, Watering animation): the soil is wet for
+    FARM_WET_HOURS (26 in-game h), drawn as a darker Dirt Rake. Crops only
+    grow while wet.
+  - Seeds (`seed*`, start at 0, grocery only): hold + click tilled soil.
+    FARM_CROPS.hours of wet soil to ripen (carrots/petchay 24 ... dragonfruit 72),
+    growth sheet frames 0-2, ripe 3, rotten 4. Rot FARM_ROT_HOURS (36) after
+    ripening; a rotten crop can still be clicked, no loot.
+  - Harvest: one click on a ripe crop in reach -> Collect animation ->
+    `crop*` items pop out (spawnFloatingPickups, same as tree wood).
+  - White borders only on usable tiles in reach (drawFarmHighlights()).
+  - Planting Sockets (sacks): open ones take crops, SOCKET_CAPACITY 20.
+    Click = deposit; full / nothing to add -> pop-up Close+Hold (open) or
+    Open+Hold (closed). Contents follow the sack when it's carried.
+    "n/20" label over sacks within 3 tiles.
+  - Collector (Mang Ador, citizen "I" art): Tue/Thu/Sat 15:00 walks (BFS
+    on isTileBlocked) to each Plant Drawer with filled sacks on it, empties
+    them and pays FARM_CROPS.sell per crop. Other worlds / player indoors:
+    paid instantly.
+  - Saved under `farm` (per world: plots, sockets) in js/save.js. Times are
+    absolute in-game seconds (farmNow()), so crops grow while closed too.
+- **Grocery**: GROCERY_STOCK is seeds only; J (CITIZEN_SHOPKEEPER) works
+  08:00-18:00 and stands behind the counter (SHOPKEEPER_POST); P or a
+  click on J opens the shop only while J is on duty.
+- `startCount` on an item def sets its starting inventory count (default 99).
+
+## Townsfolk home by 19:00, soldiers out 24/7, harvest 2-4
+
+- js/citizens.js: CITIZEN_HOME_HOUR is now 18 (head home) and
+  CITIZEN_HOME_BY_HOUR 19: from 19:00 anyone still outside and not on
+  screen is put straight into their house (citizenEnterShelter()); ones in
+  view get until 19:30 to finish the walk. This also fixes coming back from
+  the wild world at night (citizens are paused there — mainWorldOnly(),
+  js/worlds.js — so they used to be stranded outside, walking home late).
+- The soldiers (CITIZEN_GUARD_IDS L-O) never go in: citizenScheduleTick()
+  skips them and initCitizens() doesn't put them indoors at night.
+- citizenShelters() is cached per layerVersion (it was a full objectLayer
+  scan per citizen per frame).
+- js/farm.js: every harvest yields 2-4 (FARM_CROPS.yield).
+
+## Room tools: 5-tile strips, aimed by click
+
+- js/roomCustomizer.js: one Room Pickaxe / Room Hammer swing changes a
+  strip of up to ROOM_STRIP_LEN (5) tiles along the wall face — vertical
+  when pushing a side wall, horizontal for the back wall — centred on the
+  clicked tile (left-click within ROOM_TOOL_REACH) or on what's in front (F).
+  - Pickaxe: the aimed tile must be wall touching the floor; each strip
+    tile that is wall with floor on the room side is dug. No floor next to
+    it -> "Walang sahig na katabi — hindi ma-expand".
+  - Hammer: the aimed tile must be floor touching a wall; each strip tile
+    that is floor with wall on that side (and free: not the doorway, not
+    under you, no furniture) is filled; the room must stay connected.
+  - roomToolTarget(room, tool, aim) returns the whole plan
+    ({ anchor, tiles:[{col,row,ok}], ok, why }); checkDig()/checkFill()
+    take the tile list; startRoomToolSwing() starts the swing (F and click).
+- js/camera.js drawRoomToolHighlight(): the strip under the mouse (or in
+  front, for F) — white tiles = will change, red = won't.
+
+## Room tools: press-drag-release; auto-tiled ground sets
+
+- **Room Pickaxe / Hammer, drag to size** (js/roomCustomizer.js): press on
+  the edge, drag out a rectangle (up to ROOM_DRAG_MAX tiles a side),
+  release to swing at all of it (roomRectPlan()). The pickaxe must start on
+  wall next to the floor, the hammer on floor next to a wall. A plain click
+  is still the 5-tile strip; F still hits what's in front. Esc cancels a
+  drag. The highlight (js/camera.js) shows the rectangle while dragging.
+- **Auto-tiling** (js/autotile.js): grass_tile, bricks_tile, snow_tile,
+  the mountain plateau and the port/island tiles pick their own piece from
+  their neighbours when laid or picked up — alone or in a straight line =
+  the centre tile, the next one beside it matches, and once tiles meet at a
+  corner the edges/corners turn to join up. Each set's picker layout is the
+  pattern (masks of filled neighbours); the port set uses its 5x5 picture
+  ring + portI2 as the centre. Only the player's own laying re-tiles
+  (placeHeldItemAt / tryGrabOrPlaceInFront / placeGrabbedAtClick are
+  wrapped); saved maps are never touched.
+- **Inventory**: Grass, Brick, Snow and Port Tiles are one slot showing the
+  set's own icon — clicking it holds the centre tile, no picker
+  (autotileCentreForGroup(); right-click = Hold + 1-7 menu). Mountain Tiles
+  keep their picker.
+
+## Grass auto-tiling from the art (jagged edges, not boxes)
+
+- js/autotile.js `GRASS_ART_MASKS`: grass_tile's picker layout is a HOLE in
+  a lawn, so masks read off it were backwards and laid grass came out as
+  plain centre squares. Each grass piece is now tagged by which of its
+  sides/corners are grass in the art itself (border alpha: sides >= 40%,
+  corners fully opaque) and every laid tile takes the best match
+  (`S.exact`: no "alone / straight line = centre" shortcut; a corner only
+  counts where both sides next to it are filled). Patches get the jagged
+  tufts on their edges, round convex corners and notched inner corners.
+- Only enter-grass 1-3 are used as auto centres (4-6 are a darker shade
+  and showed up as a dark square in the middle of a patch).
+- A 1-tile-wide line or a lone tile has no exact piece in this set, so it
+  gets the closest edge/corner piece.
+
+## Snow and port tiles auto-tile from their art too
+
+- js/autotile.js: useArtMasks(prefix, masks, centres) — the grass fix,
+  generalised. SNOW_ART_MASKS (alpha) and PORT_ART_MASKS (land vs the
+  water colour of water1.png) tag every edge / convex corner / inner
+  corner piece; the snow patch and the island get their rounded / shore
+  edges instead of squares. Port: portTL/TR/BR are open water and never
+  picked; centres portI2/I4/I6.
+- Bricks: every brick piece is a full square (no edge art in the set), so
+  they still only vary the brick pattern — nothing to round off.
+- Mountain: unchanged (plateau re-tiles from its layout; walls by hand,
+  picker kept).
+
+## Same edge pattern for mountain, bricks, snow, port
+
+- js/autotile.js: the mountain plateau and bricks also use "best match
+  always" (`exact`): solid inside, edge/corner pieces round the outside,
+  inner-corner pieces in the bends. Mountain masks are read off the
+  plateau rows of its layout only — the cliff-wall rows under it no longer
+  count as neighbours, so the plateau's bottom row reads as an edge.
+  Snow / port / grass already use the art masks (useArtMasks()).
+
+## Mountain plateau: a bumpy bottom rim
+
+- The plateau art had no bumpy bottom rim (bottom-inner pieces are flat —
+  they sit on a cliff wall), so the top edge of a hole in a plateau, and a
+  plateau's lower edge with nothing under it, came out as a straight line.
+- New tiles assets/tiles/mountain/bottom-edge-mountain-1..8.png = the top
+  rim pieces flipped upside down (1-4 from top-mountain-1..4, 5-8 from
+  top-inner-mountain-1/2/5/6). Added to the Mountain set (rows + picker
+  shape) in js/assets.js; js/autotile.js gives them the flipped masks.
+  bottom-inner pieces now count as "continues below", so they're used where
+  a cliff wall (also a mountain tile) is laid under the plateau.
+
+## Mountain cliff walls build themselves
+
+- js/autotile.js mountainWallPiece(): a wall tile (any of the mountain wall
+  pieces) only goes under a mountain tile (plateau or more wall) — else
+  "Ilagay ang wall sa ilalim ng mountain". Each wall tile picks its piece
+  from its column: plateau above -> top-wall (top-left/right-wall at the
+  face's sides), wall above and below -> center-wall, nothing below ->
+  the foot (bottom-outer-wall in the middle, bottom-wall-1/6 at the sides).
+  So laying one wall gives the foot, and every wall laid under it turns the
+  one above into body — keep laying down to the height you want.
+- The plateau tile over a middle wall column turns into bottom-mountain-2/3
+  (the rim shading down into the wall). bottom-mountain-1/4 aren't used
+  automatically (they carry a side outline that only fits the picker's own
+  picture).
+- Laying/removing a wall re-tiles 2 rows up and down around it.
+
+## Curving / stepped cliffs
+
+- js/autotile.js: for a plateau tile, a cliff wall only counts as
+  "mountain continues" when it's straight below (S/SE/SW). Beside or above
+  it the plateau ends, so where a cliff steps down the plateau gets its
+  rounded rim instead of a cut-off square. The bottom-mountain rim shading
+  is only used on tiles with plateau on both sides.
+
+## Auto-tiling never changes the map's own terrain
+
+- js/autotile.js `autotileOwned` (per world, saved as `autotileOwned` in
+  js/save.js): only tiles the player laid are ever re-tiled. A newly laid
+  tile still looks at the map's tiles to pick its own piece, but a
+  hand-made cliff / plateau next to it is left exactly as it was (laying a
+  wall beside the map's cliff used to turn the tile next to it flat).
+  Tiles laid before this change aren't tracked, so they stay as they are.
+- Exception: a wall laid right under the map's own wall FOOT takes that
+  one foot tile over (it becomes wall body, so the column carries on down);
+  the map's tiles beside it are still never changed.
+
+## Cliff wall order follows the picker's picture
+
+- mountainWallPiece() (js/autotile.js) now builds a column the way the
+  Mountain picker lays it out, top to bottom: the FRONT row
+  (top-left-wall / bottom-mountain-1..4 / top-right-wall) right under the
+  plateau, then top-wall, then center-wall repeated, and the end is always
+  the foot (bottom-outer-wall in the middle, bottom-wall-1/6 at the sides).
+  One wall = just the foot; the front row only shows once a second wall is
+  laid under it. bottom-mountain-* are wall pieces now (MTN_WALL_RE); the
+  plateau above a wall is left as its own flat bottom-inner piece.
+- Revised: the FRONT pieces (top-left-wall / bottom-mountain-1..4 /
+  top-right-wall) are the PLATEAU's bottom row, not a wall row — the plateau
+  tile right above a wall column turns into its front piece
+  (mountainFrontPiece()), so even one wall shows the shaded rim. Under it:
+  one wall = the foot; two = top-wall + foot; more = top-wall, center-wall…,
+  foot. MTN_WALL_RE no longer includes the front pieces.
+- Revised again: the first wall under the front is always top-wall (a foot
+  right under the front swallowed the corner); the foot shows from the
+  second wall on, always at the bottom, center-wall in between.
+- Front corners: the plateau tile next to the face's end takes
+  bottom-mountain-1 (left) / bottom-mountain-4 (right), so with
+  top-left/right-wall they make the rounded corner of the picker's picture
+  instead of a straight cut. Laying a wall re-tiles ±2 columns around it.
+
+## Cliff wall pieces joined exactly as named in the inventory
+
+- js/autotile.js MTN_FACE / mountainFacePos(): every row of a wall face
+  picks its piece by column position (left end, next to it, middle
+  alternating, next to the right end, right end):
+    plateau's last row: bottom-inner-mountain-1 | -2 | -3/-4 | -5 | -6
+    front (1st wall):   top-left-wall | bottom-mountain-1 | -2/-3 | -4 | top-right-wall
+    wall (duplicated):  top-wall-1 | -2 | -3/-4 | -5 | -6
+    foot (automatic):   bottom-wall-1 | bottom-outer-1 | -2/-3 | -4 | bottom-wall-6
+  The front is the first wall row again (under the plateau's bottom-inner
+  row); the foot is added by itself under the last wall (autotileAddFoot())
+  and laying a wall on it pushes it down.
+
+## Mountain / Mountain Wall inventory slots
+
+- js/inventory.js: two alias items, `mountainPlateau` ("Mountain") and
+  `mountainWall` ("Mountain Wall"), with `autoAlias` = the real tile they
+  lay. js/autotile.js swaps the held type to the alias for the lay (so all
+  the usual rules + auto-tiling apply) and layerForType()/
+  layerNumberForType() follow the alias. The "Mountain Tiles" slot keeps
+  its picker for laying any piece by hand.
+
+## Mountain = its sheet, exactly
+
+- The Mountain picker picture is the original sheet again
+  (bottom-edge-mountain-* stay defined for the auto-tiling but are no
+  longer in the picture).
+- Walls: 1st laid = front, 2nd = top-wall, then center-wall; the foot is
+  automatic (autotileFixFoot(), `autotileFoot` per world, saved with
+  autotileOwned as "foot:<world>"): one tile (bottom-wall-1/-6) at the
+  face's ends, two in between (bottom-wall-2..5 + bottom-outer-wall-1..4),
+  so the bottom curves in like the sheet. Laying on/under the foot turns it
+  into wall and the foot moves down.
+- Plateau: `fullDiag` — diagonals count even where a side is open, so the
+  corner pieces tell apart (top-mountain-1/4 vs top-inner-mountain-1/6);
+  bottom-inner pieces are only the row over a wall face.
+- Laying the sheet's own shape (plateau 4 then 6 wide, 3 wall rows) gives
+  the sheet back tile for tile (bar which plain centre variant is used).
+- Walls may now be laid anywhere, with or without mountain above (per
+  request — laying the wall rows first, then the plateau over them, keeps
+  the sheet's pattern too). The plateau laid over a wall row still becomes
+  the bottom-inner row.
+- The FRONT row (top-left-wall / bottom-mountain-1..4 / top-right-wall) is
+  the mountain's, not the wall's: a plateau tile right on a wall becomes its
+  front piece, the one above that the bottom-inner piece. A wall is only ever
+  top-wall / center-wall / foot — filling a gap between walls no longer turns
+  the new ones into front pieces. MTN_WALL_RE excludes the front pieces.
+- top-left-wall / top-right-wall are WALL pieces (only bottom-mountain-1..4
+  are the mountain's front). A face's end column that starts a row higher
+  than the wall beside it (the sheet's curve) gets top-left/right-wall on
+  top, then top-wall-1/-6, then center-wall-1/-6, foot bottom-wall-1/-6;
+  the plateau tile over it is bottom-inner-1/-6. A lone wall in its row
+  takes the side the mountain is on (mountainFacePos()).
+- Laying the sheet's shape (end walls one row higher, mountain front between
+  them) gives the sheet back tile for tile; a flat face (all walls starting
+  on one row) gets top-wall-1/-6 at the ends under bottom-inner-1/-6.
+- Dirt stairs under a mountain tile: it counts as filled below (S, SE, SW —
+  mountainStairsAt()), so the tile runs straight into the stairs with no
+  rim/curve, and no front/bottom-inner swap. Laying or picking up stairs
+  re-tiles the (player-laid) mountain tiles right above them.
+- Stairway cut into a cliff: the bottom-inner tile over a wall face's end
+  column only takes the rimmed end piece (-1/-6) when the mountain stops
+  there; if the mountain carries on past it (over the stairs) it takes a
+  plain middle piece (-3/-4), so the plateau runs straight across the top of
+  the stairs. Same result whichever is laid first, stairs or mountain.
+- js/camera.js drawMountainInnerBacking(): a cliff wall tile with dirt stairs
+  right beside it is drawn over a dark rock-coloured square
+  (MOUNTAIN_INNER_BACKING, the wall art's darkest tone), so the gap its
+  rounded side leaves next to the stairs reads as shadowed rock, not a hole
+  to the ground. The cliff's outer sides are unchanged.
+
+## Heavier snow on leafy trees and cut stumps
+
+- tools/build_snow_trees.py -> assets/items/trees/snow/<name>_snow.png for
+  the 8 leafy trees and the 5 cut stumps/trunks: snow on top of every leaf
+  clump (open air / outline / clearly shadowed pixel above it), a 1px lip
+  on the outer outline, light frost, a few flakes; a stump's light cut face
+  is snowed over. js/snowground.js SNOW_TREE_ART uses these while it snows;
+  the bare noLeaves trees keep the run-time snow cap.
+- Revised: the leafy trees' winter art (tools/build_snow_trees.py winter())
+  re-shades the LEAVES themselves instead of pasting snow on top: each leaf
+  pixel by its brightness — lit clump tops turn to snow (white/ice-blue
+  ramp), shaded undersides keep the tree's own colour cooled down; trunk
+  slightly frosted, outline a touch bluer. Trunk pixels = brownish colours
+  used in the bottom rows of the art.
+
+## Force a weather for testing; snowy leaf bits
+
+- js/config.js `let FORCE_WEATHER = null;` — set to "Sunny" / "Cloudy" /
+  "Rainy" / "Thunderstorm" / "Snow" (or live in the console:
+  FORCE_WEATHER = "Snow") and getCurrentWeather() (js/calendar.js) returns
+  it every day; null = the normal daily roll again.
+- js/plantfx.js treeLeafColors(): while it snows, the bits that fall off a
+  tree (chop shake, wind) are snow-white, matching the winter tree art.
+
+## Winter bushes, flowers, mushrooms, fallen leaves
+
+- tools/build_snow_trees.py also writes assets/bushes/snow/*_snow.png and
+  assets/flowers/snow/*_snow.png: the bushes get the trees' winter leaves
+  (no trunk), the flower bushes / mushrooms / flowers keep their colours
+  with snow on their tops (a thin cap on the tiny flowers), the fallen
+  leaves get a light dusting.
+- js/snowground.js snowTreeIcon() serves them while it snows
+  (SNOW_PLANT_RE: bush*, decoFlower*, leavesFloor — path = the icon's own
+  path with /snow/ and _snow), and drawGroundItemAt() (js/camera.js) now
+  asks it too, so the overlay-layer mushrooms/flowers/leaves swap as well.
+  Bushes sway/shake with their winter art (drawObjectLayerItemRaw()).
+
+## Old grass -> grass_tile; winter houses, lamp posts; snow painted in
+
+- js/autotile.js migrateOldGrass(): every old grass tile (grass,
+  grassInner, grassL/R/TC/BC/TL/TR/BL/BR) becomes the grass_tile piece its
+  neighbours call for (old grass, grass_tile and painted ground grass all
+  count). Runs every 1.5s if a world still has old grass (so on load and
+  after switching worlds); saved like any tile. The town save had ~3,000.
+- tools/build_snow_world.py: winter art painted INTO the drawing (no
+  outline/stroke added): roofs re-shaded into snow by their own brightness
+  (roof = each column's top run in the roof's own colours), chimney tops /
+  gable peaks, lamp-post arms, flower and mushroom tops re-shaded the same
+  way. Houses: cottageLog/Plaster/Brick, guardHouse, groceryStore,
+  house1-3; lamp posts incl. lit + left versions.
+- js/snowground.js snowArtFor(img): any icon under bushes/, flowers/,
+  outdoor/postlight*, buildings/exterior/(cottage|grocery|guard),
+  items/house/ gets <dir>/snow/<name>_snow.png while it snows;
+  nightSwapFor() (js/camera.js) uses it for the lit lamp too.
+
+## Shore grass, port snow, tree shadows
+
+- migrateOldGrass() also turns the port set's plain land squares
+  (portI2/I4/I6 — same green) into grass_tile; port shore pieces count as
+  grass for the neighbour test, so they join without a seam.
+- tools/build_snow_world.py: port_* tiles get winter art (their grass
+  pixels take the snow tile's pixels at the same spot; sand/water stay);
+  snowArtFor() covers assets/items/tile/port_*.
+- assets/shadows/: the user's Shadows.png cut into one file per shadow
+  (ellipse_big/medium/small_a/small_b/tiny, blob_a/b, canopy_big/medium/
+  small). js/camera.js drawTreeGroundShadows() draws TREE_SHADOW_FOR[type]
+  under each tree (canopy shapes for leafy trees, ovals for bare trees /
+  stumps / trunks), after the ground layers and before the objects; alpha
+  follows getDayFactor(), so they're daytime only and fade at dusk.
+- Tree shadows move with the tree: plantFxShadowShift() (js/plantfx.js)
+  gives the sideways shift for the wind lean / bush sway (about half the
+  top's lean — it's the canopy's shadow) and the chop shake (all of it);
+  a tree being felled has its shadow swing out the way it falls, stretch
+  along the ground as it lands and fade with it.
+
+## Grocery hours, townsfolk sleep in their beds
+
+- Grocery (js/citizens.js): open Monday-Friday 08:00-18:00
+  (isGroceryWorkday(), isGroceryOpen()). J sets off from home at 07:00
+  (CITIZEN_SHOPKEEPER.leave) and at 08:00 is put at his post behind the
+  counter wherever he got to (shopkeeperToPost()); on the weekend he
+  doesn't go and leaves the shop if he's in it. The door
+  (tryPlayerEnterInterior(), js/interior.js) is shut whenever the grocery
+  isn't open: "Sarado ang grocery. Bukas Lunes-Biyernes, 8:00-18:00."
+- Sleeping: from CITIZEN_SLEEP_HOUR (20:00) to 06:00 every townsperson at
+  home goes to a bed in their house (Single Bed = 1, Double Bed = 2 side by
+  side, Big/Small Bed = 1 — citizenBedSlots()) and sleeps: walks to the
+  foot of the bed if the player is in that room, otherwise (or after 20:30)
+  is simply in it. drawSleepingCitizen(): their own sprite with the head on
+  the pillow, the bed's lower part (blanket) redrawn over them, a slow
+  breath and a drifting "z". They wake at the foot of the bed at 06:00. The
+  soldiers stay outside.
+
+## Sleeping faces; crops need watering
+
+- drawSleepingCitizen() uses each townsperson's own closed-eyes art
+  (assets/npc/Citizen_X/sleep/Sleep_Face.png).
+- js/farm.js: a crop only grows while its soil is wet; on dry soil its
+  growth stops and a dry clock (`crop.dry`) runs — FARM_DRY_DIE_HOURS (12
+  in-game h, ~7.5 real min) dry and it withers (`crop.dead`, withered
+  frame, clickable, no loot: "Natuyo na ang tanim"). Every watering puts the
+  dry clock back to 0 and growth carries on; the soil shows wet again. A
+  water drop floats over a thirsty crop: blue, then orange (40%), red (75%).
+  Ripe crops don't need water (they still rot after FARM_ROT_HOURS).
+- Unused holes grow back: tilling remembers the ground (`plot.orig`: the
+  grass tile and/or painted grass). A plot with nothing planted —
+  never planted, or emptied by a harvest (`plot.emptySince`) — for
+  FARM_REGROW_HOURS (24 in-game h) loses its Dirt Rake and gets that
+  ground back (farmRegrowEmptyPlots(), js/farm.js).
+- Sack badge: a clear "n / 20" pill with a fill bar ("(sarado)" when
+  closed) over each sack within 3 tiles — an empty sack reads "0 / 20".
+- Deposit effects (socketDepositFx(), js/farm.js): the sack puffs up and
+  settles back, the crops fly into it from the player in arcs, sparkles pop
+  out of its mouth as each lands, and "+N" floats up.
+- Sack deposit effects (js/farm.js socketDepositFx()/updateSocketFx()/
+  drawSocketFx()): each time crops go in, the sack puffs up and settles
+  back, up to 8 of the crops fly from the player into it in little arcs,
+  sparkles pop from its mouth as each lands, and "+N" floats up. The sack
+  label shows "n / 20" with a fill bar (green, red when full).
+
+## Seeds from harvests; the grocery buys wood and stone
+
+- js/farm.js: every ripe harvest also drops that crop's seeds — 2 (60%),
+  1 (25%) or 3 (15%), popping out like the crop.
+- GROCERY_STOCK (js/roomCustomizer.js) has `sell: true` rows: Wood Log 3
+  gold, Stone Chunk 2 gold each. renderNpcShopGrid() (js/npc.js) shows
+  them as "+N (meron: X)" with Sell (one) and All buttons -> sellToNpc().
+  woodLog / stoneChunk are no longer `unlimited` (they're money now, so
+  laying one uses one up and the inventory shows the real count).
+
+## Minimap stays on the map
+
+- js/hud.js drawMinimap(): the dial's window is clamped to the current
+  world's size (worldW()/worldH() — the wild world is smaller than the
+  town), so near an edge it stops at the border and the player's arrow
+  moves off-centre (kept inside the round dial) instead of showing the
+  dark/brown nothing past the map; only the map's own part of the ground
+  canvas is drawn. Indoors it centres on where you went in. The full map
+  (drawFullMapBase()) uses the current world's size too.
+
+## Citizen_P — farmer townsperson
+
+- assets/npc/Citizen_P/: black hair (sides down to and hugging the ear in
+  side view), white long-sleeve shirt, brown overalls with gold strap
+  buttons, dark brown boots. Same file set as Citizen_F: idle/ (Idle,
+  Idle_Left, Idle_Down, Idle_Up), walk/ (Walk, Walk_Left, Walk_Down,
+  Walk_Up), sit/ (Sit, Sit_Left, Sit_Front, Eat_{Meat,Spoon,Mug},
+  Eat_Front_{Meat,Spoon,Mug}), sleep/Sleep_Face.png.
+- Idle/walk are painted straight onto the bald Body_A base sheets
+  (assets/pixelcrawler/source/Entities/Characters/Body_A/Animations/), so
+  every frame keeps the base pose; sit/eat are the player's sitv/sith/
+  Sit_Eat sheets recoloured into this outfit with the top knot removed.
+  _Left files are per-frame flips of the right-facing ones.
+- Registered like the other front/back citizens: "P" added to the citizen
+  art loop + CITIZENS_WITH_FRONT_BACK (js/assets.js), CITIZEN_IDS
+  (js/citizens.js) and CUSTOMER_NPC_LOOKS (js/customers.js) — so it
+  wanders, sits, goes home at night, shops, and can show up as a tavern
+  customer, all through the existing citizen code.
+
+## Player wears the farmer look too
+
+- Every player sheet in assets/sprites/ (idle, walk, run, collect, crush,
+  slice, pierce, fishing, watering, hit, death, carry_*, Carry_Order, sit,
+  Sit_Eat) is now the same farmer as Citizen_P: black hair, white shirt,
+  brown overalls (straps + gold buttons from the front), dark boots. The
+  player's old shirt/pants/shoe colours were mapped straight onto the new
+  outfit, the top knot removed, and the new hair drawn on the head found in
+  each frame (matched against the bald head outline) — arms, hands, tools
+  and food in front of the head are left alone. Death's lying frames only
+  get recoloured. Sizes, frame counts and positions are unchanged, so no
+  code changed.
+- Side-view hair: the back now follows the head's curve and tucks in
+  toward the nape behind the ear instead of a straight vertical edge (same
+  for Citizen_P).
+- assets/interior/asesprite/bigbed-sheet.png: the sleeping head in the big
+  bed got the same hair.
+
+## Baggy clothes (player + Citizen_P)
+
+- The farmer outfit is loose now: in every frame the sleeve outline is
+  pushed 2px and the overall legs 1px outward, always away from the body's
+  centre line (so the gap between the legs and between arm and body never
+  closes); the new edge takes the cloth's shadow tone, and the pant leg
+  row resting on a boot gets a dark fold so the legs bunch over the boots.
+  Hips/torso keep their shape. Same frame sizes and positions.
+
+- Side view fix: the chest and back no longer bulge — in side frames only
+  the arms (outside the torso columns L+4..L+10) get the loose sleeve, 1px.
+  The overalls show from the side again: a bib over the FRONT of the chest
+  (L+7..L+10 from k = 3 below the chin line), a strap running over the
+  shoulder ((k1, L+6), (k2, L+7)) and a gold button at (k3, L+8); the back
+  of the shirt stays white down to the waist.
+
+## Citizen_Q — the player's old look as a townsperson
+
+- assets/npc/Citizen_Q/: the player's original red shirt, grey pants and
+  shoes exactly as drawn, but with the new black hair (top knot removed,
+  same hair as the player/Citizen_P, curved back in side view). Built from
+  the ORIGINAL player sheets (Idle, Walk, sitv/sith, Sit_Eat); same file
+  set as Citizen_F/P incl. sleep/Sleep_Face.png. Registered as "Q" in the
+  citizen art loop + CITIZENS_WITH_FRONT_BACK (js/assets.js), CITIZEN_IDS
+  (js/citizens.js) and CUSTOMER_NPC_LOOKS (js/customers.js).
+
+- bigbed-sheet.png redone: the bed's own head art is a different (smaller)
+  head than Body_A, so the drawn-on hair didn't line up. Now each frame is
+  the bald bed (bigbed-sheet_bald.png) with the player's EXACT front-idle
+  head (new Idle_Down frame 0, rows 0..31) pasted in, eyes aligned
+  (dx -8, dy -14, +1 when the bald head sits a row lower), clipped at the
+  blanket's top row so the blanket stays over the chin; frames whose bald
+  head has its eyes shut get the closed-eye version of the head.
+
+## Chopping keeps the tree solid; stones shake; pebbles always underfoot
+
+- No see-through on the tree being chopped: isTreeBeingChopped(col, row)
+  (js/camera.js) makes shouldFadeForOcclusion() — which now also takes
+  col,row from both callers (drawObjectLayerItemRaw() and the relight
+  occluder list) — return false for the tree that is player.harvestTarget
+  mid-swing, or player.chopTree (set on every slice at a tree in
+  updatePlayer(), js/player.js) while you stand still within
+  CHOP_KEEP_SOLID_MS (1.5 s, counted from the end of the last swing).
+  Moving off clears it and the normal fade applies again. Every other
+  tree behaviour (fade on other trees, shake, cracks, felling and its
+  fade-out after landing) is unchanged.
+- Stone shake: resolveHarvestHit() (js/resources.js) calls
+  triggerStoneShake() for `breakAnim: "crush"` resources on every pickaxe
+  hit — plantWobbles kind "stone" (js/plantfx.js): STONE_SHAKE_PX 1.5,
+  STONE_SHAKE_FREQ 70, STONE_SHAKE_SECONDS 0.32, a sideways tremble of the
+  whole rock through applyPlantFxTransform(); its ground shadow follows
+  (plantFxShadowShift()).
+- Pebbles: stoneXXS and stoneDecor1-5 carry `pebble: true`
+  (js/inventory.js); renderWorldObjectsSorted() sorts them at -Infinity,
+  so the player, NPCs and animals always draw over them.
+- index.html script versions bumped to ?v=20261008n.
+
+## Felled trees end as an L; bushes never see-through
+
+- js/plantfx.js treeFellGeometry(type): the cut is now the TOP of the stump
+  the tree turns into (its resource.replaceWith art: top opaque row, and its
+  width over the top 3 rows), capped at 60% of the tree's height; falls back
+  to treeTrunkSpot() if the art can't be read. startTreeFall() hinges the
+  falling part on the stump's top OUTER corner on the side it falls to
+  (pivotX = centre + dir * half-width, pivotY = ground - stump height), draws
+  only the art above that cut (srcH), and fellDrop() sinks it by the stump's
+  height as it swings flat (cubic in the angle), so it lands on the ground
+  straight out from the stump's side — stump up, log flat: an L. Nothing of
+  the falling part overlaps the stump any more. landingBurst() (snow puff,
+  leaves, chips, wood drop) uses the ground line (f.groundY). Applies to every
+  choppable tree (every non-stump with breakAnim "slice": thin/tiny/medium/
+  big, green/light green/orange/red/yellow, no-leaves, and their snow art).
+- shouldFadeForOcclusion() (js/camera.js): any `bush*` item never fades.
+- index.html script versions -> ?v=20261008o.
+
+- Felling revised (stump ring was showing next to the log): the hinge is
+  now the stump's top corner on the side AWAY from the fall
+  (pivotX = centre - dir * half-width), with no drop — the log comes to rest
+  lying across the stump's top, its square-cut end flush with the stump's
+  far edge, drawn in front of the stump (sortY +0.5) so the stump's round
+  cut face is hidden until the log fades. Effects land on the log's centre
+  line (groundY = cut + half-width). index.html -> ?v=20261008p.
+
+- Felling revised again: it now falls the OTHER way (dir = -fellDirection(),
+  i.e. toward the side the player chops from), still hinged on the stump's
+  top corner away from the fall; and the falling part starts `ring` px BELOW
+  the stump's top (ring = the stump's round cut face, ~min(1.5 x half-width,
+  9) px, kept under cutUp - 2), so its trunk covers that face the whole way
+  down and the ring only shows once the log has faded. index.html ->
+  ?v=20261008q.
+  As it comes flat it rises back by the same `ring` (drop: -ring through
+  fellDrop()), so the resting log lies exactly over the stump's top and the
+  cut face stays hidden at the end too.
+
+## Felling reverted; dirt pebbles under everyone; animals overlap feet-to-feet
+
+- Per request ("ok na siguro yung dati balik mo na dun") the tree-felling
+  animation in js/plantfx.js is back to the ORIGINAL (pivot at the trunk
+  spot, falls away from the player, same landing burst) — the L / far-edge
+  hinge / ring-cover experiments above (treeFellGeometry(), fellDrop()) are
+  gone. The stone pickaxe shake stays. The chopped tree still never fades
+  (isTreeBeingChopped(), js/camera.js) and bushes still never fade.
+- Small Pixel Crawler Rocks (js/townBuildings.js, TOWN_ART.pc group "Rocks",
+  art 16x14 or smaller: the brown "dirt pebbles" pcRocks03/04/09/11/13/17-21
+  and their grey twins 07/08/10/12/14) get `alwaysBehindPlayer` (sorted at
+  -Infinity, so the player and every NPC/animal draw over them, and skipped
+  by the night relight occluders) and `noOcclusionFade`. Their collision
+  (art.solid) is unchanged.
+- Animals vs characters (js/camera.js drawableOrder(), used by
+  renderWorldObjectsSorted()): an animal entry (`animal: true`,
+  js/animals.js) and a character entry (player / Maria / customers marked
+  `character: true`, citizens carrying `feetY: c.fy`) are compared feet to
+  feet — once a character's feet are below the animal's feet, the character
+  draws over it. Everything else still sorts on plain sortY (citizens keep
+  their 25%-up line against the player and objects).
+- index.html -> ?v=20261008r.
+
+- Fix: the feet-to-feet rule now uses the characters' VISIBLE feet. Their
+  usual sort point (SPRITE_FEET_FRACTION 0.62) is ~6.2 world px above the
+  soles (lowest foot pixel = row 47 of 64), so an animal or bush whose base
+  was above the shoes still drew over them. drawableOrder() adds
+  CHARACTER_VISIBLE_FEET_EXTRA = (48/64 - SPRITE_FEET_FRACTION) * DRAW_SIZE
+  to a character's feet when comparing with an animal (`animal`) or a bush
+  (objectLayer `bush*` entries flagged `bush`, sorted on the tile's bottom
+  edge). The night relight occluders follow the same rule
+  (animalRelightOccluders(), and bushes in relightOccluders()).
+  Everything else (trees, houses, stones...) keeps the old sort point.
+  index.html -> ?v=20261008s.
+
+## Old terrain tiles merge with newly laid ones
+
+- js/autotile.js: AUTOTILE_MERGE_OLD (terrainGrass, terrainSnow,
+  terrainBricks, port) — for these sets autotileCell() no longer skips
+  tiles that aren't in autotileOwned, so laying/picking up a tile re-tiles
+  the map's own / older neighbours too and their edge pieces join the new
+  tile (a filled-in dirt patch no longer keeps a ring of old edges).
+  Mountain keeps the old "never touch the map's own tiles" rule.
+- autotileFilledFor(): for grass, a neighbour counts as grass if it's a
+  grass_tile piece, an old-style grass tile (OLD_GRASS_RE), port land, or
+  the painted lawn (isGroundFilled && no groundLayer tile) — same test as
+  migrateOldGrass() — so new grass next to the lawn joins it instead of
+  growing an edge. Other sets: same-prefix tiles only, as before.
+- index.html -> ?v=20261008t.
+- Guard: an old (non-owned) tile only re-tiles if its current piece is one
+  of the set's own auto-tile candidates — the map's open-water port squares
+  (portTL/TR/BR), the shaded grass fills (enter-grass-4..6), snow 6-part
+  fills etc. are never swapped. index.html -> ?v=20261008u.
+
+## Mountain rim collision uses the soles
+
+- js/player.js isBodyBlockedAt(): besides the usual feet-line tile test,
+  the row under the drawn SOLES (feet line + BRIDGE_SOLE_DROP, ~6 world px
+  lower) is tested against solid mountain tiles (isSolidMountainAt():
+  terrainMountain* with `collides`, either terrain layer). Walking down onto
+  the plateau's top rim / corner the shoes now stop at the tile's top edge
+  instead of standing on it. Stairs and bridge tiles are exempt; if the
+  soles are already inside a solid mountain row (old save / spawn) moving
+  within it is allowed so the player can't get stuck. Player only (NPCs path
+  by whole tiles). index.html -> ?v=20261008v.
+
+## Front hair: curved, thinner sides
+
+- Front (Down) hair template redone: full at the temples, then both sides
+  curve in onto the head's outline from 6 rows below the top and end as a
+  thin 1px lock beside the face (2 rows), instead of a straight 2px-wide
+  column down to the cheeks. Fringe gaps filled so no skin speckles show on
+  the base-body NPC. Rebuilt with it: every player sheet (assets/sprites),
+  Citizen_P, Citizen_Q (incl. Sleep_Face) and bigbed-sheet.png (the exact
+  new front-idle head pasted on the bald bed again).
+
+## Grey neck line
+
+- The black chin/neck line between the face and the shirt is now the
+  shirt's darkest grey (140,136,142) — neck_grey() in the sprite build:
+  only black pixels on the chin row with cloth (shirt/overalls) right below
+  change, so hands, tools and the head's side outline stay black. Applied
+  to every player sheet (front, side, back, all actions), Citizen_P, and
+  the big-bed sleep head (pasted from the new front idle). Citizen_Q (red
+  shirt, old look) keeps its black line.
+- Revised: instead of one flat grey line, the chin row over the shirt now
+  copies the shirt pixel right under it (white / grey / dark grey, and the
+  overalls' brown where a strap runs up), with the two end pixels in the
+  shirt's dark grey — it reads as the top of the shirt, straps carried up to
+  the collar. Same sheets as above rebuilt.
+
+## Tilled soil (Dirt Rake) auto-tiles
+
+- assets/items/vegetables/dirtrake_auto.png: 16 pieces of 24x24 (tile +
+  4px rim all round), built from dirtrake.png by quadrants — a quadrant with
+  both its sides open is the clod's own corner, one side open uses the clod's
+  matching edge band, both closed uses a seamless fill (art rows 8-15 x2).
+  Index = N 1 | E 2 | S 4 | W 8 (sides with tilled soil too).
+- js/farm.js dirtRakeMask()/drawDirtRakeAuto(): drawDirtLayer() (js/camera.js)
+  draws every `dirtRake` with its piece (offset -4,-4) instead of the single
+  22x20 clod; the wet overlay (drawFarmSoil()) draws the same piece darkened
+  (wetRakeAutoArt()). A lone tile still looks like the old clod; neighbours
+  join straight, open sides keep the lumpy edge and rounded corners. Falls
+  back to the old art if the sheet isn't loaded. index.html -> ?v=20261008w.
+
+## The mines: 10 cave levels with mobs, combat and click-to-pick-up drops
+
+- Levels: tools/build_mine_levels.py -> js/mineLevels.data.js (loaded right
+  after townBuildings.data.js). mine1_room..mine10_room join
+  TOWN_ART.caveLayouts (same cave format; each has `depth`, `far`, `path`),
+  and TOWN_ROOM_BLUEPRINTS gets a caveBlueprint() for each
+  (js/townBuildings.js). Long serpentine caves (3 corridors + 4 caverns +
+  a far chamber), 56x40 tiles at level 1 growing to 74x43 at level 10,
+  lit with post lights, rocks/mushrooms as decor. The tunnel's deep chamber
+  gets a new opening C (MINE_TUNNEL_LINK; tunnel_room's version changes so
+  a saved tunnel room is rebuilt with it). Openings: tunnel C <-> mine1 UP,
+  mineN DOWN <-> mine(N+1) UP (CAVE_LINKS, js/mines.js). Each level's
+  doormat still leads outside the tunnel entrance.
+- Mob art (original, not the Mobs pack — only its frame sizes/counts were a
+  guide): tools/mobs/*.py -> assets/mobs/<type>/{idle,move,attack,death}.png
+  (square frames, strips; 32px: slime, bat, shroom, beetle; 48px: golem,
+  golemBoss = recoloured crystal golem) and assets/mobs/icons/*.png.
+- js/mines.js: MINE_TYPES (stats, art foot row, fps, drops), MINE_SPAWNS
+  per level (deeper = more and tougher; hp +12%/dmg +10% per level, boss
+  fixed). Mobs spawn >10 tiles from the start, wander, chase within
+  `aggro`, attack in `reach` (the hit lands on hitFrame if still in reach,
+  0.6s invulnerability after a hit, red flash + red number). At 0 health:
+  toast, half health, faded out of the cave.
+- Combat: mineIndoorUpdate() (called from updatePlayer's indoor branch,
+  js/player.js) — F in a mine swings Pierce with the Cave Sword (itemDefs
+  caveSword, weapon.damage 12) or a bare Hit (5); resolved half-way through
+  the swing on every mob in front (±15% damage, 12% crits x1.8 in yellow),
+  knockback + white flash. Health bar (small text "hp/max", boss shows its
+  name) under each mob's feet; damage numbers rise over the mob.
+- Drops (MINE_TYPES[..].drops: slimeGel, batWing, glowCap, crystalShard,
+  golemCore, stoneChunk, goldCoin): tossed and bounced twice like tree wood,
+  then they WAIT. A left click on one (capture-phase listener, within
+  MINE_PICKUP_RANGE) starts its vacuum into the player; then grantItem() /
+  player.gold. Items are in itemDefs (startCount 0) so they're in the
+  inventory. Drops vanish after 5 min; killed mobs respawn after 2 min once
+  you're 12+ tiles from their spot. Mobs/drops aren't saved.
+- Drawing hooks in renderInteriorScene() (js/camera.js): mobs + resting
+  drops join the depth sort (mineIndoorDrawables()); drawMineOverlay() after
+  the light washes draws flying drops, numbers and the hurt flash.
+- index.html -> ?v=20261008x (+ js/mineLevels.data.js, js/mines.js).
+
+## Cave floors get texture
+
+- js/roomCustomizer.js decorateCaveFloor(): every room with floor "cave"
+  (the old caves, the tunnel and all ten mine levels) gets, baked into its
+  picture: patches of raked dirt (random-walk clusters ~1 per 45 floor tiles,
+  plus lone clods) drawn with the farm's auto-tiled Dirt Rake pieces
+  (assets.dirtRakeAuto) recoloured to the cave's redder brown
+  (caveRakeArt()), pebbles and hairline cracks. Seeded from the room's tile
+  set, so a cave always looks the same; paint only (no collision). Keeps
+  clear of the doorway and the row under the back wall. If the rake art
+  isn't loaded yet when a cave is built, the caves are repainted once it is.
+  index.html -> ?v=20261008y.
+
+## Mobs lit like the animals, weapons, shops, stamina everywhere
+
+- js/mines.js: each mob has `lit` (0..1) eased toward how far it stands in
+  the player's light (r 96) or a postLightLit's (r 80); mineRelightList()
+  joins drawCharacterNightRelights() (js/camera.js) and paints its colours
+  back by night * lit, like the farm animals. mineRelightOccluders() cuts
+  mobs in front out of the player's relight. Mobs sort at
+  m.y - CHARACTER_VISIBLE_FEET_EXTRA (same visible-feet rule as animals).
+- Tougher mobs (x2.5 hp: slime 55, bat 35, shroom 80, beetle 120, golem
+  280, boss 1100). Damage = equipped weapon.damage, bare hands 3.
+- Weapons (js/inventory.js): woodSword 6 (start with 1, the old wood_sword
+  art), ironSword 12, goldSword 20 (icons in assets/mobs/icons; caveSword
+  removed). Potions: potionHealth (+40% hp), potionStamina (+60%),
+  potionElixir (full hp + stamina, +30 food); consumeItem() now also takes
+  consumable.staminaPercent.
+- Shops (js/shops.data.js + js/shops.js, art: tools/build_shop_buildings.py):
+  equipShop / potionShop houses (TOWN_HOUSE_INFO, rooms equip_room /
+  potion_room — ready-made 10x6 floor with a counter). ensureShopsBuilt()
+  puts them on the main map at SHOP_SITES (door tiles 8,38 and 24,38, over
+  the west road) if missing, clearing trees/bushes/stones/decor in the spot
+  (post lights kept). Keepers Smith / Alchemist (assets/npc/Shop_*/
+  Idle_Down.png, recoloured farmer) stand behind the counter day and night;
+  clicking them opens openNpcShop() with EQUIP_STOCK / POTION_STOCK (both
+  also buy mob drops). The popup opens on the click, not the mousedown.
+- js/npc.js enterNpcHouse(): only closes the shop popup if it's Maria's own
+  (it was closing every shop each time she walked home).
+- js/interior.js: running (Shift) and the stamina drain/regen/exhaustion
+  work indoors (rooms, caves) exactly like outdoors; food already drains
+  everywhere (updatePlayerStats(), main loop).
+- index.html -> ?v=20261008z (+ js/shops.data.js, js/shops.js).
+
+## East worlds, outdoor mobs, EXP / levels, level-locked weapons
+
+- tools/build_east_worlds.py -> js/eastWorlds.data.js (EAST_WORLDS.east1 /
+  east2, 80x46 like the wild world): mountain ring with a west pass (and an
+  east pass on east1), mesas inside, dirt trails, a light scatter of trees,
+  bushes, stones; lamps at the passes. js/worlds.js now has WORLD_DEFS /
+  EXTRA_WORLDS (wild, east1, east2): worldW/H, switchWorld defaults and the
+  save (d.worlds.<id>) work for any of them. Portals: town east edge
+  (MAIN_EAST_PORTAL, cols 186-187 rows 63-65, walk right) -> east1 west pass;
+  east1 east pass -> east2; west passes lead back. js/shops.js keeps the
+  town gate clear and puts a lamp either side of it.
+- js/mines.js works on ZONES (currentMineRoom() now returns a zone: a mine
+  room or an east world, key "world:<id>"): MOB_WORLDS east1 "Highlands"
+  mobs Lv 3-6, east2 "Crystal Ridge" Lv 7-11; mine N = Lv N..N+1. Mob level
+  scales hp +15%/lvl, dmg +10%/lvl, exp +35%/lvl (boss fixed Lv 15). The
+  health bar text shows "Lv N hp/max". Outdoors mobs collide like the player
+  (isBodyBlockedAt), spawn off the cliffs and away from the passes, are lit
+  by animalLightSources(), and F only swings at them when one is within
+  40px (otherwise F still chops/breaks). mobOutdoorUpdate() is called near
+  the top of updatePlayer(); drawables/overlay hooked into the outdoor
+  render. Blacking out outdoors sends you to the town's east gate.
+- EXP: every kill gives the mob's exp (+N EXP floats up); maxExp 100 x1.35
+  per level; level up = +8 max health, +4 max stamina, full heal, toast that
+  names any weapon unlocked. The HUD exp bar reads "Lv N exp/max". level,
+  maxExp, maxHealth, maxStamina are saved (save wrappers in js/mines.js).
+- Weapons have weapon.reqLevel: wood 1, iron 5, gold 10, crystalSword
+  (new, dmg 32, 1300 gold) 15. equipWeapon()/buyFromNpc() refuse locked
+  ones, the shop row shows "🔒 Lv N", and a locked weapon hits like bare
+  hands. index.html -> ?v=20261009a (+ js/eastWorlds.data.js).
+
+## Cave lighting, lit Wall Candles, bluer night
+
+- assets/buildings/furniture/bldWallCandle.png now has a flame (12x16 ->
+  12x20, bottom-anchored as before) and itemDefs.bldWallCandle.lightGlow
+  (small) is set in js/shops.js.
+- js/camera.js drawIndoorLampGlows(room, strength): indoors every decor
+  piece with a lightGlow (postLightLit, Wall Candles) adds its circle to the
+  shared light buffer (postGlowCanvas; no shadows), at
+  getIndoorLighting().candle — before flushSceneLights() in
+  renderInteriorScene(). (Before, room lamps never shone at all.)
+- Caves (any room whose custom.floor is "cave": tunnel, old caves, mines):
+  getIndoorLighting() is wrapped to a fixed { ownerDark: CAVE_DARKNESS 0.78,
+  relight 0.78, candle 1 } — always the same blue-ish dark with every lamp,
+  wall candle and the player's own candle lit, day or night.
+- Night colour bluer, Stardew-like: SKY_KEYFRAMES night (18,30,86) at
+  NIGHT_SKY_ALPHA 0.6 (was (10,15,40) @0.63), ROOM_NIGHT_SKY_COLOR to match,
+  NIGHT_BLUE_TINT (52,86,200,0.2) (was (40,70,160,0.16)).
+  index.html -> ?v=20261009b.
+
+## Cave camera + fog
+
+- renderInteriorScene(): in a cave (custom.floor "cave") the camera stays
+  centred on the player (no clamping to the cave's edge); the room picture
+  is drawn only where it's on screen and everything beyond it is black.
+- drawCaveFog(): after the lights and relights, a radial fog round the
+  player — clear to CAVE_FOG_CLEAR (46 world px), a dark silhouette by
+  CAVE_FOG_SILHOUETTE (92, 50%), 82% by CAVE_FOG_DARK (140), black by
+  CAVE_FOG_BLACK (185); outside the cave's picture is filled black. Damage
+  numbers / flying drops (drawMineOverlay()) are drawn after it.
+  index.html -> ?v=20261009c.
+
+## Road to the east worlds
+
+- js/shops.js ensureEastRoad(): once, on the main map, lays a 2-wide dirt
+  road (EAST_ROAD: cols 140-187, rows 63-64) from the town's north-south road
+  to the east gate (MAIN_EAST_PORTAL), using the same corner rule as the world
+  builders: road cells = groundFill off + no tile; border cells get the
+  matching terrainGrass edge piece (ROAD_EDGE), diagonal-only touches filled
+  in, the junction with the old road recomputed. Trees/bushes/stones/tufts
+  on the road are cleared (post lights kept). Skipped if already laid.
+  index.html -> ?v=20261009d.
+
+## Regrowth knows its world
+
+- pendingRespawns entries carry `world` (js/resources.js); updateResources()
+  only regrows entries of the current world (older entries = "main") and
+  runs in every world now (the mainWorldOnly wrap in js/worlds.js removed).
+  Before, a stump cleared in the wild world could regrow its tree at the same
+  col,row in the TOWN. A regrowth whose tile is taken by then is dropped.
+  index.html -> ?v=20261009e.
+
+## Town trees protected, fewer cave rocks, tall flowers overlap
+
+- js/resources.js findHarvestableTarget(): in the town (currentWorld
+  "main") trees and stumps are skipped (isProtectedTownTree()), with a toast;
+  stones still break. Trees are cut in the wild world and the east worlds.
+- Fewer big rocks in caves: tools/build_mine_levels.py now puts 1-2
+  stoneBig and one tall pcRocks per mine level (was 3-6 + 6); the old caves
+  (cave_room, tunnel_room, cave2_room) keep one stoneBig and one tall rock
+  each (filtered in js/mineLevels.data.js; their versions change so saved
+  caves are rebuilt).
+- The tall flowers (decoFlower1/2, "Flower (Tall)", on groundOverlayLayer)
+  are no longer drawn flat under everyone (drawGroundOverlay() skips them):
+  they join the depth sort with the bushes' visible-feet rule (drawableOrder()
+  `bush` flag) and the night relight occluders. index.html -> ?v=20261009f.
+
+## Far worlds (to Lv 80), new mobs, gear + stats, profile (P), click-to-attack
+
+- tools/build_east_worlds.py now also builds east3-east6 (closed rings, no
+  passes) and `portals` (warpPortal items placed off to one side, area kept
+  clear): east2 "next" -> east3 "back" ... east5 "next" -> east6 "back".
+  WORLD_DEFS/worldStore include them; js/gear.js checkWarpPortals() (W on the
+  step in front of an arch) links them (WARP_LINKS) and ensureWarpPortals()
+  adds a missing portal to a saved world (east2). Portal art:
+  assets/buildings/exterior/warpPortal.png (tools/mobs/gear.py).
+- MOB_WORLDS: east3 Wolfpine Woods Lv 12-22, east4 Spirit Glade 23-38, east5
+  Sunscar Barrens 39-58, east6 Ember Peaks 59-80. New mobs (original art,
+  tools/mobs/newmobs.py): wolf, wisp (flying), scorpion, imp. Mobs have DEF
+  (armor = 0.6 x level); gold drops scale with level.
+- Gear (js/inventory.js): GEAR_TIERS leather/iron/gold/mythril/dragon
+  (req Lv 1/10/25/40/60) x Helmet/Gauntlet/Ring/Shield/Boots with `gear`
+  {kind, atk, def, spd, crit}; swords add mythril (Lv30, 55), dragon (Lv50,
+  90), celestial (Lv70, 140). All sold at the Equipment Shop, locked by
+  level (shop shows 🔒, buy/equip refused).
+- js/gear.js playerStats(): ATK (weapon or 3 + gauntlets + rings), DEF
+  (blocks 0.6 per point of each mob hit), SPD (attacks/s, base 1, +boots,
+  wood sword 1.15; also speeds the swing), CRIT (12% + rings, x1.8).
+  player.equipment {helmet, gauntletL/R, ringL/R, shield, boots} saved.
+- Profile: P toggles a window — idle front sprite in the middle, helmet
+  above, gauntlet/ring/shield on the left, gauntlet/ring/sword on the right,
+  boots below; stats with descriptions beside it. Click a slot to pick an
+  owned item or take it off.
+- Click-to-attack: left-click a mob -> player.autoTarget; autoAttackTick()
+  (called from mineIndoorUpdate) walks up to it (held movement keys) and
+  attacks every 1/SPD seconds until it dies; a red ring marks the target;
+  any movement key cancels. index.html -> ?v=20261009h (+ js/gear.js).
+
+## Bosses + Demon set, armour slot, bows, Blacksmith, animated portal, compact profile
+
+- World bosses (js/mines.js, one per east world, fixed level, big, dark
+  violet-pink recolours from tools/mobs/demon.py): bossSlime "Slime King"
+  Lv10 (east1), bossGolem "Shadow Golem" Lv18 (east2), bossWolf "Shadow Fang"
+  Lv28 (east3), bossWisp "Wraith" Lv45 (east4), bossScorpion "Venom Queen"
+  Lv65 (east5), bossImp "Demon Lord" Lv85 (east6). Respawn 10-20 min.
+  They're the ONLY source of the Demon set (4-8% per piece): demonRing,
+  demonBoots, demonGauntlet, demonBow, demonHelmet, demonShield, demonArmor,
+  demonSword (itemDefs bossDrop, reqLevel 12-70; never sold).
+- Magic: wisp, imp, Shadow Golem, Wraith, Demon Lord hit with magic —
+  reduced by MAGIC RES (mres/(mres+100)); physical hits by DEF RES
+  (def/(def+100)). Gear gained mres (helmet, armor, shield, demon pieces).
+- Slots: the left gauntlet is now the body ARMOR slot (armor kind, 5 tiers
+  + demon). Old saves' gauntletR -> gauntlet.
+- Bows (weapon.ranged): wood/iron/gold + demon; reach 44 from a point 40px
+  in front, an arrow flies to the target (mineArrows); F outdoors swings at
+  a mob up to 110px away with a bow.
+- Blacksmith house (blacksmithShop, js/townBuildings.js smith_room; art
+  tools/mobs/demon.py) at SHOP_SITES 36,38 in town; keeper "Blacksmith"
+  (assets/npc/Shop_Blacksmith) sells swords, bows, shields (SMITH_STOCK). The
+  Equipment Shop's keeper is now "Armorer": helmets, armour, gauntlets,
+  rings, boots (EQUIP_STOCK).
+- Portal animates: warpPortal's icon is a canvas redrawn from
+  warpPortal_anim.png (8 frames, 10 fps); canvas.src = the still picture for
+  the inventory UI.
+- Profile (P) is compact (250px): slots round the sprite, then side-by-side
+  bars (Health, Stamina, Food, Lv/EXP), then ATK, DEF, MAGIC RES, ATK SPEED,
+  DEF RES, CRIT (hover for the description).
+- EXP curve: expForLevel(l) = 50 x l^1.5 (recomputed on load).
+  index.html -> ?v=20261009i.
+
+## Boss swords, 32px with a violet aura
+
+- tools/mobs/swords32.py: original 32x32 swords (blade built along the
+  diagonal, shaded, gold guard, outlined) — Demon Sword (obsidian, hooked
+  back spikes, eye gem), Void Cleaver (violet steel cleaver, gold inlay,
+  runes), Soul Reaver (leaf-shaped violet crystal). Each: <id>.png (the
+  inventory picture, aura frozen) + <id>_anim.png (6-frame pulsing aura +
+  drifting sparkles). itemDefs.animStrip names the strip; drawMineDrop()
+  animates it for a sword lying on the ground. Drops: Soul Reaver (Wraith,
+  4%, Lv40, atk 95), Void Cleaver (Venom Queen, 3%, Lv55, atk 130), Demon
+  Sword (Demon Lord, 4%, Lv70, atk 170). index.html -> ?v=20261009j.
+
+## Storm Greatsword replaces the three boss swords; held in the hand
+
+- Removed demonSword / voidCleaver / soulReaver (and their drops/art).
+  tools/mobs/stormsword.py: an original 40x40 greatsword (broad steel blade,
+  fuller, violet guard and gems), violet aura, lightning cracking both off the
+  edges and right across the blade; stormSword.png (inventory, aura only) +
+  stormSword_anim.png (8 frames). itemDefs.stormSword: Lv70, atk 170,
+  bossDrop (Demon Lord 4%), animStrip, holdSprite.
+- js/gear.js: drawPlayer() is wrapped — a weapon with holdSprite is drawn in
+  the screen-right hand (HAND_AT per idle/walk/run frame, measured off the
+  sheets; mirrored when facing left, exactly like drawPlayer();
+  behind the body facing up) while idle/walking/running, only in a mob zone
+  (mine level or mob world), never mid-swing. index.html -> ?v=20261009k.
+
+## Boss gear: violet + lightning, and it crackles when worn
+
+- tools/mobs/demongear.py: demonHelmet/Armor/Gauntlet/Boots/Ring/Shield/Bow
+  redrawn at 24x24 in the Storm Greatsword's style (violet metal, lavender
+  trim, pink gem, aura) — <id>.png (inventory, aura only) + <id>_anim.png (6
+  frames with lightning); itemDefs.animStrip set, so a dropped piece animates.
+- js/gear.js: drawPlayer() wrapped again — every worn bossDrop piece adds a
+  violet aura behind the player and lightning bolts (re-rolled every 90ms) at
+  its body part (WORN_SPOTS: head, chest, hand, feet, sides). Everywhere.
+  index.html -> ?v=20261009l.
+
+## Boss gear changes the look; Storm Greatsword swing arc; try-out set
+
+- assets/sprites_gear/{helmet,armor,gauntlet,boots}/<same path as every
+  player sheet> (tools/sprites/gear_overlays.py, needs the farmer paint.py
+  helpers + the original sheets for head detection): a Spartan helm (dome,
+  T-shaped face opening / open side, brow band, tall pink plume front to
+  back), a violet muscle cuirass on the torso (abs, pecs, collar gem;
+  sleeves stay cloth), armoured violet forearms/hands, violet boots with a
+  pink trim. js/gear.js wraps drawPlayerSprite() to draw the overlay frame
+  of each worn bossDrop piece over the matching sheet frame (mirrored like
+  the body; also in the night relight).
+- Storm Greatsword: weapon.attackAnim "hit" + swingArc — drawSwordSwing()
+  sweeps the sword from over the shoulder down past the front (SWING_ARCS
+  per facing, eased), with a violet crescent trail and a tip spark.
+- Try-out: grantGearTrial() gives one of each boss piece + the Storm
+  Greatsword once (player.gearTrialGiven) and player.gearTrial makes boss
+  gear wearable at any level (itemLocked/weaponLocked wrapped); both saved.
+  Set gearTrial false to put the level locks back. index.html -> ?v=20261009m.
+
+## One target per hit, attributes (STR/STA/AGI/ACC), hit chance, bows, exp/gold
+
+- js/mines.js resolveMineSwing(): ONE target per swing — player.autoTarget
+  (the clicked mob) if in reach, else the nearest in front. Hit chance =
+  playerHitChance(m) (js/gear.js): 82% + 1.2%/ACC, -2.5% per level the mob is
+  over you (35-99%); a miss shows MISS. Melee lands at once
+  (landMineHit()); a bow's arrow flies (updateMineArrows(), drawn in the
+  overlay with shaft/head/fletching) and lands on arrival.
+- Attributes: player.attrs {str, sta, agi, acc}, player.statPoints (+3 per
+  level; older saves get (level-1)*3). STR +2 ATK; STA +8 max health (when
+  spent), +1 DEF, +0.8 MAGIC RES; AGI +0.02 attacks/s; ACC +1.2% hit. Spent
+  with the + buttons in the profile (spendStat()); saved. The profile also
+  shows HIT.
+- EXP/gold: mob exp = base x (1 + 0.5 x (lvl-1)), x(1 + 8% per level the mob
+  is over you, 0.25..1.6); gold x(1 + (lvl-1)/5). expForLevel = 50 x l^1.75.
+- Bows: attackAnim "hit", holdSprite (held upright in the hand in mob
+  zones); drawBowShot() raises the bow toward the facing, pulls the string
+  with a nocked arrow, then releases. index.html -> ?v=20261009n.
+
+## Metal sets (bronze / iron / emerald / diamond), bow range 3 tiles
+
+- tools/mobs/metalsets.py: helmet/armor/gauntlet/boots (24px, the boss set's
+  shapes, plain — no aura/lightning) and a 40px sword per set (the Storm
+  Greatsword's blade recoloured), plus worn looks: assets/sprites_gear_<set>/
+  <piece>/<sheet path>, recoloured from the boss overlays. iron* gear reuses
+  its ids (new art, lookSet "iron"); bronze (Lv5, x1.8), emerald (Lv30, x7),
+  diamond (Lv50, x12) are new (lookSet). Swords: bronze 9 (Lv3), iron 12
+  (Lv5, now held + swing), emerald 42 (Lv22), diamond 75 (Lv42) — holdSprite,
+  swingArc, single-frame animStrip. Sold at the Equipment Shop / Blacksmith.
+  wornLookPieces() returns [slot, set] (boss gear: no suffix).
+- Bows hit any mob within BOW_RANGE = 3 tiles of the player (js/gear.js;
+  resolveMineSwing() ranged branch); click-to-attack stops 3 tiles away; F
+  outdoors fires at a mob up to 3 tiles + 8px. index.html -> ?v=20261009o.
+
+## One town portal, side passages, click fix, hover cursor/outline, bow 5 tiles
+
+- Warp portals: only ONE, in the town's top-right among the rocks
+  (TOWN_PORTAL 176,12, js/gear.js ensureTownPortal() builds it + a ring of
+  rocks, removes any other portal anywhere) -> walk up into it (W) -> east3
+  (Wolfpine Woods) at its north passage.
+- The far worlds use walk-through side passages instead (tools/build_east_
+  worlds.py `passes`, off-centre gaps in the ring + a trail in; layoutVersion
+  "v2-<seed>" so a saved far world from the old layout is dropped):
+  east2 S(60-63) <-> east3 N(16-19); east3 E(rows 34-36) <-> east4 W(11-13);
+  east4 S(16-19) <-> east5 N(60-63); east5 W(31-33) <-> east6 E(13-15).
+  js/worlds.js checkSidePasses()/SIDE_LINKS/passSpawn() (arrive 6 tiles in).
+- Bug fix: clicking a mob again no longer resets the attack timer (spam-
+  clicking sped the swings up).
+- Hovering a mob: a sword cursor (SWORD_CURSOR) and a light outline round the
+  mob (drawMob(), white silhouette offset 1px each way).
+- Bows: BOW_RANGE 5 tiles; the shot plays 1.7x faster; arrows fly faster.
+  index.html -> ?v=20261009p.
+
+## Cursor fixes, close-range pickup, wizards + soldiers, world map
+
+- Sword cursor mirrored (tip up-left = hotspot 4,4). Hovering a resting drop
+  shows a hand (pointer); MINE_PICKUP_RANGE is now 2.5 tiles (walk up to it).
+- New mobs (tools/mobs/humanmobs.py, original art): wizard "Dark Wizard"
+  (ranged + magic: on its hit frame it throws a homing violet bolt —
+  mobShots — that hits when it reaches you) and soldier "Iron Soldier"
+  (armoured spearman). In east3 (soldiers), east4 (wizards), east5/east6
+  (both).
+- js/worldmap.js: "🗺 Map" in the top bar opens a window with two tabs —
+  Map (the map you're on drawn from its tiles: grass, dirt, water, mountain,
+  trees, rocks, buildings, the portal, you blinking; inside: the room/cave's
+  floor plan) and World (every map and how they connect, the town portal's
+  dashed link, the caves box, the one you're in highlighted). The minimap's
+  own click still opens the picture map (js/hud.js openFullMap()).
+  index.html -> ?v=20261009q (+ js/worldmap.js).
+
+## Mobile controls + Capacitor
+
+- js/mobile.js (from the "AdventureNgani Mobile Controls" mockup): on a
+  touch screen (or ?mobile=1; ?mobile=0 turns it off) — joystick (8 dirs,
+  holds W/A/S/D), Takbo (Shift toggle), ATTACK (F; label/icon follows the
+  equipped weapon: ESPADA/PANA), Kuha (E), Hagis (T), Itago (R), weather
+  bubble on the minimap (circle, top right; tap = full map as before), Menu
+  under it dropping Profile (P) / Bag (B) / Settings (Map, Save, Export,
+  Import — the top toolbar is hidden on mobile and these click its buttons).
+  All buttons dispatch the same keyboard events, so behaviour is identical.
+  Hotbar zoomed to 0.66; no scroll/zoom/long-press.
+- Capacitor 7: package.json (scripts build:web / cap:sync / android / ios),
+  capacitor.config.json (com.adventurengani.game, webDir www),
+  scripts/build-web.mjs (copies index.html, style.css, js, assets into www,
+  skipping .aseprite etc.), android/ (generated by `npx cap add android`;
+  sensorLandscape, MainActivity full screen + keep screen on). See
+  CAPACITOR.md. node_modules/ and www/ are not shipped in the zip.
+  index.html -> ?v=20261009r (+ js/mobile.js).

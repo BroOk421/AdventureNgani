@@ -104,3 +104,128 @@ function snowSwapMountainType(type) {
   if (m) return "terrainMountainBottomSnowOuterWallMountain" + m[1];
   return type;
 }
+
+/* =================================================================
+   SNOW ON THE TREES
+
+   Per request ("kapag nag snow ... lagyan ng snow yung mga nasa loob ng
+   folder na trees tyaka yung animation rin"): while it's snowing, every
+   tree* item (assets/items/trees/ — leafy trees, bare trees, stumps and
+   trunks) is drawn with snow sitting on it:
+     - a white cap along every upward-facing edge of the art (3px, with
+       a pale blue shade under the white so it reads as a soft layer),
+     - a light frost over the whole tree,
+     - a few flakes stuck in the canopy.
+   Built with canvas compositing only (no getImageData), so it also works
+   when the game is opened straight from file:// where reading pixels is
+   blocked. Cached per tree type, and swapped in at draw time — the wind
+   sway, the chop shake and the felling animation (js/plantfx.js) all draw
+   this same snowy image, so the snow moves with the tree.
+================================================================= */
+const SNOW_TREE_CAP = 3;        // px of snow on top edges
+const SNOW_TREE_SHADE = "#cfe0ef";
+const SNOW_TREE_FROST = 0.14;   // whitening over the whole tree
+const snowTreeCache = new Map();
+
+function isSnowTreeType(type) { return /^tree/.test(type); }
+
+// Per request, the leafy trees and the cut stumps/trunks wear a heavier,
+// hand-tuned snow (snow on top of every leaf clump, a snowed-over cut face),
+// pre-made by tools/build_snow_trees.py; the bare noLeaves trees keep the
+// run-time snow cap below.
+const SNOW_TREE_ART = {
+  treeMediumGreen: "mediumgreentree", treeThinGreen: "thintree_green", treeTinyGreen: "tinytree_green",
+  treeMediumLightGreen: "mediumlightgreentree", treeBigOrange: "bigtree_orange", treeThinOrange: "thintree_orange",
+  treeMediumRed: "mediumredtree", treeMediumYellow: "mediumyellowtree",
+  treeBigCutStump: "bigtreecutted", treeThinCutStump: "thintreecutted", treeTinyCutStump: "tinytreecutted",
+  treeMediumGreenTrunk: "mediumgreentrunk", treeMediumRedYellowTrunk: "mediumredyellowtrunk",
+};
+const snowTreeArt = {};
+for (const [type, file] of Object.entries(SNOW_TREE_ART)) {
+  snowTreeArt[type] = new Image();
+  snowTreeArt[type].src = "assets/items/trees/snow/" + file + "_snow.png?v=2";
+}
+
+// Winter art next to the normal art (same name under a snow/ folder, made by
+// tools/build_snow_trees.py and tools/build_snow_world.py): bushes, flower
+// bushes, mushrooms, fallen leaves, flowers, lamp posts and the houses.
+const SNOW_ART_SRC_RE = /^(assets\/(?:bushes|flowers|outdoor|buildings\/exterior|items\/house|items\/tile))\/((?:postlight[^/?]*|[^/?]+))\.png/;
+const SNOW_ART_HAS = /^(assets\/(bushes|flowers)\/|assets\/outdoor\/postlight|assets\/buildings\/exterior\/(cottage|grocery|guard)|assets\/items\/house\/house|assets\/items\/tile\/port_)/;
+const snowArtByImage = new Map();
+function snowArtFor(img) {
+  if (!img || !img.getAttribute) return null;
+  let art = snowArtByImage.get(img);
+  if (art === undefined) {
+    const src = img.getAttribute("src") || "";
+    const m = SNOW_ART_HAS.test(src) && src.match(SNOW_ART_SRC_RE);
+    art = m ? Object.assign(new Image(), { src: m[1] + "/snow/" + m[2] + "_snow.png?v=2" }) : null;
+    snowArtByImage.set(img, art);
+  }
+  return art && art.complete && art.naturalWidth ? art : null;
+}
+function snowTreeIcon(type) {
+  if (!isSnowGroundActive()) return null;
+  if (!isSnowTreeType(type)) { const def = itemDefs[type]; return def ? snowArtFor(def.icon) : null; }
+  const art = snowTreeArt[type];
+  if (art && art.complete && art.naturalWidth) return art;
+  const def = itemDefs[type];
+  const icon = def && def.icon;
+  if (!icon || !icon.width) return null;
+  let cv = snowTreeCache.get(type);
+  if (cv && cv.srcW === icon.width && cv.srcH === icon.height) return cv;
+  const W = icon.width, H = icon.height;
+  // The art's top edges, `h` px thick, painted `color`: its silhouette minus
+  // itself shifted down by h (keeps opaque pixels whose pixel h above is clear).
+  const band = (h, color) => {
+    const b = document.createElement("canvas");
+    b.width = W; b.height = H;
+    const g = b.getContext("2d");
+    g.imageSmoothingEnabled = false;
+    g.drawImage(icon, 0, 0);
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = color;
+    g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = "destination-out";
+    g.drawImage(icon, 0, h);
+    return b;
+  };
+  cv = document.createElement("canvas");
+  cv.width = W; cv.height = H;
+  cv.srcW = W; cv.srcH = H;
+  const g = cv.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  g.drawImage(icon, 0, 0);
+  // frost + stuck flakes, kept inside the art (source-atop)
+  g.globalCompositeOperation = "source-atop";
+  g.globalAlpha = SNOW_TREE_FROST;
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, W, H);
+  g.globalAlpha = 0.9;
+  let seed = 0;
+  for (let i = 0; i < type.length; i++) seed = (seed * 31 + type.charCodeAt(i)) >>> 0;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const flakes = Math.round((W * H) / 90);
+  for (let i = 0; i < flakes; i++) {
+    const x = Math.floor(rnd() * W), y = Math.floor(rnd() * H * 0.85);
+    g.fillRect(x, y, 1, 1);
+  }
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = "source-over";
+  g.drawImage(band(SNOW_TREE_CAP, SNOW_TREE_SHADE), 0, 0);
+  g.drawImage(band(SNOW_TREE_CAP - 1, "#ffffff"), 0, 0);
+  snowTreeCache.set(type, cv);
+  return cv;
+}
+
+// White puffs knocked off a snowy tree (chop / felling) — js/plantfx.js.
+function snowTreePuffs(list, x0, x1, y0, y1, n) {
+  if (!isSnowGroundActive()) return;
+  for (let i = 0; i < n; i++) {
+    list.push({
+      x: x0 + Math.random() * (x1 - x0), y: y0 + Math.random() * (y1 - y0),
+      vx: (Math.random() - 0.5) * 18, vy: -4 - Math.random() * 8,
+      t: 0, life: 0.6 + Math.random() * 0.5,
+      color: Math.random() < 0.7 ? "#ffffff" : SNOW_TREE_SHADE,
+    });
+  }
+}

@@ -1171,8 +1171,9 @@ function enterNpcHouse(door) {
   clearNpcInsidePath();
   // Shopping with someone who's just walked into her house and shut the
   // door behind her doesn't make sense — close the panel if it happened
-  // to be open when she got home.
-  closeNpcShop();
+  // to be open when she got home. (Only HER shop — not the grocery or the
+  // Smith's / Alchemist's popup someone else is using, js/shops.js.)
+  if (activeShopStock === NPC_SHOP_STOCK) closeNpcShop();
 }
 
 // Back out through a door. If every door has since been removed she
@@ -1725,9 +1726,11 @@ function renderGoldDisplays() {
 // shop opens (not continuously) — the stock list is static, and gold
 // changes are handled by renderGoldDisplays()/re-rendering the buy
 // buttons' disabled state after each purchase instead of a full rebuild.
+let activeShopStock = NPC_SHOP_STOCK; // the grocery (js/roomCustomizer.js) opens this same panel with its own stock
 function renderNpcShopGrid() {
   npcShopGridEl.innerHTML = "";
-  NPC_SHOP_STOCK.forEach(({ type, price }) => {
+  activeShopStock.forEach((entry) => {
+    const { type, price } = entry;
     const def = itemDefs[type];
     if (!def) return; // defensive — skip silently if a type ever gets renamed/removed later
 
@@ -1750,10 +1753,35 @@ function renderNpcShopGrid() {
     priceEl.textContent = `${price} 💰`;
     row.appendChild(priceEl);
 
+    if (entry.sell) {
+      // a "we buy" row (the grocery's wood and stone): sell one, or everything you have
+      const slot = inventory.find((sl) => sl && sl.type === type);
+      const have = slot ? slot.count : 0;
+      priceEl.textContent = `+${price} 💰 (meron: ${have})`;
+      const sellBtn = document.createElement("button");
+      sellBtn.className = "npc-shop-buy";
+      sellBtn.textContent = "Sell";
+      sellBtn.disabled = have <= 0;
+      sellBtn.addEventListener("click", () => sellToNpc(type, price, 1));
+      row.appendChild(sellBtn);
+      const allBtn = document.createElement("button");
+      allBtn.className = "npc-shop-buy";
+      allBtn.textContent = "All";
+      allBtn.disabled = have <= 0;
+      allBtn.addEventListener("click", () => sellToNpc(type, price, have));
+      row.appendChild(allBtn);
+      npcShopGridEl.appendChild(row);
+      return;
+    }
     const buyBtn = document.createElement("button");
     buyBtn.className = "npc-shop-buy";
     buyBtn.textContent = "Buy";
     buyBtn.disabled = player.gold < price;
+    // weapons locked until a level (js/mines.js)
+    const req = (def.weapon && def.weapon.reqLevel) || def.reqLevel;
+    if (req && req > (player.level || 1)) { buyBtn.textContent = "\uD83D\uDD12 Lv " + req; buyBtn.disabled = true; }
+    else if (req && def.weapon) name.textContent = def.name + " (Lv " + req + ", atk " + def.weapon.damage + ")";
+    else if (req && def.gear) name.textContent = def.name + " (Lv " + req + (def.gear.atk ? ", atk +" + def.gear.atk : "") + (def.gear.def ? ", def +" + def.gear.def : "") + ")";
     buyBtn.addEventListener("click", () => buyFromNpc(type, price));
     row.appendChild(buyBtn);
 
@@ -1775,7 +1803,21 @@ function buyFromNpc(type, price) {
   saveGame();
 }
 
-function openNpcShop() {
+// Sells `n` of `type` to the shop for `price` gold each.
+function sellToNpc(type, price, n) {
+  const slot = inventory.find((sl) => sl && sl.type === type);
+  n = Math.min(n, slot ? slot.count : 0);
+  if (n <= 0) return;
+  slot.count -= n;
+  player.gold += n * price;
+  if (typeof showToast === "function") showToast("Nabenta: " + n + " " + itemDefs[type].name + " (+" + n * price + " gold)");
+  renderGoldDisplays(); renderHotbar(); renderInventory(); renderNpcShopGrid();
+  saveGame();
+}
+
+function openNpcShop(stock, title) {
+  activeShopStock = Array.isArray(stock) ? stock : NPC_SHOP_STOCK;
+  if (npcShopNameEl) npcShopNameEl.textContent = typeof title === "string" ? title : NPC_NAME;
   renderNpcShopGrid();
   renderGoldDisplays();
   npcShopOverlayEl.classList.remove("hidden");
@@ -1988,3 +2030,4 @@ function setupNpcClickHandler() {
     if (isPointOnNPC(x, y)) openNpcShop();
   });
 }
+

@@ -22,6 +22,8 @@ rpg-game/
 │   ├── world.js      ← randomly tiles the map from the 3 dirt variants
 │   ├── player.js     ← player state + movement/animation-state logic
 │   ├── npc.js        ← NPC shopkeeper: idle animation, facing timer, shop UI
+│   ├── animals.js    ← chickens, pigs, cows, sheep wandering the map (assets/animals/)
+│   ├── birds.js      ← flocks of 1-3 birds flying over on sunny days
 │   ├── camera.js     ← canvas sizing, zoom-aware rendering, ground items, placement highlight
 │   └── main.js       ← entry point: starts the game loop
 └── assets/
@@ -583,3 +585,32 @@ only flips the silhouette's arms/legs to match a left-facing pose, it
 doesn't affect the shadow's lean/rotation.
 
 `player.speed` / `player.runMult` (walk vs. run speed) live in `player.js`.
+
+
+## Town buildings (assets/buildings/)
+
+Built from the Buildings pack (kept as-is in `assets/buildings/source/`)
+by `tools/build_town_assets.py`, which writes the composed art and
+`js/townBuildings.data.js` (measured sizes). Re-run it after changing the
+pack or the layouts in the script:
+
+    python tools/build_town_assets.py
+    python tools/generate_alpha_masks.py
+
+- **Houses** (inventory slot "Town Houses"): Cottage (Log), Cottage
+  (Plaster), Cottage (Brick), Guard House. Walk **up** into the door to
+  enter, walk **down** onto the doormat to leave. Each building gets its
+  own room.
+- **Rooms**: `cottage_wood`, `plaster_room`, `guard_room` — walls and
+  frame block movement, the doorway is the only way out, and they come
+  furnished the first time (beds, tables, stove/fireplace, plants, rugs,
+  wall decor). The furniture is ordinary decor: grab, move or remove it.
+  Every solid piece blocks the player and NPCs.
+- **New items**: "Furniture (Town)", "Wall Decor (Town)", "Rugs (Town)",
+  "Outdoor Props (Town)".
+- **Citizens** (`js/citizens.js`): each townsperson is given a cottage
+  (two per house), the soldiers L-O the Guard House. They go home at
+  20:00, come out at 06:00, and now and then pop home during the day.
+  No house of their kind -> the Abandoned House, as before.
+- `rpg-save-town.json` is the town layout (paths, houses, fenced flower
+  beds, lamps, finished plateau edges, no farm plots) — import it in-game.

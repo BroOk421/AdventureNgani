@@ -586,7 +586,25 @@ function ensureCloudShadowBuffers() {
 // Soft shade on the ground beneath each cloud — call BEFORE the
 // player/ground items are drawn, so the character visibly walks through
 // the shadow rather than over it.
+// Performance (per request, "optimize mo medyo lag"): the blurred cloud-
+// shadow buffer (a canvas blur filter — slow, especially in Firefox/Safari)
+// is rebuilt only every CLOUD_SHADOW_REBUILD_EVERY frames. In between the
+// last one is drawn again, shifted by how far the camera moved; the clouds
+// themselves drift far less than a pixel a frame, so it can't be seen.
+const CLOUD_SHADOW_REBUILD_EVERY = 3;
+let cloudShadowCache = null;
 function drawCloudShadows(camX, camY) {
+  const cc = cloudShadowCache;
+  if (cc && cc.zoom === zoom && cc.age < CLOUD_SHADOW_REBUILD_EVERY - 1 && cc.w === view.width && cc.h === view.height) {
+    cc.age++;
+    const ox = (cc.camX - camX) * zoom, oy = (cc.camY - camY) * zoom;
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(cc.src, 0, 0, cc.src.width, cc.src.height, ox, oy, cc.src.width * CLOUD_SHADOW_BUFFER_SCALE, cc.src.height * CLOUD_SHADOW_BUFFER_SCALE);
+    ctx.restore();
+    ctx.imageSmoothingEnabled = false;
+    return;
+  }
   ensureCloudShadowBuffers();
   const k = 1 / CLOUD_SHADOW_BUFFER_SCALE;
   const bz = zoom * k;
@@ -622,6 +640,7 @@ function drawCloudShadows(camX, camY) {
   ctx.drawImage(src, 0, 0, src.width, src.height, 0, 0, src.width * CLOUD_SHADOW_BUFFER_SCALE, src.height * CLOUD_SHADOW_BUFFER_SCALE);
   ctx.restore();
   ctx.imageSmoothingEnabled = false;
+  cloudShadowCache = { src, camX, camY, zoom, age: 0, w: view.width, h: view.height };
 }
 
 // The cloud sprites themselves — call AFTER the player, since a cloud
@@ -873,10 +892,30 @@ function buildSunShaftMask(camX, camY) {
   }
 }
 
+// Performance: the soft, slow-moving rays are rebuilt only every other
+// frame. In between, the last finished (blurred) buffer is drawn again,
+// just shifted by how far the camera moved — the rays are world-anchored,
+// so that's exactly where they'd be. A zoom change rebuilds right away.
+const SUNRAY_REBUILD_EVERY = 4; // was 2 — the rays move slowly enough that 4 can't be told apart
+let sunRayCache = null; // { src, camX, camY, zoom, age }
+
 function drawSunRays(camX, camY) {
   if (!SUNRAYS_ENABLED) return;
   const strength = sun.rays * SUNRAY_INTENSITY * weatherSunrayMult();
-  if (strength <= 0.01) return;
+  if (strength <= 0.01) { sunRayCache = null; return; }
+  if (sunRayCache && sunRayCache.zoom === zoom && sunRayCache.age < SUNRAY_REBUILD_EVERY - 1 &&
+      sunRayCache.w === view.width && sunRayCache.h === view.height) {
+    sunRayCache.age++;
+    const src = sunRayCache.src;
+    const ox = (sunRayCache.camX - camX) * zoom, oy = (sunRayCache.camY - camY) * zoom;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.globalAlpha = 1;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(src, 0, 0, src.width, src.height, ox, oy, src.width * SUNRAY_BUFFER_SCALE, src.height * SUNRAY_BUFFER_SCALE);
+    ctx.restore();
+    return;
+  }
 
   const vw = view.width, vh = view.height;
   ensureSunRayBuffers();
@@ -949,6 +988,7 @@ function drawSunRays(camX, camY) {
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(src, 0, 0, src.width, src.height, 0, 0, src.width * SUNRAY_BUFFER_SCALE, src.height * SUNRAY_BUFFER_SCALE);
   ctx.restore();
+  sunRayCache = { src, camX, camY, zoom, age: 0, w: view.width, h: view.height };
   ctx.imageSmoothingEnabled = false;
 }
 

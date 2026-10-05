@@ -87,6 +87,10 @@ function buildSaveData() {
     ),
     // Things sitting ON tables indoors — the Tray on the bartender table
     // (js/interior.js interiorTableAt()).
+    // Customized rooms (js/roomCustomizer.js): wall/floor style and size.
+    interiorCustom: Object.fromEntries(
+      Object.entries(INTERIOR_ROOMS).filter(([, r]) => r.custom).map(([id, r]) => [id, r.custom]),
+    ),
     interiorTableTop: Object.fromEntries(
       Object.keys(INTERIOR_ROOMS).map((roomId) => [roomId, Array.from((INTERIOR_ROOMS[roomId].tableTop || new Map()).entries())])
     ),
@@ -139,7 +143,12 @@ function buildSaveData() {
       ? { x: player.outsideReturn.x, y: player.outsideReturn.y }
       : player.sitting
         ? { x: player.sitPreX, y: player.sitPreY }
-        : { x: player.x, y: player.y }
+        : { x: player.x, y: player.y },
+    // Up on the mountain / on a Port Bridge (js/player.js) — so a reload
+    // while standing on a bridge doesn't drop you "under" it.
+    elevated: player.scene === "inside" ? false : !!player.elevated,
+    farm: typeof serializeFarm === "function" ? serializeFarm() : undefined, // fields, sacks, collector (js/farm.js)
+    autotileOwned: typeof serializeAutotileOwned === "function" ? serializeAutotileOwned() : undefined, // player-laid auto-tiles (js/autotile.js)
   };
 }
 
@@ -181,6 +190,7 @@ const RENAMED_ITEM_TYPES = {
   house1: "house",
   house2: "tavern",
   house3: "abandonHouse",
+  portBridge: "bridgeTileR2C2", // whole-sprite bridge -> its centre tile (hotbar/in hand; placed ones are expanded to all 25 tiles)
 };
 
 function migrateItemType(type) {
@@ -234,6 +244,17 @@ function applySaveData(data) {
   if (incomingEntries.length > 0 || Array.isArray(data.placedItems) || Array.isArray(data.terrainLayer) || Array.isArray(data.groundLayer) || Array.isArray(data.decorLayer) || Array.isArray(data.objectLayer) || Array.isArray(data.groundItems)) {
     ALL_LAYERS.forEach((layer) => layer.clear());
     incomingEntries.forEach(([key, rawType]) => {
+      // The old whole-sprite Port Bridge (80x80, drawn bottom-centre on
+      // its tile) is now 25 separate bridge tiles — lay them out on the
+      // same 5x5 cells the old sprite covered.
+      if (rawType === "portBridge") {
+        const [ac, ar] = key.split(",").map(Number);
+        const left = ac - Math.floor((BRIDGE_TILE_COLS - 1) / 2), top = ar - BRIDGE_TILE_ROWS + 1;
+        for (let r = 0; r < BRIDGE_TILE_ROWS; r++)
+          for (let c = 0; c < BRIDGE_TILE_COLS; c++)
+            bridgeLayer.set(tileKey(left + c, top + r), "bridgeTileR" + r + "C" + c);
+        return;
+      }
       const type = migrateItemType(rawType);
       if (!itemDefs[type]) return; // stale/removed item type — drop it, don't crash on it
       layerForType(type).set(key, type);
@@ -355,6 +376,31 @@ function applySaveData(data) {
   // which is exactly what the `blueprint@col,row` id format is for. It
   // returns null for an id whose blueprint no longer exists, and that
   // room's saved contents are then dropped on purpose.
+  // Which rooms the save already describes — those never get the town
+  // houses' default furniture (getOrCreateInteriorRoom(), js/interior.js).
+  // A cave (a locked, generated layout) saved under an OLDER shape: forget
+  // what was saved for it, so it comes back with today's shape and props.
+  for (const k of ["interiorCollisions", "interiorDecor", "interiorFloorDecor", "interiorTableTop", "interiorCustom", "npcAvoidTiles"]) {
+    if (!data[k] || typeof data[k] !== "object") continue;
+    for (const id of Object.keys(data[k])) {
+      const bp = INTERIOR_ROOM_BLUEPRINTS[migrateLegacyRoomId(id).split("@")[0]];
+      if (!bp || !bp.lockedLayout) continue;
+      const saved = data.interiorCustom && data.interiorCustom[id];
+      if (!saved || saved.layoutVersion !== bp.layoutVersion) delete data[k][id];
+    }
+  }
+  if (data.interiorCustom) for (const id of Object.keys(data.interiorCustom)) {
+    const bp = INTERIOR_ROOM_BLUEPRINTS[migrateLegacyRoomId(id).split("@")[0]];
+    if (bp && bp.lockedLayout && data.interiorCustom[id].layoutVersion !== bp.layoutVersion) delete data.interiorCustom[id];
+  }
+  INTERIOR_SAVED_ROOM_IDS.clear();
+  for (const k of Object.keys(INTERIOR_SAVED_CUSTOM)) delete INTERIOR_SAVED_CUSTOM[k];
+  if (data.interiorCustom && typeof data.interiorCustom === "object") {
+    Object.entries(data.interiorCustom).forEach(([id, c]) => { INTERIOR_SAVED_CUSTOM[migrateLegacyRoomId(id)] = c; });
+  }
+  for (const k of ["interiorCollisions", "interiorDecor", "interiorFloorDecor", "interiorTableTop"]) {
+    if (data[k] && typeof data[k] === "object") Object.keys(data[k]).forEach((id) => INTERIOR_SAVED_ROOM_IDS.add(migrateLegacyRoomId(id)));
+  }
   Object.keys(INTERIOR_ROOMS).forEach((roomId) => {
     INTERIOR_ROOMS[roomId].collisions.clear();
   });
@@ -432,6 +478,12 @@ function applySaveData(data) {
     });
   }
 
+  if (data.interiorCustom && typeof data.interiorCustom === "object") {
+    Object.entries(data.interiorCustom).forEach(([roomId, custom]) => {
+      const room = getOrCreateInteriorRoom(migrateLegacyRoomId(roomId));
+      if (room && custom && typeof custom === "object") applyRoomCustom(room, custom);
+    });
+  }
   Object.keys(INTERIOR_ROOMS).forEach((roomId) => { INTERIOR_ROOMS[roomId].npcAvoid = new Set(); });
   if (data.npcAvoidTiles && typeof data.npcAvoidTiles === "object") {
     Object.entries(data.npcAvoidTiles).forEach(([roomId, tiles]) => {
@@ -511,6 +563,8 @@ function applySaveData(data) {
   // starting amount rather than trusting an unexpected value outright.
   player.gold = (typeof data.gold === "number" && data.gold >= 0) ? data.gold : player.gold;
   renderGoldDisplays();
+  if (typeof loadFarm === "function") loadFarm(data.farm); // js/farm.js
+  if (typeof loadAutotileOwned === "function") loadAutotileOwned(data.autotileOwned); // js/autotile.js
 
   if (data.waiterJob && typeof waiterJob !== "undefined") {
     waiterJob.employed = !!data.waiterJob.employed;
@@ -536,6 +590,7 @@ function applySaveData(data) {
     player.x = data.player.x;
     player.y = data.player.y;
   }
+  player.elevated = !!data.elevated;
   // Always resume outside (see buildSaveData()'s matching comment above)
   // — a room is only ever a door-tile away, so there's nothing lost by
   // not resuming indoors, and it sidesteps ever restoring `scene:

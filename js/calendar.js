@@ -105,5 +105,10 @@ function updateWeather() {
 }
 
 function getCurrentWeather() {
+  // FORCE_WEATHER (js/config.js): a name there wins; null = the daily roll
+  if (FORCE_WEATHER) {
+    const forced = WEATHER_STATES.find((w) => w.name.toLowerCase() === String(FORCE_WEATHER).toLowerCase());
+    if (forced) return forced;
+  }
   return currentWeather;
 }

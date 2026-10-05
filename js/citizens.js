@@ -55,7 +55,7 @@
    ambience, not progress); loading at night puts them straight inside.
 ================================================================= */
 
-const CITIZEN_IDS = ["B", "C", "D", "E"];
+const CITIZEN_IDS = ["B", "C", "D", "E", "F", "G", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]; // L..O: soldiers, P: farmer (white shirt, brown overalls), Q: the player's old red-shirt look // F..K: newer townsfolk with front/back art
 const CITIZEN_SPEED_MIN = 26, CITIZEN_SPEED_MAX = 38;   // world px/s — a stroll (Maria walks 45)
 const CITIZEN_HOME_SPREAD_TILES = 16;   // how far from town centre each citizen's home spot can be
 const CITIZEN_WANDER_RADIUS_TILES = 10; // how far from their home spot they'll wander
@@ -72,9 +72,44 @@ const CITIZEN_REPLAN_SECONDS = 5;       // re-plan every so often anyway (the wo
 const CITIZEN_OVERLAP_BOTTOM_FRACTION = 0.25;
 const CITIZEN_VISIBLE_FEET_FRACTION = 48 / 64;
 
-const CITIZEN_HOME_HOUR = 20; // go in for the night (their candles are already lit from 18:00)
+// Sitting — per request ("yung ibang npc ... nakakaupo din ganyan yung style
+// pero wag mo baguhin yung istura nila"): now and then, instead of a stroll,
+// a citizen walks to a free bench/chair seat that faces LEFT or RIGHT (they
+// only have side art) and sits there for a while, in their own look.
+// Art: assets/npc/Citizen_X/sit/Sit.png + Sit_Left.png — 6 frames, built
+// from the player's side sit pose with the citizen's own head and clothes,
+// breathing the same way the player's sit sheets do.
+const CITIZEN_SIT_CHANCE = 0.3;          // chance a stroll becomes "go sit somewhere" (daytime)
+const CITIZEN_SIT_TIME = [12, 35];       // seconds spent sitting
+const CITIZEN_SEAT_SEARCH_TILES = 14;    // how far from their home spot they'll look for a seat
+
+const CITIZEN_HOME_HOUR = 18; // start heading home (per request: everyone home by 7pm)
+const CITIZEN_HOME_BY_HOUR = 19; // by now they're indoors — anyone still out (and off-screen) is put straight inside
 const CITIZEN_WAKE_HOUR = 6;  // come back out
 const CITIZEN_SHELTER_TYPE = "abandonHouse";
+// Town houses (js/townBuildings.js) — per request ("yung mga ibang npc
+// ilagay mo dun"): every citizen gets a house of their own kind. The four
+// soldiers live in the Guard House, everyone else two to a cottage.
+// With no free house of their kind they fall back to the Abandoned House,
+// as before.
+const CITIZEN_GUARD_IDS = new Set(["L", "M", "N", "O"]);
+// Now and then during the day a citizen pops home for a while.
+const CITIZEN_HOME_VISIT_CHANCE = 0.1;
+const CITIZEN_HOME_VISIT_HOURS = [0.6, 1.6];
+const CITIZEN_HOME_VISIT_WINDOW = [8, 17]; // only starts a visit between these hours
+// The grocery (js/townBuildings.js `citizenShop`): townsfolk drop in to
+// shop now and then; J works there 08:00-17:00.
+const CITIZEN_SHOP_VISIT_CHANCE = 0.12;
+const CITIZEN_SHOP_VISIT_HOURS = [0.3, 0.8];
+const CITIZEN_SHOPKEEPER = { id: "J", start: 8, end: 18, leave: 7 }; // per request: at his post 08:00-18:00, Mon-Fri (sets off from home at 07:00)
+function isGroceryWorkday() { return getWeekdayIndex() <= 4; } // 0 = Monday .. 4 = Friday
+// Open = a weekday, in shop hours, and the keeper is actually in the shop.
+function isGroceryOpen() {
+  const h = getGameHour();
+  if (!isGroceryWorkday() || h < CITIZEN_SHOPKEEPER.start || h >= CITIZEN_SHOPKEEPER.end) return false;
+  const k = citizens.find((c) => c.id === CITIZEN_SHOPKEEPER.id);
+  return !!k && k.scene === "inside" && typeof k.roomId === "string" && k.roomId.startsWith("grocery_room@");
+}
 const CITIZEN_INDOOR_SPEED_MULT = 0.7;
 const CITIZEN_INDOOR_IDLE_MIN = 4, CITIZEN_INDOOR_IDLE_MAX = 11;
 // At 06:00 they walk out through the door. If someone can't reach it
@@ -96,6 +131,13 @@ function citizenSheets(id) {
     idleLeft: assets["citizen" + id + "IdleLeft"],
     walkRight: assets["citizen" + id + "WalkRight"],
     walkLeft: assets["citizen" + id + "WalkLeft"],
+    sitRight: assets["citizen" + id + "SitRight"],
+    sitLeft: assets["citizen" + id + "SitLeft"],
+    idleDown: assets["citizen" + id + "IdleDown"],
+    idleUp: assets["citizen" + id + "IdleUp"],
+    walkDown: assets["citizen" + id + "WalkDown"],
+    walkUp: assets["citizen" + id + "WalkUp"],
+    sitFront: assets["citizen" + id + "SitFront"],
   };
 }
 
@@ -194,11 +236,13 @@ function initCitizens() {
       path: null, pathIdx: 0, goal: null,
       waitT: 0, stuckT: 0, replanT: 0,
       scene: "outside", roomId: null, shelter: null, errand: null,
+      homeRoomId: null, visitUntil: null,
     });
   }
   // Loaded at night: they're already home.
   if (isCitizenNight()) {
     for (const c of citizens) {
+      if (CITIZEN_GUARD_IDS.has(c.id)) continue; // soldiers stay out
       const sh = nearestShelter(c);
       if (sh) citizenEnterShelter(c, sh);
     }
@@ -259,6 +303,35 @@ function planCitizenPath(c, avoidPeople) {
 
 function startCitizenWalk(c) {
   if (c.scene === "inside") { startCitizenIndoorWander(c); return; }
+  // A daytime visit to their own house (not the Abandoned House).
+  const hourNow = getGameHour();
+  if (!isCitizenNight() && hourNow >= CITIZEN_HOME_VISIT_WINDOW[0] && hourNow < CITIZEN_HOME_VISIT_WINDOW[1] &&
+      Math.random() < CITIZEN_SHOP_VISIT_CHANCE) {
+    const shop = citizenShopShelter();
+    if (shop) {
+      c.visitUntil = hourNow + citizenRand(CITIZEN_SHOP_VISIT_HOURS[0], CITIZEN_SHOP_VISIT_HOURS[1]);
+      startCitizenErrand(c, shop.doorX, shop.doorFeetY, "enter", shop);
+      return;
+    }
+  }
+  if (!isCitizenNight() && hourNow >= CITIZEN_HOME_VISIT_WINDOW[0] && hourNow < CITIZEN_HOME_VISIT_WINDOW[1] &&
+      Math.random() < CITIZEN_HOME_VISIT_CHANCE) {
+    const sh = nearestShelter(c);
+    if (sh && sh.kind !== "shelter") {
+      c.visitUntil = hourNow + citizenRand(CITIZEN_HOME_VISIT_HOURS[0], CITIZEN_HOME_VISIT_HOURS[1]);
+      startCitizenErrand(c, sh.doorX, sh.doorFeetY, "enter", sh);
+      return;
+    }
+  }
+  if (!isCitizenNight() && Math.random() < CITIZEN_SIT_CHANCE) {
+    const seat = pickCitizenSeat(c);
+    if (seat) {
+      const p = citizenTileCentre(seat.col, seat.row);
+      startCitizenErrand(c, p.x, p.y, "sit", null);
+      c.errand.seat = seat;
+      return;
+    }
+  }
   const blocked = citizenStaticBlocked();
   const home = citizenTileCentre(c.home.col, c.home.row);
   // Mostly around home; a little drift back toward it if they've wandered far.
@@ -311,16 +384,45 @@ function stopCitizenWalk(c) {
   if (errand && Math.hypot(errand.x - c.fx, errand.y - c.fy) <= TILE) {
     if (errand.kind === "enter") citizenEnterShelter(c, errand.shelter);
     else if (errand.kind === "exit") citizenLeaveShelter(c);
+    else if (errand.kind === "sit") citizenSitDown(c, errand.seat);
   } else if (errand) {
     c.timer = 0.5; // didn't make it (blocked) — try again shortly
   }
 }
 
+// The grocery's keeper stands behind the counter during shop hours
+// instead of wandering (per request: "tao dun sa grocery nagbabantay").
+const SHOPKEEPER_POST = { col: 10, row: 6 };
+function isShopkeeperOnDuty(c) {
+  const h = getGameHour();
+  return c.id === CITIZEN_SHOPKEEPER.id && c.scene === "inside" && typeof c.roomId === "string" &&
+    c.roomId.startsWith("grocery_room@") && isGroceryWorkday() && h >= CITIZEN_SHOPKEEPER.start && h < CITIZEN_SHOPKEEPER.end;
+}
+function shopkeeperPostTile(isSolid, exitRow) {
+  for (let r = 0; r <= 3; r++) {
+    for (let dr = -r; dr <= r; dr++) for (let dc = -r; dc <= r; dc++) {
+      if (Math.max(Math.abs(dr), Math.abs(dc)) !== r) continue;
+      const col = SHOPKEEPER_POST.col + dc, row = SHOPKEEPER_POST.row + dr;
+      if (row >= exitRow || isSolid(col, row)) continue;
+      return { col, row };
+    }
+  }
+  return null;
+}
 function startCitizenIndoorWander(c) {
   const room = getOrCreateInteriorRoom(c.roomId);
   const isSolid = citizenBlockedFn(c);
   const here = citizenTileOf(c.fx, c.fy);
   const exitRow = room.exitZone ? Math.floor(room.exitZone.minY / TILE) : 999;
+  if (isShopkeeperOnDuty(c)) {
+    const post = shopkeeperPostTile(isSolid, exitRow);
+    if (post) {
+      if (here.col === post.col && here.row === post.row) { c.state = "idle"; c.facing = "down"; c.timer = 30; return; }
+      c.goal = post; c.state = "walk"; c.waitT = 0; c.stuckT = 0;
+      planCitizenPath(c, true);
+      return;
+    }
+  }
   let target = null;
   for (let i = 0; i < 30 && !target; i++) {
     const col = Math.floor(Math.random() * Math.ceil(room.width / TILE));
@@ -345,11 +447,16 @@ function isCitizenNight() {
 
 // Every Abandoned House on the map (only finished ones — a house still
 // under construction isn't in objectLayer yet).
+let citizenShelterCache = null;
 function citizenShelters() {
+  // Called per citizen per frame — reuse one scan until a layer changes (layerVersion, js/player.js).
+  const ver = typeof layerVersion !== "undefined" ? layerVersion : 0, now = performance.now();
+  const cc = citizenShelterCache;
+  if (cc && cc.ver === ver && cc.world === currentWorld && now - cc.at < 1000) return cc.list;
   const out = [];
   for (const [key, type] of objectLayer) {
-    if (type !== CITIZEN_SHELTER_TYPE) continue;
     const def = itemDefs[type];
+    if (type !== CITIZEN_SHELTER_TYPE && !(def && (def.citizenHome || def.citizenShop))) continue;
     if (!def || !def.interior || !def.interior.doorOffset) continue;
     const [col, row] = key.split(",").map(Number);
     const door = { type, def, col, row, span: false };
@@ -357,19 +464,50 @@ function citizenShelters() {
     out.push({
       col, row,
       roomId: interiorRoomId(def.interior.roomId, col, row),
+      kind: def.citizenShop ? "shop" : def.citizenHome || "shelter",
+      capacity: def.citizenCapacity || 99,
       doorX: spot.x,
       doorFeetY: spot.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE,
     });
   }
+  citizenShelterCache = { ver, world: currentWorld, at: now, list: out };
   return out;
 }
 
+function citizenShopShelter() {
+  return citizenShelters().find((s) => s.kind === "shop") || null;
+}
+
+function citizenHomeKind(c) {
+  return CITIZEN_GUARD_IDS.has(c.id) ? "guard" : "town";
+}
+
+// Their own house: the one they were given, or — the first time they need
+// one — the nearest house of their kind that still has room. Kept in
+// c.homeRoomId. No house of their kind at all -> the Abandoned House (or
+// whatever shelter is nearest), like before.
 function nearestShelter(c) {
+  const all = citizenShelters();
+  if (!all.length) return null;
+  if (c.homeRoomId) {
+    const mine = all.find((s) => s.roomId === c.homeRoomId);
+    if (mine) return mine;
+    c.homeRoomId = null; // their house was removed
+  }
+  const taken = {};
+  for (const o of citizens) if (o.homeRoomId) taken[o.homeRoomId] = (taken[o.homeRoomId] || 0) + 1;
+  const kind = citizenHomeKind(c);
+  let pool = all.filter((s) => s.kind === kind && (taken[s.roomId] || 0) < s.capacity);
+  if (!pool.length) pool = all.filter((s) => s.kind === "shelter");
+  if (!pool.length) pool = all.filter((s) => s.kind !== "shop");
+  if (!pool.length) return null;
   let best = null, bestD = Infinity;
-  for (const sh of citizenShelters()) {
-    const d = Math.hypot(sh.doorX - c.fx, sh.doorFeetY - c.fy);
+  for (const sh of pool) {
+    // emptier houses first, then the closest
+    const d = Math.hypot(sh.doorX - c.fx, sh.doorFeetY - c.fy) + (taken[sh.roomId] || 0) * TILE * 60;
     if (d < bestD) { best = sh; bestD = d; }
   }
+  if (best && best.kind !== "shelter") c.homeRoomId = best.roomId;
   return best;
 }
 
@@ -396,6 +534,7 @@ function citizenLeaveShelter(c) {
   c.scene = "outside";
   c.roomId = null;
   c.shelter = null;
+  c.visitUntil = null;
   if (sh) { c.fx = sh.doorX; c.fy = sh.doorFeetY; }
   else { const h = citizenTileCentre(c.home.col, c.home.row); c.fx = h.x; c.fy = h.y; } // house gone overnight
   c.state = "idle"; c.anim = "idle";
@@ -404,13 +543,70 @@ function citizenLeaveShelter(c) {
 }
 
 // Decides, each frame, whether the citizen should be heading in/out.
+// On screen right now (outdoors)? Those walk home properly; anyone the
+// player can't see is simply put indoors once it's late.
+function citizenOnScreen(c) {
+  if (player.scene !== "outside") return false;
+  const m = 2 * TILE;
+  return c.fx > camX - m && c.fx < camX + view.width / zoom + m && c.fy > camY - m && c.fy < camY + view.height / zoom + m * 2;
+}
+// 08:00 on a workday: the keeper is at his post, wherever he got to.
+function shopkeeperToPost(c) {
+  const shop = citizenShopShelter();
+  if (!shop) return;
+  if (!(c.scene === "inside" && c.roomId === shop.roomId)) { c.sleepSlot = null; citizenEnterShelter(c, shop); }
+  const room = getOrCreateInteriorRoom(c.roomId);
+  const exitRow = room.exitZone ? Math.floor(room.exitZone.minY / TILE) : 999;
+  const post = shopkeeperPostTile(citizenBlockedFn(c), exitRow);
+  if (!post) return;
+  const p = citizenTileCentre(post.col, post.row);
+  c.fx = p.x; c.fy = p.y; c.path = null; c.goal = null; c.errand = null;
+  c.state = "idle"; c.facing = "down"; c.timer = 30; c.visitUntil = CITIZEN_SHOPKEEPER.end;
+}
 function citizenScheduleTick(c) {
+  // Per request: the soldiers stay outside around the clock.
+  if (CITIZEN_GUARD_IDS.has(c.id)) {
+    if (c.scene === "inside") citizenLeaveShelter(c);
+    return;
+  }
+  // weekend: the keeper doesn't stay in the closed shop
+  if (c.id === CITIZEN_SHOPKEEPER.id && !isGroceryWorkday() && c.scene === "inside" && (c.roomId || "").startsWith("grocery_room@")) {
+    citizenLeaveShelter(c);
+    return;
+  }
+  if (c.id === CITIZEN_SHOPKEEPER.id && isGroceryWorkday()) {
+    const h = getGameHour();
+    if (h >= CITIZEN_SHOPKEEPER.start && h < CITIZEN_SHOPKEEPER.end && !isShopkeeperOnDuty(c)) { shopkeeperToPost(c); return; }
+    if (h >= CITIZEN_SHOPKEEPER.leave && h < CITIZEN_SHOPKEEPER.start && c.scene === "inside" && !(c.roomId || "").startsWith("grocery_room@")) {
+      c.sleepSlot = null;
+      if (c.state === "sleep") { c.state = "idle"; c.timer = 0.5; }
+      if (!(c.errand && c.errand.kind === "exit") && (c.state !== "walk" || c.timer <= 0)) {
+        const room = INTERIOR_ROOMS[c.roomId];
+        if (room) { const p = shelterSpawnFeet(room); startCitizenErrand(c, p.x, p.y, "exit"); }
+      }
+      return;
+    }
+  }
   const night = isCitizenNight();
   if (c.scene === "outside") {
-    if (!night) return;
-    if (c.errand && c.errand.kind === "enter") return; // already on the way
+    if (!night) {
+      // The shopkeeper goes to work.
+      const h = getGameHour();
+      if (c.id === CITIZEN_SHOPKEEPER.id && isGroceryWorkday() && h >= CITIZEN_SHOPKEEPER.leave && h < CITIZEN_SHOPKEEPER.end &&
+          !(c.errand && c.errand.kind === "enter") && (c.state === "walk" || c.timer <= 0)) {
+        const shop = citizenShopShelter();
+        if (shop) { c.visitUntil = CITIZEN_SHOPKEEPER.end; startCitizenErrand(c, shop.doorX, shop.doorFeetY, "enter", shop); }
+      }
+      return;
+    }
     const sh = nearestShelter(c);
     if (!sh) return; // nowhere to go — stay out
+    // 19:00: home. Off-screen stragglers go straight in; ones in view get
+    // half an hour more to finish the walk, then go in too.
+    const h = getGameHour();
+    const late = h >= CITIZEN_HOME_BY_HOUR || h < CITIZEN_WAKE_HOUR;
+    if (late && (!citizenOnScreen(c) || h >= CITIZEN_HOME_BY_HOUR + 0.5 || h < CITIZEN_WAKE_HOUR)) { citizenEnterShelter(c, sh); return; }
+    if (c.errand && c.errand.kind === "enter") return; // already on the way
     // Break off a stroll right away; when standing around, go once the
     // idle timer runs out (also paces retries if the door was blocked).
     if (c.state === "walk" || c.timer <= 0) startCitizenErrand(c, sh.doorX, sh.doorFeetY, "enter", sh);
@@ -418,10 +614,23 @@ function citizenScheduleTick(c) {
     const room = INTERIOR_ROOMS[c.roomId];
     const houseStillThere = citizenShelters().some((s) => s.roomId === c.roomId);
     if (!room || !houseStillThere) { citizenLeaveShelter(c); return; }
-    if (night) return;
-    // Morning. Past the grace period (couldn't walk out) -> just leave.
+    if (night) {
+      if (c.shelter && c.shelter.kind === "shop") { citizenLeaveShelter(c); return; } // shop's closed — head home
+      c.visitUntil = null;
+      const hh = getGameHour();
+      if (hh >= CITIZEN_SLEEP_HOUR || hh < CITIZEN_WAKE_HOUR) citizenGoToBed(c, room);
+      return;
+    }
     const h = getGameHour();
-    if (h >= CITIZEN_WAKE_HOUR + CITIZEN_LEAVE_GRACE_HOURS) { citizenLeaveShelter(c); return; }
+    if (c.visitUntil != null) {
+      // A daytime visit home: stay until it's over, then walk out.
+      if (h < c.visitUntil) return;
+      if (h >= c.visitUntil + CITIZEN_LEAVE_GRACE_HOURS) { citizenLeaveShelter(c); return; }
+    } else if (h >= CITIZEN_WAKE_HOUR + CITIZEN_LEAVE_GRACE_HOURS) {
+      // Morning. Past the grace period (couldn't walk out) -> just leave.
+      citizenLeaveShelter(c);
+      return;
+    }
     if (c.errand && c.errand.kind === "exit") return;
     if (c.state !== "walk" && c.timer > 0) return;
     const p = shelterSpawnFeet(room);
@@ -468,7 +677,8 @@ function stepCitizenWalk(c, dt) {
   // Something solid appeared on the way (the player just placed a tree)?
   const isSolid = citizenBlockedFn(c);
   const here = citizenTileOf(c.fx, c.fy), next = citizenTileOf(nx, ny);
-  if ((next.col !== here.col || next.row !== here.row) && isSolid(next.col, next.row)) {
+  const intoSeat = c.errand && c.errand.kind === "sit" && c.goal && next.col === c.goal.col && next.row === c.goal.row;
+  if ((next.col !== here.col || next.row !== here.row) && isSolid(next.col, next.row) && !intoSeat) {
     if (!planCitizenPath(c, false)) stopCitizenWalk(c);
     return;
   }
@@ -492,7 +702,12 @@ function stepCitizenWalk(c, dt) {
   c.stuckT = Math.max(0, c.stuckT - dt * 0.25);
 
   c.fx = nx; c.fy = ny;
-  if (Math.abs(ux) > 0.01) c.facing = ux > 0 ? "right" : "left"; // up/down keeps the last side
+  // The newer townsfolk (F..K) have front/back art and face 4 ways; the
+  // original ones (B..E) only have side art, so up/down keeps the last side.
+  if (citizenHasFrontBack(c)) {
+    if (Math.abs(ux) >= Math.abs(uy)) c.facing = ux > 0 ? "right" : "left";
+    else c.facing = uy > 0 ? "down" : "up";
+  } else if (Math.abs(ux) > 0.01) c.facing = ux > 0 ? "right" : "left";
   c.anim = "walk";
   if (step >= d - 0.001) {
     c.pathIdx++;
@@ -502,8 +717,8 @@ function stepCitizenWalk(c, dt) {
 
 function advanceCitizenFrame(c, dt, prevAnim) {
   if (c.anim !== prevAnim) { c.frame = 0; c.frameTimer = 0; }
-  const count = c.anim === "walk" ? 6 : 4;
-  const fps = c.anim === "walk" ? ANIM_FPS.walk : ANIM_FPS.idle;
+  const count = c.anim === "walk" ? 6 : c.anim === "sit" ? FRAME_COUNTS.sit : 4;
+  const fps = c.anim === "walk" ? ANIM_FPS.walk : c.anim === "sit" ? ANIM_FPS.sit : ANIM_FPS.idle;
   c.frameTimer += dt;
   const per = 1 / fps;
   while (c.frameTimer >= per) { c.frameTimer -= per; c.frame = (c.frame + 1) % count; }
@@ -513,7 +728,21 @@ function updateCitizens(dt) {
   if (!citizensReady) initCitizens();
   for (const c of citizens) {
     const prevAnim = c.anim;
+    if (c.state === "sleep") {
+      const hh = getGameHour();
+      const stillNight = hh >= CITIZEN_SLEEP_HOUR || hh < CITIZEN_WAKE_HOUR;
+      if (!stillNight || c.scene !== "inside" || !citizenBedStillThere(c)) citizenWakeUp(c);
+      else { c.sleepT = (c.sleepT || 0) + dt; continue; }
+    }
+    if (c.state === "sit") {
+      c.anim = "sit";
+      c.timer -= dt;
+      if (c.timer <= 0 || isCitizenNight() || !citizenSeatStillThere(c.seat)) citizenStandUp(c);
+      advanceCitizenFrame(c, dt, prevAnim);
+      continue;
+    }
     citizenScheduleTick(c);
+    if (c.state === "sleep") { advanceCitizenFrame(c, dt, prevAnim); continue; } // just got into bed
     if (c.state === "idle") {
       c.anim = "idle";
       c.timer -= dt;
@@ -529,18 +758,36 @@ function updateCitizens(dt) {
 
 function currentCitizenSheet(c) {
   const s = citizenSheets(c.id);
+  if (c.anim === "sit" && s.sitRight && s.sitRight.width) {
+    if (c.facing === "down" && s.sitFront && s.sitFront.width) return s.sitFront;
+    return c.facing === "left" ? s.sitLeft : s.sitRight;
+  }
+  if (c.facing === "down" || c.facing === "up") {
+    const v = c.anim === "walk" ? (c.facing === "down" ? s.walkDown : s.walkUp) : (c.facing === "down" ? s.idleDown : s.idleUp);
+    if (v && v.width) return v;
+  }
   if (c.anim === "walk") return c.facing === "left" ? s.walkLeft : s.walkRight;
   return c.facing === "left" ? s.idleLeft : s.idleRight;
+}
+
+// Where the sprite is drawn: their feet, plus the seat's own pose nudge
+// while sitting (same `poseOffsetX/Y` the player and the customers use).
+function citizenDrawFeet(c) {
+  if (c.state === "sit" && c.seat) {
+    return { x: c.fx + (c.facing === "left" ? -c.seat.poseX : c.seat.poseX), y: c.fy + c.seat.poseY };
+  }
+  return { x: c.fx, y: c.fy };
 }
 
 function drawCitizen(c) {
   const sheet = currentCitizenSheet(c);
   if (!sheet || !sheet.width) return;
   const size = DRAW_SIZE * zoom;
-  const px = (c.fx - camX) * zoom;
-  const py = (citizenCentreY(c.fy) - camY) * zoom;
+  const f = citizenDrawFeet(c);
+  const px = (f.x - camX) * zoom;
+  const py = (citizenCentreY(f.y) - camY) * zoom;
   const sx = c.frame * FRAME_SIZE;
-  drawShadow(px, py - size / 2 + size * SPRITE_FEET_FRACTION, size, sheet, sx);
+  if (c.state !== "sit") drawShadow(px, py - size / 2 + size * SPRITE_FEET_FRACTION, size, sheet, sx);
   // Same candle circle the player and Maria carry — night only (it's a
   // no-op in daylight, see drawCharacterGlow(), js/camera.js). Indoors
   // (in the Abandoned House) they have no light, per request.
@@ -558,7 +805,7 @@ function citizenDrawables() {
     if (c.scene !== "outside") continue;
     if (c.fx < camX - DRAW_SIZE || c.fx > camX + viewW + DRAW_SIZE ||
         c.fy < camY - DRAW_SIZE || c.fy > camY + viewH + DRAW_SIZE * 2) continue; // off screen
-    out.push({ sortY: citizenSortY(c), draw: () => drawCitizen(c) });
+    out.push({ sortY: citizenSortY(c), feetY: c.fy, draw: () => drawCitizen(c) });
   }
   return out;
 }
@@ -569,6 +816,10 @@ function citizenIndoorDrawables(roomId) {
   const out = [];
   for (const c of citizens) {
     if (c.scene !== "inside" || c.roomId !== roomId) continue;
+    if (c.state === "sleep" && c.sleepSlot) {
+      out.push({ sortY: (c.sleepSlot.row + 1) * TILE + 0.2, draw: () => drawSleepingCitizen(c) });
+      continue;
+    }
     out.push({ sortY: citizenSortY(c), draw: () => drawCitizen(c) });
   }
   return out;
@@ -588,7 +839,8 @@ function citizenRelightList() {
     if (c.scene !== "outside") continue;
     const sheet = currentCitizenSheet(c);
     if (!sheet || !sheet.width) continue;
-    const px = (c.fx - camX) * zoom, py = (citizenCentreY(c.fy) - camY) * zoom;
+    const f = citizenDrawFeet(c);
+    const px = (f.x - camX) * zoom, py = (citizenCentreY(f.y) - camY) * zoom;
     if (px < -size || py < -size || px > view.width + size || py > view.height + size) continue;
     const sortY = citizenSortY(c);
     out.push({ sortY, draw: () => drawMaskedRelight((g) => g.drawImage(sheet, c.frame * FRAME_SIZE, 0,
@@ -627,8 +879,208 @@ function citizenRelightOccluders(feetY) {
     if (citizenSortY(c) <= feetY) continue; // behind — nothing to cut out
     const sheet = currentCitizenSheet(c);
     if (!sheet || !sheet.width) continue;
-    const px = (c.fx - camX) * zoom, py = (citizenCentreY(c.fy) - camY) * zoom;
+    const f = citizenDrawFeet(c);
+    const px = (f.x - camX) * zoom, py = (citizenCentreY(f.y) - camY) * zoom;
     out.push({ icon: citizenFrameCanvas(sheet, c.frame), x: px - size / 2, y: py - size / 2, w: size, h: size, alpha: 1 });
   }
   return out;
+}
+
+/* ---------------- sitting on benches / chairs ---------------- */
+
+// Every outdoor seat facing left, right or down (down = front sit art, F..K only).
+function citizenSideSeats() {
+  const out = [];
+  for (const [key, type] of objectLayer) {
+    const def = itemDefs[type];
+    if (!def || !def.sittable) continue;
+    const [ac, ar] = key.split(",").map(Number);
+    def.sittable.seats.forEach((s, i) => {
+      if (s.facing !== "left" && s.facing !== "right" && s.facing !== "down") return;
+      out.push({ key: key + "#" + i, type, anchorCol: ac, anchorRow: ar, col: ac + s.col, row: ar + s.row,
+        facing: s.facing, poseX: s.poseOffsetX || 0, poseY: s.poseOffsetY || 0 });
+    });
+  }
+  return out;
+}
+
+// Someone (the player, or another citizen sitting / on the way) already has it?
+function citizenSeatTaken(seat, self) {
+  if (player.sitting && player.scene === "outside") {
+    const pc = Math.floor(player.x / TILE);
+    const pr = Math.floor((player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE) / TILE);
+    if (pc === seat.col && pr === seat.row) return true;
+  }
+  for (const o of citizens) {
+    if (o === self) continue;
+    if (o.seat && o.seat.key === seat.key) return true;
+    if (o.errand && o.errand.kind === "sit" && o.errand.seat && o.errand.seat.key === seat.key) return true;
+  }
+  return false;
+}
+
+// Townsfolk with front/back art (F..K) — they can also take seats facing down.
+function citizenHasFrontBack(c) {
+  const s = assets["citizen" + c.id + "WalkDown"];
+  return !!(s && s.width);
+}
+
+function pickCitizenSeat(c) {
+  const home = citizenTileCentre(c.home.col, c.home.row);
+  const options = citizenSideSeats().filter((s) => {
+    if (s.facing === "down" && !citizenHasFrontBack(c)) return false; // side art only
+    const p = citizenTileCentre(s.col, s.row);
+    return Math.hypot(p.x - home.x, p.y - home.y) <= CITIZEN_SEAT_SEARCH_TILES * TILE && !citizenSeatTaken(s, c);
+  });
+  if (!options.length) return null;
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+function citizenSeatStillThere(seat) {
+  return !!seat && objectLayer.get(seat.anchorCol + "," + seat.anchorRow) === seat.type;
+}
+
+function citizenSitDown(c, seat) {
+  if (!seat || !citizenSeatStillThere(seat) || citizenSeatTaken(seat, c)) return; // someone beat them to it — just stand around
+  const p = citizenTileCentre(seat.col, seat.row);
+  c.fx = p.x; c.fy = p.y;
+  c.seat = seat;
+  c.facing = seat.facing;
+  c.state = "sit"; c.anim = "sit";
+  c.frame = 0; c.frameTimer = 0;
+  c.timer = citizenRand(CITIZEN_SIT_TIME[0], CITIZEN_SIT_TIME[1]);
+}
+
+// Back on their feet on a free tile next to the seat — the one in front
+// of it first (the way they're facing).
+function citizenStandUp(c) {
+  const seat = c.seat;
+  c.seat = null;
+  c.state = "idle"; c.anim = "idle";
+  c.timer = citizenRand(0.5, 1.5);
+  if (!seat) return;
+  const blocked = citizenStaticBlocked();
+  const order = [seat.facing, "down", "up", seat.facing === "left" ? "right" : "left"];
+  for (const dir of order) {
+    const st = FACING_STEP[dir];
+    const col = seat.col + st[0], row = seat.row + st[1];
+    if (!isCitizenTileFree(col, row, blocked)) continue;
+    const p = citizenTileCentre(col, row);
+    c.fx = p.x; c.fy = p.y;
+    return;
+  }
+}
+
+// The citizen sitting on the placed item anchored at (col,row), if any —
+// read by renderWorldObjectsSorted() (js/camera.js) to draw that bench
+// just behind them, the same way it's done for the seated player.
+// With several people on one bench, the one furthest UP the screen is
+// returned, so the bench sorts behind every one of them.
+function citizenSittingOn(col, row) {
+  let best = null;
+  for (const c of citizens) {
+    if (c.state === "sit" && c.seat && c.scene === "outside" && c.seat.anchorCol === col && c.seat.anchorRow === row) {
+      if (!best || citizenSortY(c) < citizenSortY(best)) best = c;
+    }
+  }
+  return best;
+}
+
+// The citizen sitting on this exact seat tile, if any (js/furniture.js —
+// the player can't sit on someone).
+function citizenOnSeatTile(col, row) {
+  for (const c of citizens) {
+    if (c.state === "sit" && c.seat && c.seat.col === col && c.seat.row === row) return c;
+  }
+  return null;
+}
+
+
+/* ---------------- sleeping in bed ----------------
+   Per request: from CITIZEN_SLEEP_HOUR (20:00) every townsperson at home
+   goes to a bed in their house and sleeps in it until morning (the
+   soldiers stay outside). Beds: the room's Single Bed (one sleeper) and
+   Double Bed (two, side by side) — also the old Big/Small Beds. They walk
+   to the foot of their bed if the player is watching, otherwise (or if the
+   walk takes too long) they're simply in it. Asleep: their own sprite with
+   the head on the pillow, the bed's blanket drawn back over them, a slow
+   breath and a floating "z". */
+const CITIZEN_SLEEP_HOUR = 20;
+const citizenSleepFaces = {};
+const CITIZEN_BED_TYPES = { bldBedSingle: [0], bldBedDouble: [-9, 9], bedBig: [0], bedSmall: [0] };
+function citizenBedSlots(room) {
+  const out = [];
+  for (const [key, type] of room.decor) {
+    const offs = CITIZEN_BED_TYPES[type];
+    if (!offs) continue;
+    const [col, row] = key.split(",").map(Number);
+    offs.forEach((dx, i) => out.push({ type, col, row, dx, id: key + "#" + i }));
+  }
+  out.sort((a, b) => a.id < b.id ? -1 : 1);
+  return out;
+}
+function citizenBedSlotFor(c, room) {
+  if (c.sleepSlot && room.decor.get(c.sleepSlot.col + "," + c.sleepSlot.row) === c.sleepSlot.type) return c.sleepSlot;
+  const taken = new Set(citizens.filter((o) => o !== c && o.roomId === c.roomId && o.sleepSlot).map((o) => o.sleepSlot.id));
+  const free = citizenBedSlots(room).filter((b) => !taken.has(b.id));
+  c.sleepSlot = free[0] || null;
+  return c.sleepSlot;
+}
+function citizenBedStillThere(c) {
+  const room = INTERIOR_ROOMS[c.roomId];
+  return !!(room && c.sleepSlot && room.decor.get(c.sleepSlot.col + "," + c.sleepSlot.row) === c.sleepSlot.type);
+}
+function citizenVisibleIndoors(c) { return player.scene === "inside" && player.activeRoomId === c.roomId; }
+function citizenGoToBed(c, room) {
+  if (c.state === "sleep") return;
+  const slot = citizenBedSlotFor(c, room);
+  if (!slot) return; // no bed free — they just stay up
+  const front = { col: slot.col, row: slot.row + 1 };
+  const here = citizenTileOf(c.fx, c.fy);
+  const late = getGameHour() >= CITIZEN_SLEEP_HOUR + 0.5 || getGameHour() < CITIZEN_WAKE_HOUR;
+  if (!citizenVisibleIndoors(c) || late || (here.col === front.col && here.row === front.row)) {
+    c.state = "sleep"; c.sleepT = Math.random() * 3; c.path = null; c.goal = null; c.errand = null; c.anim = "idle"; c.facing = "down";
+    return;
+  }
+  if (c.state === "walk" && c.goal && c.goal.col === front.col && c.goal.row === front.row) return; // on the way
+  c.goal = front; c.state = "walk"; c.waitT = 0; c.stuckT = 0; c.errand = null;
+  planCitizenPath(c, true);
+}
+function citizenWakeUp(c) {
+  const slot = c.sleepSlot;
+  c.state = "idle"; c.timer = 1 + Math.random() * 2; c.anim = "idle"; c.facing = "down";
+  if (slot && c.scene === "inside") { const p = citizenTileCentre(slot.col, slot.row + 1); c.fx = p.x; c.fy = p.y; }
+  c.sleepSlot = null;
+}
+function drawSleepingCitizen(c) {
+  const slot = c.sleepSlot;
+  const def = itemDefs[slot.type];
+  const bed = def && def.icon;
+  if (!bed || !bed.width) return;
+  const r = objectArtRect(bed, def.artRoot, slot.col, slot.row, camX, camY);
+  // their own closed-eyes face (assets/npc/Citizen_X/sleep/Sleep_Face.png)
+  if (!citizenSleepFaces[c.id]) {
+    citizenSleepFaces[c.id] = new Image();
+    citizenSleepFaces[c.id].src = "assets/npc/Citizen_" + c.id + "/sleep/Sleep_Face.png";
+  }
+  const s = citizenSheets(c.id);
+  const face = citizenSleepFaces[c.id];
+  const sheet = face.complete && face.naturalWidth ? face : (s.idleDown && s.idleDown.width) ? s.idleDown : s.idleRight;
+  if (!sheet || !sheet.width) return;
+  const scale = (DRAW_SIZE / FRAME_SIZE) * zoom;
+  const breath = Math.sin((c.sleepT || 0) * 1.6) > 0 ? 0 : 1; // a slow 1px breath
+  const headX = r.x + r.w / 2 + slot.dx * zoom, headTop = r.y + (4 + breath * 0.5) * zoom;
+  const size = FRAME_SIZE * scale;
+  ctx.drawImage(sheet, 0, 0, FRAME_SIZE, FRAME_SIZE, headX - size / 2, headTop - 16 * scale, size, size);
+  // the blanket back over them: the bed's own lower part, redrawn on top
+  const pillow = 17; // px of the bed art above the blanket
+  ctx.drawImage(bed, 0, pillow, bed.width, bed.height - pillow, r.x, r.y + pillow * zoom, r.w, r.h - pillow * zoom);
+  // a "z" drifting up now and then
+  const t = ((c.sleepT || 0) % 3) / 3;
+  ctx.save();
+  ctx.globalAlpha = Math.sin(t * Math.PI) * 0.9;
+  ctx.fillStyle = "#e9eefc";
+  ctx.font = "bold " + Math.max(8, Math.round((5 + t * 3) * zoom)) + "px monospace";
+  ctx.fillText("z", headX + (5 + t * 4) * zoom, headTop - (2 + t * 10) * zoom);
+  ctx.restore();
 }

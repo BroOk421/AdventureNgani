@@ -521,19 +521,64 @@ assets.npcIdleRight.src = "assets/npc/Citizen_A/idle/Idle.png";
 assets.npcIdleLeft.src = "assets/npc/Citizen_A/idle/Idle_Left.png";
 assets.npcWalkRight.src = "assets/npc/Citizen_A/walk/Walk.png";
 assets.npcWalkLeft.src = "assets/npc/Citizen_A/walk/Walk_Left.png";
-
 // --- wandering citizens B-E (js/citizens.js) — same layout as Citizen_A ---
-for (const id of ["B", "C", "D", "E"]) {
+const CITIZENS_WITH_FRONT_BACK = ["F", "G", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]; // L..O: soldiers, P: farmer, Q: the player's old look
+for (const id of ["B", "C", "D", "E", "F", "G", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]) { // F..K: newer townsfolk with front/back art too
   const base = "assets/npc/Citizen_" + id + "/";
   const set = {
     ["citizen" + id + "IdleRight"]: base + "idle/Idle.png",
     ["citizen" + id + "IdleLeft"]: base + "idle/Idle_Left.png",
     ["citizen" + id + "WalkRight"]: base + "walk/Walk.png",
     ["citizen" + id + "WalkLeft"]: base + "walk/Walk_Left.png",
+    // sitting (side pose only — they only have side art), js/citizens.js
+    ["citizen" + id + "SitRight"]: base + "sit/Sit.png",
+    ["citizen" + id + "SitLeft"]: base + "sit/Sit_Left.png",
+    // eating while seated as a tavern customer (js/customers.js) — side, facing right
+    ["citizen" + id + "EatSideMeat"]: base + "sit/Eat_Meat.png",
+    ["citizen" + id + "EatSideSpoon"]: base + "sit/Eat_Spoon.png",
+    ["citizen" + id + "EatSideMug"]: base + "sit/Eat_Mug.png",
   };
+  // front/back views + front sit and eating — only the newer townsfolk (F..K) have them
+  if (CITIZENS_WITH_FRONT_BACK.includes(id)) Object.assign(set, {
+    ["citizen" + id + "IdleDown"]: base + "idle/Idle_Down.png",
+    ["citizen" + id + "IdleUp"]: base + "idle/Idle_Up.png",
+    ["citizen" + id + "WalkDown"]: base + "walk/Walk_Down.png",
+    ["citizen" + id + "WalkUp"]: base + "walk/Walk_Up.png",
+    ["citizen" + id + "SitFront"]: base + "sit/Sit_Front.png",
+    ["citizen" + id + "EatFrontMeat"]: base + "sit/Eat_Front_Meat.png",
+    ["citizen" + id + "EatFrontSpoon"]: base + "sit/Eat_Front_Spoon.png",
+    ["citizen" + id + "EatFrontMug"]: base + "sit/Eat_Front_Mug.png",
+  });
   for (const key in set) {
     assets[key] = new Image();
     assets[key].src = set[key];
+  }
+}
+
+// --- farm animals (js/animals.js) — assets/animals/<id>/{idle,walk}/,
+// one 4-frame horizontal strip per direction: Idle_Down.png, Idle_Up.png,
+// Idle_Left.png, Idle_Right.png (same for Walk_). Frame size is read from
+// the image (width / 4, full height), so each animal can be its own size.
+for (const id of ["chicken", "pig", "cow", "sheep_white", "sheep_blackface", "sheep_cream"]) {
+  // cows and sheep also have an eat/ strip (grazing, js/animals.js)
+  const kinds = id === "cow" || id.startsWith("sheep") ? ["idle", "walk", "eat"] : ["idle", "walk"];
+  for (const kind of kinds) {
+    for (const dir of ["down", "up", "left", "right"]) {
+      const file = kind[0].toUpperCase() + kind.slice(1) + "_" + dir[0].toUpperCase() + dir.slice(1) + ".png";
+      const key = "animal_" + id + "_" + kind + "_" + dir;
+      assets[key] = new Image();
+      assets[key].src = "assets/animals/" + id + "/" + kind + "/" + file;
+    }
+  }
+}
+
+// --- birds flying over the map (js/birds.js) — assets/animals/bird_<kind>/fly/
+// Fly_Right.png + Fly_Left.png, one 4-frame wing-flap strip each.
+for (const id of ["bird_maya", "bird_dove", "bird_blue"]) {
+  for (const dir of ["right", "left"]) {
+    const key = id + "_fly_" + dir;
+    assets[key] = new Image();
+    assets[key].src = "assets/animals/" + id + "/fly/Fly_" + (dir === "right" ? "Right" : "Left") + ".png";
   }
 }
 
@@ -586,6 +631,18 @@ assets.wateringUp.src = "assets/sprites/Watering/Watering_Up-Sheet.png";
 assets.wateringSide.src = "assets/sprites/Watering/Watering_Side-Sheet.png"; // faces RIGHT; flipped in code for LEFT
 assets.sitFront.src = "assets/sprites/Sit/sith.png";
 assets.sitSide.src = "assets/sprites/Sit/sitv.png"; // faces RIGHT; flipped in code for LEFT
+// Eating while seated (js/customers.js) — the sit pose with one hand going
+// up to the mouth and back, holding what was ordered: the Grilled Meat
+// (off its plate, from assets/interior/foods/grilled_meat_icon.png), a
+// spoon (salad) or a mug (beer). 6 frames of 64x64 each; the side sheets
+// face RIGHT and are flipped in code for LEFT, like sitv.png.
+for (const what of ["Meat", "Spoon", "Mug"]) {
+  for (const view of ["Front", "Side"]) {
+    const key = "sitEat" + view + what;
+    assets[key] = new Image();
+    assets[key].src = "assets/sprites/Sit_Eat/Eat_" + view + "_" + what + ".png";
+  }
+}
 
 // used instead of the normal idle/walk/run sheets while player.mode === "carrying"
 assets.carryIdleDown.src = "assets/sprites/Carry_Idle/Carry_Idle_Down-Sheet.png";
@@ -804,6 +861,11 @@ const TERRAIN_TILE_SETS = [
     id: "Mountain", name: "Mountain Tiles", folder: "mountain", icon: "center-wall-mountain-3",
     rows: [["top-mountain", 4], ["top-inner-mountain", 6], ["center-mountain", 12, 6], ["bottom-inner-mountain", 6],
       // bottom-mountain's first and last tiles are the wall corners, named separately
+      // plateau BOTTOM edge pieces (the top rim flipped — assets/tiles/
+      // mountain/bottom-edge-mountain-*.png): only used by the auto-tiling
+      // for a plateau edge with nothing under it; NOT in the picker picture
+      // below, which stays exactly the original mountain sheet
+      ["bottom-edge-mountain", 8],
       [["top-left-wall-mountain", "bottom-mountain-1", "bottom-mountain-2", "bottom-mountain-3", "bottom-mountain-4", "top-right-wall-mountain"]],
       ["top-wall-mountain", 6], ["center-wall-mountain", 6], ["bottom-wall-mountain", 6], ["bottom-outer-wall-mountain", 4],
       // snowy versions of the two bottom strips (were in the folder too)
@@ -824,6 +886,15 @@ const TERRAIN_TILE_SETS = [
       ["bottom-snow-wall-mountain-1", "bottom-snow-wall-mountain-2", "bottom-snow-wall-mountain-3", "bottom-snow-wall-mountain-4", "bottom-snow-wall-mountain-5", "bottom-snow-wall-mountain-6"],
       [null, "bottom-snow-outer-wall-mountain-1", "bottom-snow-outer-wall-mountain-2", "bottom-snow-outer-wall-mountain-3", "bottom-snow-outer-wall-mountain-4", null],
     ],
+  },
+  // Dirt stairs — per request, dirtstair.png (32x48) cut into 16x16 tiles
+  // in reading order: 2 across x 3 down = stairs-dirt-1..6. The picker
+  // shows them in that same 2x3 shape. They go on the bridge layer (see
+  // ITEM_LAYER_RULES), so they sit OVER a mountain wall and are the way
+  // up and down the cliff (js/player.js).
+  {
+    id: "StairsDirt", name: "Dirt Stairs", folder: "stairs_dirt", icon: "stairs-dirt-3",
+    rows: [["stairs-dirt", 6, 2]],
   },
 ];
 
@@ -853,6 +924,81 @@ for (const set of TERRAIN_TILE_SETS) {
       assets[key].src = "assets/tiles/" + set.folder + "/" + file + ".png";
     }
   }
+}
+
+// Port Bridge sliced into 16x16 tiles — port_bridge.png (80x80) cut on the
+// 16px game grid = 5x5 = 25 tiles, assets/outdoor/port_bridge_tiles/
+// port-bridge-R<r>C<c>.png. Key: bridgeTileR<r>C<c> (NOT a "port" prefix,
+// so it gets its own inventory slot instead of joining the Port Tiles).
+const BRIDGE_TILE_ROWS = 5, BRIDGE_TILE_COLS = 5;
+// Bridge tile sides that are a closed rail (the black outline running
+// along the tile's edge): while up on the bridge you can't walk past
+// them, whatever is on the other side. Per request, R5C1 (bottom-left
+// block, its bottom edge). Add others here as "R<r>C<c>" (0-based).
+const BRIDGE_TILE_CLOSED_EDGES = {
+  R4C0: ["bottom"],
+};
+// Which pixels of each bridge tile are drawn (bit x of row y = 1 means
+// opaque), measured off the PNGs. Used for the bridge's pixel-exact
+// collision (js/player.js) — precomputed rather than read with
+// getImageData, which a file:// page can't do.
+const BRIDGE_TILE_ALPHA = {
+  R0C0: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R0C1: [63488,63488,63488,63488,63488,63488,61440,61440,61440,61440,61440,63488,63488,63488,63488,63488],
+  R0C2: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R0C3: [15,15,15,15,15,15,31,31,31,31,31,15,15,15,15,15],
+  R0C4: [61440,61440,61440,61440,61440,61440,63488,63488,63488,63488,63488,61440,61440,61440,61440,61440],
+  R1C0: [64512,64512,64512,64512,64512,64512,63488,63488,63488,63488,63488,64512,64512,64512,64512,64512],
+  R1C1: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R1C2: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R1C3: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R1C4: [15,15,15,15,15,15,31,31,31,31,31,15,15,15,15,15],
+  R2C0: [63488,63488,61440,61440,61440,63488,64512,64512,64512,64512,64512,63488,63488,63488,63488,63488],
+  R2C1: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R2C2: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R2C3: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R2C4: [15,31,31,31,31,31,15,7,7,7,7,15,15,15,15,15],
+  R3C0: [63488,64512,64512,64512,64512,64512,63488,63488,63488,63488,63488,64512,64512,64512,64512,64512],
+  R3C1: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R3C2: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R3C3: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R3C4: [15,31,31,31,31,31,15,15,15,15,15,31,31,31,31,31],
+  R4C0: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R4C1: [63488,64512,64512,64512,64512,64512,63488,63488,63488,63488,63488,64512,64512,64512,64512,64512],
+  R4C2: [65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535,65535],
+  R4C3: [15,31,31,31,31,31,15,15,15,15,15,31,31,31,31,31],
+  R4C4: [15,31,31,31,31,31,15,7,7,7,7,15,15,15,15,15],
+};
+for (let r = 0; r < BRIDGE_TILE_ROWS; r++) {
+  for (let c = 0; c < BRIDGE_TILE_COLS; c++) {
+    const key = "bridgeTileR" + r + "C" + c;
+    assets[key] = new Image();
+    assets[key].src = "assets/outdoor/port_bridge_tiles/port-bridge-R" + r + "C" + c + ".png";
+  }
+}
+
+// --- Town buildings (tools/build_town_assets.py -> js/townBuildings.data.js) ---
+// Houses, outdoor props, furniture and room art cut/composed from the
+// Buildings pack (assets/buildings/source/). Registered here so they're
+// counted below like every other image.
+for (const [folder, group] of [["exterior", "houses"], ["props", "props"], ["furniture", "furniture"]]) {
+  for (const id of Object.keys(TOWN_ART[group])) {
+    assets[id] = new Image();
+    assets[id].src = "assets/buildings/" + folder + "/" + id + ".png?v=" + TOWN_ART.version;
+  }
+}
+for (const t of ["roomPickaxe", "roomHammer"]) { assets[t] = new Image(); assets[t].src = "assets/buildings/tools/" + t + ".png"; }
+for (const id of Object.keys(TOWN_ART.pc || {})) { // Pixel Crawler props (tools/build_town_assets.py)
+  assets[id] = new Image();
+  assets[id].src = "assets/pixelcrawler/props/" + id + ".png?v=" + TOWN_ART.version;
+}
+assets.cave_sheet = new Image(); // rock walls + floor for the caves (js/roomCustomizer.js)
+assets.cave_sheet.src = "assets/buildings/rooms/cave_sheet.png?v=" + TOWN_ART.version;
+assets.townInteriorWalls = new Image(); // drawn from by js/roomCustomizer.js
+assets.townInteriorWalls.src = "assets/buildings/source/Interior/Interior_Walls_01.png";
+for (const room of Object.keys(TOWN_ART.rooms)) {
+  assets["room_" + room] = new Image();
+  assets["room_" + room].src = "assets/buildings/rooms/" + room + ".png?v=" + TOWN_ART.version;
 }
 
 const assetsNeededCount = Object.keys(assets).length;
@@ -1095,10 +1241,49 @@ assets.vegDragonfruitBox.src = "assets/items/vegetables/dragonfruit/dragonfruitb
 assets.vegCrate.src = "assets/items/vegetables/box.png";
 assets.vegCrateOpen.src = "assets/items/vegetables/boxopen.png";
 assets.dirtRake.src = "assets/items/vegetables/dirtrake.png";
+// Tilled soil auto-tiled like the grass edges (js/farm.js dirtRakeMask()):
+// 16 pieces of 24x24 (the 16x16 tile + 4px all round for the lumpy rim),
+// index = N 1 | E 2 | S 4 | W 8 for each side that has tilled soil too.
+// A lone tile is the whole lumpy clod; sides that touch more soil go
+// straight and seamless, open sides keep the rounded edge and corners.
+// Mine mobs' drops + the Cave Sword (assets/mobs/icons, js/mines.js)
+// The boss swords (tools/mobs/swords32.py): a 32px picture for the inventory and a 6-frame aura strip for when it's out in the world.
+// The Storm Greatsword (tools/mobs/stormsword.py): a 40px picture for the inventory and an 8-frame aura + lightning strip.
+assets.mob_stormSword = new Image(); assets.mob_stormSword.src = "assets/mobs/icons/stormSword.png";
+assets.anim_stormSword = new Image(); assets.anim_stormSword.src = "assets/mobs/icons/stormSword_anim.png";
+// the boss gear in the same style (tools/mobs/demongear.py): 24px pictures + 6-frame aura/lightning strips
+for (const id of ["demonHelmet", "demonArmor", "demonGauntlet", "demonBoots", "demonRing", "demonShield", "demonBow"]) {
+  assets["anim_" + id] = new Image(); assets["anim_" + id].src = "assets/mobs/icons/" + id + "_anim.png";
+}
+// metal sets (tools/mobs/metalsets.py): bronze / emerald / diamond pieces + their swords (iron reuses ironHelmet.png etc.)
+for (const t of ["bronze", "emerald", "diamond"]) for (const k of ["Helmet", "Armor", "Gauntlet", "Boots", "Sword"]) {
+  assets["mob_" + t + k] = new Image(); assets["mob_" + t + k].src = "assets/mobs/icons/" + t + k + ".png";
+}
+for (const id of ["demonSword", "demonHelmet", "demonArmor", "demonGauntlet", "demonRing", "demonBoots", "demonShield", "demonBow", "woodBow", "ironBow", "goldBow"]) {
+  assets["mob_" + id] = new Image(); assets["mob_" + id].src = "assets/mobs/icons/" + id + ".png"; // boss drops + bows (js/gear.js)
+}
+for (const t of ["leather", "iron", "gold", "mythril", "dragon"]) for (const k of ["Helmet", "Armor", "Gauntlet", "Ring", "Shield", "Boots"]) {
+  assets["mob_" + t + k] = new Image(); assets["mob_" + t + k].src = "assets/mobs/icons/" + t + k + ".png"; // gear (js/gear.js)
+}
+assets.warpPortal = new Image(); assets.warpPortal.src = "assets/buildings/exterior/warpPortal.png"; // the far worlds' portals (js/gear.js)
+for (const id of ["slimeGel", "batWing", "glowCap", "crystalShard", "golemCore", "caveSword", "ironSword", "goldSword", "crystalSword", "mythrilSword", "dragonSword", "celestialSword", "goldCoin"]) {
+  assets["mob_" + id] = new Image();
+  assets["mob_" + id].src = "assets/mobs/icons/" + id + ".png";
+}
+assets.dirtRakeAuto = new Image();
+assets.dirtRakeAuto.src = "assets/items/vegetables/dirtrake_auto.png";
 assets.dirtWet.src = "assets/items/vegetables/dirtwet.png";
 assets.plantDrawer.src = "assets/items/vegetables/plantdrawer.png";
 assets.plotSocketOpen.src = "assets/items/vegetables/socketopen.png";
 assets.plotSocketClosed.src = "assets/items/vegetables/socketclose.png";
+// Farming (js/farm.js) — icons from tools/build_farm_icons.py
+for (const [id, file] of [["farmHoe", "hoe"], ["farmCan", "wateringcan"],
+  ["seedCarrots", "seed_carrots"], ["seedCabbage", "seed_cabbage"], ["seedOnion", "seed_onion"], ["seedPetchay", "seed_petchay"],
+  ["seedBrocolli", "seed_brocolli"], ["seedBrocolliFlower", "seed_brocolli_flower"], ["seedDragonfruit", "seed_dragonfruit"],
+  ["cropCarrots", "crop_carrots"], ["cropCabbage", "crop_cabbage"], ["cropOnion", "crop_onion"], ["cropPetchay", "crop_petchay"],
+  ["cropBrocolli", "crop_brocolli"], ["cropBrocolliFlower", "crop_brocolli_flower"], ["cropDragonfruit", "crop_dragonfruit"]]) {
+  assets[id] = new Image(); assets[id].src = "assets/items/farm/" + file + ".png";
+}
 assets.waterCrateHorizontal.src = "assets/items/vegetables/waterboxh.png";
 assets.waterCrateVertical.src = "assets/items/vegetables/waterboxv.png";
 

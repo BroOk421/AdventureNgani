@@ -1519,3 +1519,27 @@ html, body {
 #calendar-section .hud-row {
   gap: 6px;
 }
+
+/* Sunny-day edge blur — per request it was a blurred copy of the frame drawn
+   back over the edges; that read the whole canvas back every frame (very
+   slow). Now the browser does it: a fixed overlay that blurs what's behind
+   it (the game canvas — the HUD sits above it), masked to the four edge
+   bands (26% in from each edge, fading to nothing, corners not doubled).
+   js/camera.js only fades it in/out. */
+#vignette-blur {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  -webkit-mask-image: linear-gradient(to right, #000 0%, transparent 26%, transparent 74%, #000 100%),
+    linear-gradient(to bottom, #000 0%, transparent 26%, transparent 74%, #000 100%);
+  mask-image: linear-gradient(to right, #000 0%, transparent 26%, transparent 74%, #000 100%),
+    linear-gradient(to bottom, #000 0%, transparent 26%, transparent 74%, #000 100%);
+  -webkit-mask-composite: source-over;
+  mask-composite: add;
+}
+#vignette-blur.on { opacity: 1; }

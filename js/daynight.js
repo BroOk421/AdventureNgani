@@ -175,16 +175,16 @@ function getShadowParams() {
 // through the middle of the day.
 // How dark the night wash gets (0-1). Per request ("medyo i dark mo ng
 // konti yung paligid kapag gabi") raised from 0.55 to 0.63.
-const NIGHT_SKY_ALPHA = 0.63;
+const NIGHT_SKY_ALPHA = 0.6;
 const SKY_KEYFRAMES = [
-  { h: 0, r: 10, g: 15, b: 40, a: NIGHT_SKY_ALPHA },
-  { h: SUNRISE_HOUR - TWILIGHT_HOURS, r: 10, g: 15, b: 40, a: NIGHT_SKY_ALPHA },
+  { h: 0, r: 18, g: 30, b: 86, a: NIGHT_SKY_ALPHA },
+  { h: SUNRISE_HOUR - TWILIGHT_HOURS, r: 18, g: 30, b: 86, a: NIGHT_SKY_ALPHA },
   { h: SUNRISE_HOUR, r: 255, g: 150, b: 80, a: 0.30 },
   { h: SUNRISE_HOUR + TWILIGHT_HOURS, r: 255, g: 150, b: 80, a: 0 },
   { h: SUNSET_HOUR - TWILIGHT_HOURS, r: 255, g: 140, b: 70, a: 0 },
   { h: SUNSET_HOUR, r: 255, g: 140, b: 70, a: 0.30 },
-  { h: SUNSET_HOUR + TWILIGHT_HOURS, r: 10, g: 15, b: 40, a: NIGHT_SKY_ALPHA },
-  { h: 24, r: 10, g: 15, b: 40, a: NIGHT_SKY_ALPHA },
+  { h: SUNSET_HOUR + TWILIGHT_HOURS, r: 18, g: 30, b: 86, a: NIGHT_SKY_ALPHA },
+  { h: 24, r: 18, g: 30, b: 86, a: NIGHT_SKY_ALPHA },
 ];
 
 function getSkyOverlayColor() {

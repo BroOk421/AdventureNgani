@@ -1,0 +1,7 @@
+{
+  "appId": "com.adventurengani.game",
+  "appName": "AdventureNgani",
+  "webDir": "www",
+  "android": { "allowMixedContent": false },
+  "server": { "androidScheme": "https" }
+}

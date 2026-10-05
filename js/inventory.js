@@ -70,6 +70,15 @@ const ITEM_LAYER_RULES = [
   // --- 1. dirt ---
   [1, /^dirt/],
 
+  // Port Bridge tiles — their own layer (bridgeLayer), above the ground
+  // and the mountain overlay, so a bridge can sit on a mountain rim tile
+  // without replacing it. Drawn over or under the player depending on
+  // whether the player is up on the mountain (player.elevated).
+  ["bridge", /^bridgeTile/],
+  // Stairs share that layer: over the mountain wall they're placed on,
+  // walkable, and always under the player (drawStairsLayer(), camera.js).
+  ["bridge", /^terrainStairs/],
+
   // --- 2. the ground itself: grass, water, the port tileset ---
   [2, /^(grass|water|port)/],
   // Mountain tiles lie ON the ground instead of replacing it — per request
@@ -111,6 +120,8 @@ const ITEM_LAYER_RULES = [
 
   // --- 3. everything else stands on the ground ---
 ];
+ITEM_LAYER_RULES.unshift(...TOWN_LAYER_RULES); // town buildings (js/townBuildings.js) — listed first so no rule above catches them
+
 
 function layerNumberForType(type) {
   for (const [n, test] of ITEM_LAYER_RULES) {
@@ -125,6 +136,7 @@ function layerForType(type) {
     case 2: return groundLayer;
     case "overlay": return groundOverlayLayer;
     case "wildgrass": return wildgrassLayer;
+    case "bridge": return bridgeLayer;
     case 4: return upperLayer;
     case 5: return wallLayer;
     case 6: return ceilingLayer;
@@ -810,6 +822,7 @@ const itemDefs = {
     id: "portI2",
     name: "Port (Inner 2)",
     icon: assets.portI2,
+    groupIcon: true, // the plain land tile stands for the auto-tiled port set (js/autotile.js)
     unlimited: true,
     flat: true,
   },
@@ -1126,6 +1139,7 @@ const itemDefs = {
     layer: "decor",
     noSway: true,
     noOcclusionFade: true,
+    pebble: true, // always drawn under every character (renderWorldObjectsSorted(), camera.js)
   },
   stoneDecor1: {
     id: "stoneDecor1",
@@ -1136,6 +1150,7 @@ const itemDefs = {
     layer: "decor",
     noSway: true,
     noOcclusionFade: true,
+    pebble: true, // always drawn under every character (renderWorldObjectsSorted(), camera.js)
   },
   stoneDecor2: {
     id: "stoneDecor2",
@@ -1146,6 +1161,7 @@ const itemDefs = {
     layer: "decor",
     noSway: true,
     noOcclusionFade: true,
+    pebble: true, // always drawn under every character (renderWorldObjectsSorted(), camera.js)
   },
   stoneDecor3: {
     id: "stoneDecor3",
@@ -1156,6 +1172,7 @@ const itemDefs = {
     layer: "decor",
     noSway: true,
     noOcclusionFade: true,
+    pebble: true, // always drawn under every character (renderWorldObjectsSorted(), camera.js)
   },
   stoneDecor4: {
     id: "stoneDecor4",
@@ -1166,6 +1183,7 @@ const itemDefs = {
     layer: "decor",
     noSway: true,
     noOcclusionFade: true,
+    pebble: true, // always drawn under every character (renderWorldObjectsSorted(), camera.js)
   },
   stoneDecor5: {
     id: "stoneDecor5",
@@ -1176,6 +1194,7 @@ const itemDefs = {
     layer: "decor",
     noSway: true,
     noOcclusionFade: true,
+    pebble: true, // always drawn under every character (renderWorldObjectsSorted(), camera.js)
   },
   // Dropped by harvesting a stone — a plain inventory resource, not
   // really meant to be placed as decor, but there's no separate
@@ -1185,7 +1204,7 @@ const itemDefs = {
     id: "stoneChunk",
     name: "Stone Chunk",
     icon: assets.stoneSmall,
-    unlimited: true,
+    unlimited: false, // sold at the grocery now, so the count is real
     flat: true,
   },
 
@@ -1242,6 +1261,7 @@ const itemDefs = {
     resource: {
       hitsToBreak: 3,
       breakAnim: "slice",
+      replaceWith: "treeThinCutStump", // per request: a bare tree leaves its stump too (and grows back from it)
       respawnMinutes: 5,
       dropItem: "woodLog",
       dropAmount: 2,
@@ -1256,6 +1276,7 @@ const itemDefs = {
     resource: {
       hitsToBreak: 3,
       breakAnim: "slice",
+      replaceWith: "treeThinCutStump", // per request: a bare tree leaves its stump too (and grows back from it)
       respawnMinutes: 5,
       dropItem: "woodLog",
       dropAmount: 2,
@@ -1427,7 +1448,7 @@ const itemDefs = {
     id: "woodLog",
     name: "Wood Log",
     icon: assets.woodLog,
-    unlimited: true,
+    unlimited: false, // sold at the grocery now, so the count is real
     flat: true,
   },
   woodPlank: {
@@ -1630,6 +1651,15 @@ const itemDefs = {
     icon: assets.treeMediumGreen,
     unlimited: true,
     collides: true,
+    // Per request: every tree in the trees folder can be chopped, with the
+    // same crack / leaves / topple animation; what's left is its trunk.
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      replaceWith: "treeMediumGreenTrunk",
+      dropItem: "woodLog",
+      dropAmount: 3,
+    },
   },
   treeMediumLightGreen: {
     id: "treeMediumLightGreen",
@@ -1637,6 +1667,15 @@ const itemDefs = {
     icon: assets.treeMediumLightGreen,
     unlimited: true,
     collides: true,
+    // Per request: every tree in the trees folder can be chopped, with the
+    // same crack / leaves / topple animation; what's left is its trunk.
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      replaceWith: "treeMediumGreenTrunk",
+      dropItem: "woodLog",
+      dropAmount: 3,
+    },
   },
   treeMediumRed: {
     id: "treeMediumRed",
@@ -1644,6 +1683,15 @@ const itemDefs = {
     icon: assets.treeMediumRed,
     unlimited: true,
     collides: true,
+    // Per request: every tree in the trees folder can be chopped, with the
+    // same crack / leaves / topple animation; what's left is its trunk.
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      replaceWith: "treeMediumRedYellowTrunk",
+      dropItem: "woodLog",
+      dropAmount: 3,
+    },
   },
   treeMediumYellow: {
     id: "treeMediumYellow",
@@ -1651,6 +1699,15 @@ const itemDefs = {
     icon: assets.treeMediumYellow,
     unlimited: true,
     collides: true,
+    // Per request: every tree in the trees folder can be chopped, with the
+    // same crack / leaves / topple animation; what's left is its trunk.
+    resource: {
+      hitsToBreak: 3,
+      breakAnim: "slice",
+      replaceWith: "treeMediumRedYellowTrunk",
+      dropItem: "woodLog",
+      dropAmount: 3,
+    },
   },
   treeMediumGreenTrunk: {
     id: "treeMediumGreenTrunk",
@@ -1658,6 +1715,14 @@ const itemDefs = {
     icon: assets.treeMediumGreenTrunk,
     unlimited: true,
     collides: true,
+    // A trunk (what's left of a medium tree): chopped like the other stumps —
+    // cracks and chips, no leaves, nothing to topple.
+    resource: {
+      hitsToBreak: 2,
+      breakAnim: "slice",
+      dropItem: "woodLog",
+      dropAmount: 2,
+    },
   },
   treeMediumRedYellowTrunk: {
     id: "treeMediumRedYellowTrunk",
@@ -1665,6 +1730,14 @@ const itemDefs = {
     icon: assets.treeMediumRedYellowTrunk,
     unlimited: true,
     collides: true,
+    // A trunk (what's left of a medium tree): chopped like the other stumps —
+    // cracks and chips, no leaves, nothing to topple.
+    resource: {
+      hitsToBreak: 2,
+      breakAnim: "slice",
+      dropItem: "woodLog",
+      dropAmount: 2,
+    },
   },
   // `interior` (js/interior.js): walking onto the tile at
   // (placedCol + doorOffset.col, placedRow + doorOffset.row) — normally
@@ -2219,6 +2292,7 @@ const itemDefs = {
     isTable: true, // a real table — customers eat at a seat facing one (js/customers.js)
     noOcclusionFade: true, // tables stay solid over whoever is behind them — per request, "laging naka overlap sa character"
     name: "Round Table",
+    collisionTopStrip: 0.25, // + a 4px strip along the bottom of the tile above (isInteriorBodyBlockedAt(), interior.js)
     icon: assets.tableCircle,
     unlimited: true,
     collides: true,
@@ -2564,14 +2638,9 @@ const itemDefs = {
     collides: true,
     multiTileFootprint: true,
   },
-  portBridge: {
-    id: "portBridge",
-    name: "Port Bridge",
-    icon: assets.portBridge,
-    unlimited: true,
-    collides: true,
-    multiTileFootprint: true,
-  },
+  // (The whole-sprite "portBridge" used to be here. Per request it's now
+  // the 25 sliced bridgeTile* tiles with their own inventory slot — see
+  // BRIDGE_TILE_ROWS below; old saves are converted in js/save.js.)
   portBridgeDecor: {
     id: "portBridgeDecor",
     name: "Port Bridge Decor",
@@ -3394,13 +3463,40 @@ for (const set of TERRAIN_TILE_SETS) {
         unlimited: true,
         flat: true,
         groupIcon: file === set.icon || undefined,
+        isStairs: set.id === "StairsDirt" || undefined, // walkable way up/down a mountain wall (js/player.js)
         // Solid mountain tiles, each the whole 16x16 — per request: every
         // wall tile (anything with "wall" in its name), plus the plateau's
         // rim listed in MOUNTAIN_SOLID_TILES. The rest of the plateau
         // stays walkable.
         collides: set.id === "Mountain" && (file.includes("wall") || MOUNTAIN_SOLID_TILES.has(file)) ? true : undefined,
+        // Per request: the plateau (top / inner / center / bottom mountain
+        // grass — every Mountain tile that isn't a wall) casts no night
+        // light shadow (collectLightOccluders(), js/camera.js).
+        noLightShadow: set.id === "Mountain" && !file.includes("wall") ? true : undefined,
       };
     }
+  }
+}
+
+// Port Bridge tiles (BRIDGE_TILE_ROWS x BRIDGE_TILE_COLS, js/assets.js) —
+// per request: the bridge cut into 16x16 tiles, placed one by one like
+// the other tile sets. They go on their own layer (`bridgeLayer`) above
+// the ground and the mountain, and are drawn over or under the player
+// depending on `player.elevated` (see updatePlayerElevation(),
+// js/player.js). No `collides`: walking on/under it is decided there.
+for (let r = 0; r < BRIDGE_TILE_ROWS; r++) {
+  for (let c = 0; c < BRIDGE_TILE_COLS; c++) {
+    const id = "bridgeTileR" + r + "C" + c;
+    itemDefs[id] = {
+      id,
+      name: "Port Bridge (R" + (r + 1) + "C" + (c + 1) + ")",
+      icon: assets[id],
+      unlimited: true,
+      flat: true,
+      isBridge: true,
+      // the centre tile is the picture on the inventory slot
+      groupIcon: r === Math.floor(BRIDGE_TILE_ROWS / 2) && c === Math.floor(BRIDGE_TILE_COLS / 2) || undefined,
+    };
   }
 }
 
@@ -3430,7 +3526,7 @@ const TILE_GROUP_META = {
   grass: { name: "Ground Tiles", match: (t) => t.startsWith("grass") },
   dirt: { name: "Dirt Tiles", match: (t) => t.startsWith("dirt") },
   water: { name: "Water Tiles", match: (t) => t.startsWith("water") },
-  port: { name: "Port Tiles", match: (t) => t.startsWith("port") },
+  port: { name: "Port Tiles", match: (t) => t.startsWith("port"), singleIcon: true }, // auto-tiled: one icon, no picker (js/autotile.js)
   // Every placeable stone EXCEPT `stoneChunk` — that one's a harvested
   // crafting material (dropped by breaking a stone, see itemDefs), not
   // a "kind of stone tile" you'd browse alongside Big/Medium/Small/XS/
@@ -3443,7 +3539,8 @@ const TILE_GROUP_META = {
   // Every tree/stump variant (living, bare, and cut-stump alike) — no
   // exclusions needed, `woodLog`/`woodPlank`/`woodStick` etc. are a
   // separate "wood" prefix, not "tree".
-  tree: { name: "Trees", match: (t) => t.startsWith("tree") },
+  tree: { name: "Trees", match: (t) => t.startsWith("tree") },
+
   // All six chairs share one inventory slot — per request ("may mag-appear
   // na pop up may hold tapos 1-7 hotkey na lilitaw kapag click sa
   // inventory"). Clicking it opens the variant picker, and picking one
@@ -3468,18 +3565,22 @@ const TILE_GROUP_META = {
   interiorTable: {
     name: "Tables",
     match: (t) => ["tableBig", "tableBig1", "tableBig2", "tableCircle", "tableKitchen", "tableSmall", "tableLong"].includes(t),
-  },
+  },
+
   // The four lamp posts (right/left, unlit/lit) share one slot — per
   // request ("pag-sama-samahin mo na sa isang icon, postlight gamitin
   // mong icon, tapos pag-click at nakapili na, may popup na hold at
   // hotkey 1-7"). `singleIcon` shows just the plain right-facing lamp
   // rather than a packed grid, since at preview size the four are near
   // enough identical that a grid reads as mush.
-  postLight: { name: "Lamp Posts", match: (t) => t.startsWith("postLight"), singleIcon: true },
+  postLight: { name: "Lamp Posts", match: (t) => t.startsWith("postLight"), singleIcon: true },
+
   fenceTile: { name: "Fence Tiles", match: (t) => t.startsWith("fenceTile"), singleIcon: true },
   floorBrownTile: { name: "Brown Floor Tiles", match: (t) => t.startsWith("floorBrownTile"), singleIcon: true },
   floorDarkGreenTile: { name: "Dark Green Floor Tiles", match: (t) => t.startsWith("floorDarkGreenTile"), singleIcon: true },
   floorGreenTile: { name: "Green Floor Tiles", match: (t) => t.startsWith("floorGreenTile"), singleIcon: true },
+  // Port Bridge — its own slot, separate from the Port Tiles (per request).
+  bridgeTile: { name: "Port Bridge", match: (t) => t.startsWith("bridgeTile"), singleIcon: true },
 };
 
 // Picker layouts drawn as the picture the tiles build — per request, from
@@ -3509,6 +3610,8 @@ const TILE_GROUP_META = {
   const fence = floorShape("fenceTile", 5, 5);
   fence[0][0] = fence[0][4] = fence[4][0] = fence[4][4] = null;
   TILE_GROUP_META.fenceTile.shape = fence;
+  // Port Bridge: the picker shows the 5x5 sheet exactly as the picture.
+  TILE_GROUP_META.bridgeTile.shape = floorShape("bridgeTile", BRIDGE_TILE_ROWS, BRIDGE_TILE_COLS);
   TILE_GROUP_META.port.shape = [
     ["portTL", "portTC1", "portTC2", "portTC3", "portTR"],
     ["portTC1", "portI1", "portI2", "portI3", "portTC3"],
@@ -3531,6 +3634,91 @@ for (const set of TERRAIN_TILE_SETS) {
     shape: set.shape ? set.shape.map((row) => row.map((file) => (file ? terrainTileId(set, file) : null))) : null,
   };
 }
+
+// Town buildings, props, furniture (js/townBuildings.js) — merged in here,
+// before the inventory slots and groups below are built from itemDefs.
+Object.assign(itemDefs, TOWN_ITEM_DEFS);
+// Farming (js/farm.js). Seeds and harvested crops start at 0 (`startCount`)
+// — seeds are bought at the grocery, crops come from the field.
+itemDefs.farmHoe = { id: "farmHoe", name: "Hoe (Pang-araro)", icon: assets.farmHoe, unlimited: true, equipSlot: "weapon", weapon: { attackAnim: "crush" } };
+// Weapons (js/mines.js uses weapon.damage; bare hands do 3). You start with
+// the Wood Sword; Iron and Gold are bought at the Equipment Shop (js/shops.js).
+// weapon.reqLevel: locked (can't buy or equip) until the player reaches that level (js/mines.js).
+itemDefs.woodSword = { id: "woodSword", name: "Wood Sword", icon: assets.woodSword, startCount: 1, equipSlot: "weapon", weapon: { attackAnim: "pierce", damage: 6, reqLevel: 1 } };
+itemDefs.ironSword = { id: "ironSword", name: "Iron Sword", icon: assets.mob_ironSword, startCount: 0, equipSlot: "weapon", weapon: { attackAnim: "pierce", damage: 12, reqLevel: 5 } };
+itemDefs.goldSword = { id: "goldSword", name: "Gold Sword", icon: assets.mob_goldSword, startCount: 0, equipSlot: "weapon", weapon: { attackAnim: "pierce", damage: 20, reqLevel: 10 } };
+itemDefs.crystalSword = { id: "crystalSword", name: "Crystal Sword", icon: assets.mob_crystalSword, startCount: 0, equipSlot: "weapon", weapon: { attackAnim: "pierce", damage: 32, reqLevel: 15 } };
+itemDefs.mythrilSword = { id: "mythrilSword", name: "Mythril Sword", icon: assets.mob_mythrilSword, startCount: 0, equipSlot: "weapon", weapon: { attackAnim: "pierce", damage: 55, reqLevel: 30 } };
+itemDefs.dragonSword = { id: "dragonSword", name: "Dragon Sword", icon: assets.mob_dragonSword, startCount: 0, equipSlot: "weapon", weapon: { attackAnim: "pierce", damage: 90, reqLevel: 50 } };
+// Bows: hit from further away (weapon.ranged, js/mines.js shoots an arrow).
+itemDefs.woodBow = { id: "woodBow", holdSprite: true, name: "Wood Bow", icon: assets.mob_woodBow, startCount: 0, equipSlot: "weapon", weapon: { attackAnim: "hit", damage: 5, reqLevel: 1, ranged: true } };
+itemDefs.ironBow = { id: "ironBow", holdSprite: true, name: "Iron Bow", icon: assets.mob_ironBow, startCount: 0, equipSlot: "weapon", weapon: { attackAnim: "hit", damage: 11, reqLevel: 8, ranged: true } };
+itemDefs.goldBow = { id: "goldBow", holdSprite: true, name: "Gold Bow", icon: assets.mob_goldBow, startCount: 0, equipSlot: "weapon", weapon: { attackAnim: "hit", damage: 19, reqLevel: 18, ranged: true } };
+itemDefs.celestialSword = { id: "celestialSword", name: "Celestial Sword", icon: assets.mob_celestialSword, startCount: 0, equipSlot: "weapon", weapon: { attackAnim: "pierce", damage: 140, reqLevel: 70 } };
+// Gear (js/gear.js, the P profile): 5 tiers x helmet / gauntlet / ring / shield / boots.
+// `gear` = { slot kind, atk, def, spd (attack speed bonus, fraction), crit (fraction) }; reqLevel locks it.
+const GEAR_TIERS = [["leather", "Leather", 1, 1], ["iron", "Iron", 10, 2.5], ["gold", "Gold", 25, 5], ["mythril", "Mythril", 40, 9], ["dragon", "Dragon", 60, 15]];
+GEAR_TIERS.forEach(([t, label, req, f], i) => {
+  const mk = (kind, name, gear) => { itemDefs[t + kind] = { id: t + kind, name: label + " " + name, icon: assets["mob_" + t + kind], startCount: 0, reqLevel: req, gear }; };
+  mk("Helmet", "Helmet", { kind: "helmet", def: Math.round(2 * f), mres: Math.round(1 * f) });
+  mk("Armor", "Armor", { kind: "armor", def: Math.round(4 * f), mres: Math.round(1.5 * f) });
+  mk("Gauntlet", "Gauntlet", { kind: "gauntlet", atk: Math.round(1 * f), def: Math.round(1 * f) });
+  mk("Ring", "Ring", { kind: "ring", atk: Math.round(2 * f), crit: 0.01 * (i + 1) });
+  mk("Shield", "Shield", { kind: "shield", def: Math.round(3 * f), mres: Math.round(2 * f) });
+  mk("Boots", "Boots", { kind: "boots", def: Math.round(1 * f), spd: 0.04 * (i + 1) });
+});
+// The Demon set — never sold: only the bosses drop it, and rarely (js/mines.js MINE_TYPES boss*).
+// Dark shadow with a violet-pink core (tools/mobs/demon.py).
+for (const [id, name, req, extra] of [
+  ["demonRing", "Demon Ring", 12, { gear: { kind: "ring", atk: 30, crit: 0.06, mres: 10 } }],
+  ["demonBoots", "Demon Boots", 20, { gear: { kind: "boots", def: 20, spd: 0.2, mres: 6 } }],
+  ["demonGauntlet", "Demon Gauntlet", 32, { gear: { kind: "gauntlet", atk: 25, def: 15 } }],
+  ["demonBow", "Demon Bow", 32, { equipSlot: "weapon", holdSprite: true, weapon: { attackAnim: "hit", damage: 120, reqLevel: 32, ranged: true } }],
+  ["demonHelmet", "Demon Helmet", 50, { gear: { kind: "helmet", def: 40, mres: 25 } }],
+  ["demonShield", "Demon Shield", 50, { gear: { kind: "shield", def: 50, mres: 20 } }],
+  ["demonArmor", "Demon Armor", 70, { gear: { kind: "armor", def: 70, mres: 30 } }],
+  // the rarest drop: aura + lightning, and held in the hand in the mob areas (js/gear.js)
+  // attackAnim "hit" (the body's swing, no tool of its own) — the sword itself sweeps an arc over it (js/gear.js drawSwordSwing())
+  ["stormSword", "Storm Greatsword", 70, { equipSlot: "weapon", weapon: { attackAnim: "hit", damage: 170, reqLevel: 70, swingArc: true }, animStrip: "anim_stormSword", holdSprite: true }],
+]) itemDefs[id] = Object.assign({ id, name, icon: assets["mob_" + id], startCount: 0, reqLevel: req, bossDrop: true, animStrip: assets["anim_" + id] ? "anim_" + id : undefined }, extra);
+// The metal sets (per request: iron, bronze, emerald, diamond — the boss gear's style, plain, no effects).
+// Each piece changes how you look when worn (`lookSet`, js/gear.js); each set has a sword held in the hand
+// with the greatsword swing (holdSprite + swingArc).
+for (const t of ["Helmet", "Armor", "Gauntlet", "Boots"]) if (itemDefs["iron" + t]) itemDefs["iron" + t].lookSet = "iron";
+[["bronze", "Bronze", 5, 1.8], ["emerald", "Emerald", 30, 7], ["diamond", "Diamond", 50, 12]].forEach(([t, label, req, f]) => {
+  const mk = (kind, name, gear) => { itemDefs[t + kind] = { id: t + kind, name: label + " " + name, icon: assets["mob_" + t + kind], startCount: 0, reqLevel: req, gear, lookSet: t }; };
+  mk("Helmet", "Helmet", { kind: "helmet", def: Math.round(2 * f), mres: Math.round(1 * f) });
+  mk("Armor", "Armor", { kind: "armor", def: Math.round(4 * f), mres: Math.round(1.5 * f) });
+  mk("Gauntlet", "Gauntlet", { kind: "gauntlet", atk: Math.round(1 * f), def: Math.round(1 * f) });
+  mk("Boots", "Boots", { kind: "boots", def: Math.round(1 * f), spd: 0.02 + f * 0.006 });
+});
+for (const [id, name, dmg, req] of [["bronzeSword", "Bronze Sword", 9, 3], ["emeraldSword", "Emerald Sword", 42, 22], ["diamondSword", "Diamond Sword", 75, 42]]) {
+  itemDefs[id] = { id, name, icon: assets["mob_" + id], startCount: 0, equipSlot: "weapon", holdSprite: true, animStrip: "mob_" + id, weapon: { attackAnim: "hit", damage: dmg, reqLevel: req, swingArc: true } };
+}
+Object.assign(itemDefs.ironSword, { holdSprite: true, animStrip: "mob_ironSword" });
+Object.assign(itemDefs.ironSword.weapon, { attackAnim: "hit", swingArc: true });
+itemDefs.warpPortal = { id: "warpPortal", name: "Warp Portal", icon: assets.warpPortal, unlimited: true, collides: true, fixedFootprint: { leftTiles: 1, rightTiles: 1, heightTiles: 1 } };
+// Potions (Potion Shop, js/shops.js) — click to drink, like food (consumeItem()).
+itemDefs.potionHealth = { id: "potionHealth", name: "Health Potion", icon: assets.bldPotionRed, startCount: 0, consumable: { healthPercent: 40 } };
+itemDefs.potionStamina = { id: "potionStamina", name: "Stamina Potion", icon: assets.bldPotionGreen, startCount: 0, consumable: { staminaPercent: 60 } };
+itemDefs.potionElixir = { id: "potionElixir", name: "Elixir", icon: assets.bldPotionPurple, startCount: 0, consumable: { healthPercent: 100, staminaPercent: 100, food: 30 } };
+for (const [id, name] of [["slimeGel", "Slime Gel"], ["batWing", "Bat Wing"], ["glowCap", "Glow Cap"], ["crystalShard", "Crystal Shard"], ["golemCore", "Golem Core"]]) {
+  itemDefs[id] = { id, name, icon: assets["mob_" + id], startCount: 0, mobDrop: true };
+}
+itemDefs.farmCan = { id: "farmCan", name: "Watering Can (Pandilig)", icon: assets.farmCan, unlimited: true, equipSlot: "weapon", weapon: { attackAnim: "watering" } };
+for (const [key, veg, label] of [["Carrots", "carrots", "Carrot"], ["Cabbage", "cabbage", "Cabbage"], ["Onion", "onion", "Onion"],
+  ["Petchay", "petchay", "Petchay"], ["Brocolli", "brocolli", "Broccoli"], ["BrocolliFlower", "brocolli_flower", "Broccoli Flower"],
+  ["Dragonfruit", "dragonfruit", "Dragonfruit"]]) {
+  itemDefs["seed" + key] = { id: "seed" + key, name: label + " Seeds", icon: assets["seed" + key], startCount: 0, seedOf: veg };
+  itemDefs["crop" + key] = { id: "crop" + key, name: label + " (Ani)", icon: assets["crop" + key], startCount: 0, cropOf: veg, flat: true };
+}
+// Mountain, split in two easy slots (js/autotile.js lays the real tiles):
+// "Mountain" = the plateau, "Mountain Wall" = a cliff wall under it. Click
+// to hold, no picker; the "Mountain Tiles" slot keeps its picker for
+// laying any piece by hand.
+itemDefs.mountainPlateau = Object.assign({}, itemDefs.terrainMountainCenterMountain2, { id: "mountainPlateau", name: "Mountain", autoAlias: "terrainMountainCenterMountain2" });
+itemDefs.mountainWall = Object.assign({}, itemDefs.terrainMountainCenterWallMountain3, { id: "mountainWall", name: "Mountain Wall", autoAlias: "terrainMountainTopWallMountain3" });
+Object.assign(TILE_GROUP_META, TOWN_TILE_GROUPS);
 
 function tileGroupIdForType(type) {
   for (const gid of Object.keys(TILE_GROUP_META)) {
@@ -3578,7 +3766,7 @@ const inventory = new Array(INVENTORY_ROWS * INVENTORY_COLS).fill(null);
 // declaration order, automatically — add or remove an item by editing
 // itemDefs only, nothing here ever needs hand-updating again.
 Object.keys(itemDefs).forEach((type, i) => {
-  inventory[i] = { type, count: 99 };
+  inventory[i] = { type, count: itemDefs[type].startCount ?? 99 };
 });
 
 // (Re)builds the inventory from scratch, straight from itemDefs — shared
@@ -3588,7 +3776,7 @@ Object.keys(itemDefs).forEach((type, i) => {
 function resetInventoryFromItemDefs() {
   inventory.fill(null);
   Object.keys(itemDefs).forEach((type, i) => {
-    inventory[i] = { type, count: 99 };
+    inventory[i] = { type, count: itemDefs[type].startCount ?? 99 };
   });
 }
 
@@ -3671,6 +3859,10 @@ const objectLayer = new Map();        // 3
 // as it is; only its place in the layer list is being made explicit. It
 // Y-sorts together with objectLayer, so the two read as one layer.
 const wildgrassLayer = new Map();     // 3
+// Port Bridge tiles. Not in the six-layer stack order below: drawn
+// under the player while they're up on the mountain / on the bridge,
+// over them while they're down on the ground (camera.js).
+const bridgeLayer = new Map();
 const upperLayer = new Map();         // 4
 const wallLayer = new Map();          // 5
 const ceilingLayer = new Map();       // 6
@@ -3678,7 +3870,7 @@ const ceilingLayer = new Map();       // 6
 // Bottom-to-top. Anything that needs to sweep "every placed item" walks
 // this, so a new layer only has to be added in one place.
 const ALL_LAYERS = [
-  dirtLayer, groundLayer, groundOverlayLayer, wildgrassLayer, objectLayer,
+  dirtLayer, groundLayer, groundOverlayLayer, bridgeLayer, wildgrassLayer, objectLayer,
   upperLayer, wallLayer, ceilingLayer,
 ];
 // Top-to-bottom — for "what did I just click / what's the topmost thing
@@ -3746,15 +3938,18 @@ function consumeItem(slotIndex) {
   const def = itemDefs[slot.type];
   if (!def || !def.consumable) return false;
 
-  const { food = 0, healthPercent = 0 } = def.consumable;
+  const { food = 0, healthPercent = 0, staminaPercent = 0 } = def.consumable;
   const healthGain = (healthPercent / 100) * player.maxHealth;
+  const staminaGain = (staminaPercent / 100) * player.maxStamina;
 
-  const foodRoom = player.maxFood - player.food;
-  const healthRoom = player.maxHealth - player.health;
-  if (foodRoom <= 0.001 && healthRoom <= 0.001) return false; // already full — don't waste it
+  const foodRoom = food > 0 ? player.maxFood - player.food : 0;
+  const healthRoom = healthGain > 0 ? player.maxHealth - player.health : 0;
+  const staminaRoom = staminaGain > 0 ? player.maxStamina - player.stamina : 0;
+  if (foodRoom <= 0.001 && healthRoom <= 0.001 && staminaRoom <= 0.001) return false; // already full — don't waste it
 
   player.food = Math.min(player.maxFood, player.food + food);
   player.health = Math.min(player.maxHealth, player.health + healthGain);
+  player.stamina = Math.min(player.maxStamina, player.stamina + staminaGain); // potions (js/shops.js)
 
   commitPlacementUse(slotIndex); // shared spend/save/re-render tail
   updateStatsHUD();              // reflect the new bars immediately, don't wait a frame
@@ -3919,6 +4114,8 @@ function updateConstructions() {
 // layer 2 (the Water Crates, `depthBand`) aren't painted over.
 function canReplaceGroundItem(existingType, newType) {
   if (existingType === newType) return false;
+  // Port Bridge / stairs tiles swap for one another, like the ground tile sets.
+  if (layerNumberForType(existingType) === "bridge" && layerNumberForType(newType) === "bridge") return true;
   if (layerNumberForType(existingType) !== 2 || layerNumberForType(newType) !== 2) return false;
   if (itemDefs[existingType].depthBand || itemDefs[newType].depthBand) return false;
   return true;
@@ -3926,6 +4123,8 @@ function canReplaceGroundItem(existingType, newType) {
 
 function placeHeldItemAt(col, row) {
   if (!heldItem) return;
+  // Seeds plant into tilled soil; a crop clicked onto a sack goes in it (js/farm.js).
+  if (typeof farmHandleHeldPlacement === "function" && farmHandleHeldPlacement(col, row)) return;
 
   // `interiorOnly` items (right now, just the Collision Block — see
   // itemDefs) place into an interior room's own `collisions` map
@@ -4392,8 +4591,50 @@ let lastMouseClientY = 0;
 // (js/inventory.js) is what stops holding still on one tile from burning
 // through the whole stack instantly: it only actually places once per
 // tile until something there changes.
+/* ---- left-click to put down what's carried (E-key grab) ----------------
+   Per request ("pwedeng left click na rin yung paglapag ng gamit sa ground
+   o tile na sakop ng range"): besides E (in front / underfoot), a carried
+   item (`player.grabbedType`) can be put down by left-clicking any tile in
+   the white placement grid round the player (PLACEMENT_RANGE). Same rules
+   as the inventory hold-to-place: inside the range, the tile free on the
+   item's layer, and nothing solid dropped on the player's own feet. */
+function canPlaceGrabbedOutdoorAt(type, col, row) {
+  const def = itemDefs[type];
+  if (!def || player.scene !== "outside") return false;
+  if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return false;
+  if (!isWithinPlacementRange(col, row)) return false;
+  if (getLayerItemId(layerForType(type), col, row) !== null) return false;
+  if (def.collides) {
+    const here = getPlayerTile();
+    const feetCols = bodyFeetCols(player.x);
+    const covers = (t) => t.row === here.row && feetCols.includes(t.col);
+    if (covers({ col, row }) || getObjectFootprintBlockedTiles(type, col, row).some(covers)) return false;
+  }
+  return true;
+}
+function placeGrabbedAtClick(col, row) {
+  const type = player.grabbedType;
+  if (!type) return false;
+  if (player.scene === "inside") {
+    return typeof placeGrabbedIndoorAt === "function" && placeGrabbedIndoorAt(col, row);
+  }
+  if (!canPlaceGrabbedOutdoorAt(type, col, row)) return false;
+  layerForType(type).set(tileKey(col, row), type);
+  player.grabbedType = null;
+  player.mode = "normal";
+  saveGame();
+  return true;
+}
+
 function setupPlacementClickHandler() {
   view.addEventListener("mousedown", (e) => {
+    if (e.button === 0 && !heldItem && player.grabbedType) { // carrying something (E grab): click a tile in range to put it there
+      lastMouseClientX = e.clientX;
+      lastMouseClientY = e.clientY;
+      const t = screenToTile(e.clientX, e.clientY);
+      placeGrabbedAtClick(t.col, t.row);
+      return;
+    }
     if (e.button !== 0 || !heldItem) return; // left button only
     isPlacingHeld = true;
     lastMouseClientX = e.clientX;
@@ -4805,6 +5046,19 @@ function buildTileGroupSlotBox(group) {
     }
   }
 
+  // Auto-tiled sets (js/autotile.js — grass, bricks, snow, port): no
+  // picker. Per request, the slot is just the set's own icon and clicking
+  // it holds the centre tile; where it's laid decides which piece it
+  // becomes. Right-click: the usual Hold + 1-7 hotkey menu. (Mountain
+  // keeps its picker.)
+  const autoCentre = typeof autotileCentreForGroup === "function" ? autotileCentreForGroup(group.id) : null;
+  if (autoCentre && inventoryIndexByType[autoCentre] != null) {
+    const idx = inventoryIndexByType[autoCentre];
+    box.title = group.name + " — kusang bumabagay sa katabi";
+    box.addEventListener("click", () => useOrHoldSlot(idx));
+    box.addEventListener("contextmenu", (e) => { e.preventDefault(); openItemActionMenu(idx, box); });
+    return box;
+  }
   box.addEventListener("click", () => openTileVariantPicker(group, box));
   box.addEventListener("contextmenu", (e) => {
     e.preventDefault();

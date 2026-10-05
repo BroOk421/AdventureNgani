@@ -85,7 +85,10 @@ function drawShadow(px, feetY, size, sheet, sx) {
   const { alpha, skew, squashY } = getShadowParams();
   if (alpha <= 0.01) return; // fully night — nothing to draw
 
-  const silhouette = buildSilhouette(sheet, sx, alpha);
+  // Performance: the soft silhouette for this sheet frame is built ONCE and
+  // cached (blurred in advance), instead of re-tinting it and running a
+  // canvas blur filter on the main canvas for every character every frame.
+  const silhouette = cachedSoftSilhouette(sheet, sx);
 
   ctx.save();
   ctx.translate(px, feetY);
@@ -118,10 +121,38 @@ function drawShadow(px, feetY, size, sheet, sx) {
   // side sheet flipped) — it does not affect which side the shadow leans
   // toward, since `skew` above comes from the sun's position, not facing.
   if (player.facing === "left") ctx.scale(-1, 1);
-  ctx.filter = "blur(3px)"; // soften the shadow edges
-  ctx.drawImage(silhouette, -size / 2, -size, size, size);
-  ctx.filter = "none";
+  ctx.globalAlpha = 0.32 * alpha; // same strength the per-frame tint used to bake in
+  const pad = SOFT_SIL_PAD * size / FRAME_SIZE; // the cached canvas has blur room around the frame
+  ctx.drawImage(silhouette, -size / 2 - pad, -size - pad, size + pad * 2, size + pad * 2);
   ctx.restore();
+}
+
+// Pre-blurred, pre-tinted silhouettes of character sheet frames, built at
+// 2x so they stay smooth when scaled up. Keyed by sheet and frame offset.
+const SOFT_SIL_RES = 2, SOFT_SIL_PAD = 3; // pad in frame px
+const softSilCache = new Map();
+function cachedSoftSilhouette(sheet, sx, fw = FRAME_SIZE, fh = FRAME_SIZE, blurFramePx = 0.75) {
+  let perSheet = softSilCache.get(sheet);
+  if (!perSheet) { perSheet = new Map(); softSilCache.set(sheet, perSheet); }
+  let c = perSheet.get(sx);
+  if (c) return c;
+  const R = SOFT_SIL_RES, P = SOFT_SIL_PAD;
+  const raw = document.createElement("canvas");
+  raw.width = (fw + P * 2) * R; raw.height = (fh + P * 2) * R;
+  const rg = raw.getContext("2d");
+  rg.imageSmoothingEnabled = false;
+  rg.drawImage(sheet, sx, 0, fw, fh, P * R, P * R, fw * R, fh * R);
+  rg.globalCompositeOperation = "source-in";
+  rg.fillStyle = "rgb(35,25,20)";
+  rg.fillRect(0, 0, raw.width, raw.height);
+  c = document.createElement("canvas");
+  c.width = raw.width; c.height = raw.height;
+  const g = c.getContext("2d");
+  g.filter = "blur(" + (blurFramePx * R) + "px)";
+  g.drawImage(raw, 0, 0);
+  g.filter = "none";
+  perSheet.set(sx, c);
+  return c;
 }
 
 function drawHeldItemAboveHead(px, py, size, scale, g = ctx) {
@@ -245,7 +276,7 @@ const CANDLE_GRADIENT_STOPS = [
 const ROOM_OWNER_LIGHT_FADE_SEC = 1.5;
 // The full-night washes, exactly as they are at 20:00 (SKY_KEYFRAMES'
 // night colour + a full-strength NIGHT_BLUE_TINT, js/daynight.js).
-const ROOM_NIGHT_SKY_COLOR = "rgba(10,15,40," + NIGHT_SKY_ALPHA + ")"; // same night darkness as outdoors (js/daynight.js)
+const ROOM_NIGHT_SKY_COLOR = "rgba(18,30,86," + NIGHT_SKY_ALPHA + ")"; // same night darkness as outdoors (js/daynight.js) — a Stardew-like deep blue
 // The two wash weights themselves are what's stored and eased — NOT
 // "home" and "awake" separately. Easing those two independently and then
 // multiplying them (home * (1 - awake)) made the dark wash bump up to
@@ -326,6 +357,20 @@ function getIndoorLighting() {
     ownerDark,
     relight: Math.min(1, clock * (1 - getDayFactor()) + ownerDark),
     candle: Math.min(1, clock * getNightLightFactor() + ownerDark),
+  };
+}
+
+// Caves (the tunnel, the old caves, every mine level): no daylight down
+// there — always the same blue-ish dark, lamps and candles always lit.
+const CAVE_DARKNESS = 0.78;
+{
+  const base = getIndoorLighting;
+  getIndoorLighting = function () {
+    const room = player.scene === "inside" && INTERIOR_ROOMS[player.activeRoomId];
+    if (room && room.custom && room.custom.floor === "cave") {
+      return { clock: 0, ownerDark: CAVE_DARKNESS, relight: CAVE_DARKNESS, candle: 1 };
+    }
+    return base.apply(this, arguments);
   };
 }
 
@@ -418,12 +463,29 @@ function beginSceneLights() {
 // strength of 0..1.
 // `peakRGB` = the light's own brightest colour (its centre, already
 // multiplied by its alpha there) — defaults to a lamp's core.
-function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB) {
+function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB, cutouts) {
   if (!src || strength <= 0.005 || dw <= 0 || dh <= 0) return;
   const S = SCENE_LIGHT_SCALE;
   const x = Math.floor(dx * S), y = Math.floor(dy * S);
   const w = Math.ceil(dw * S) + 2, h = Math.ceil(dh * S) + 2;
   if (x + w < 0 || y + h < 0 || x > sceneLightCanvas.width || y > sceneLightCanvas.height) return;
+  const pk0 = peakRGB || SCENE_LIGHT_CAP_RGB, st0 = Math.min(1, strength);
+  if (!cutouts || !cutouts.length) {
+    // Performance: the buffer is opaque black and lights ADD, so drawing the
+    // light straight in at globalAlpha = strength gives exactly what the
+    // scratch-canvas route below does (premultiply on black, scale, add) —
+    // without its two full-rect fills and extra copy.
+    sceneLightCtx.globalCompositeOperation = "lighter";
+    sceneLightCtx.globalAlpha = st0;
+    sceneLightCtx.drawImage(src, dx * S, dy * S, dw * S, dh * S);
+    sceneLightCtx.globalAlpha = 1;
+    sceneLightCapCtx.globalCompositeOperation = "lighten";
+    sceneLightCapCtx.fillStyle = "rgb(" + Math.round(pk0[0] * st0) + "," + Math.round(pk0[1] * st0) + "," + Math.round(pk0[2] * st0) + ")";
+    sceneLightCapCtx.fillRect(x, y, w, h);
+    sceneLightsUsed = true;
+    sceneLightMaxStrength = Math.max(sceneLightMaxStrength, st0);
+    return;
+  }
   if (sceneLightTmp.width < w || sceneLightTmp.height < h) {
     sceneLightTmp.width = Math.max(sceneLightTmp.width, w);
     sceneLightTmp.height = Math.max(sceneLightTmp.height, h);
@@ -433,6 +495,21 @@ function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB) {
   g.fillStyle = "#000";
   g.fillRect(0, 0, w, h);
   g.drawImage(src, dx * S - x, dy * S - y, dw * S, dh * S); // pre-multiply onto black
+  // Things standing IN FRONT of this light (a lamp post behind a tree):
+  // their silhouettes are painted black here, which on this additive
+  // buffer simply means "no light" — so the tree stays dark over the pool
+  // instead of the glow showing through it. Screen-space rects, same
+  // shape relightOccluders() returns.
+  if (cutouts && cutouts.length) {
+    for (const o of cutouts) {
+      if (o.x * S - x > w || (o.x + o.w) * S - x < 0 || o.y * S - y > h || (o.y + o.h) * S - y < 0) continue;
+      const sil = getOccluderSilhouette(o.icon);
+      if (!sil) continue;
+      g.globalAlpha = o.alpha == null ? 1 : o.alpha;
+      g.drawImage(sil, o.x * S - x, o.y * S - y, o.w * S, o.h * S);
+    }
+    g.globalAlpha = 1;
+  }
   g.fillStyle = "rgba(0,0,0," + (1 - Math.min(1, strength)) + ")"; // then scale by strength
   g.fillRect(0, 0, w, h);
   // SUMMED, then capped per pixel (flushSceneLights()) — per request:
@@ -571,6 +648,8 @@ function getNightLightFactor() {
 const LIGHT_MAX_OCCLUDERS = 14;  // hard ceiling on shadow casters per frame — nearest ones win
 const LIGHT_SHADOW_STEP_PX = 3;  // world px a projection may advance per step — smaller = smoother, more steps
 const LIGHT_SHADOW_MAX_STEPS = 34;
+const NPC_LIGHT_MAX_OCCLUDERS = 6;   // other people's candles: nearest few casters only
+const NPC_LIGHT_SHADOW_MAX_STEPS = 14;
 // Generous tile margin for the cheap reject below: big sprites (houses,
 // tall trees) are anchored several tiles below/right of where their art
 // actually starts, so a tight box would cull them while they're still
@@ -687,8 +766,18 @@ function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
     const maxCol = Math.ceil(maxX / TILE) + LIGHT_OCCLUDER_TILE_MARGIN;
     const minRow = Math.floor(minY / TILE) - LIGHT_OCCLUDER_TILE_MARGIN;
     const maxRow = Math.ceil(maxY / TILE) + LIGHT_OCCLUDER_TILE_MARGIN;
+    // Performance: look up only the tiles in reach of the light instead of
+    // walking every placed item on the map for every candle and lamp.
+    const span = (maxCol - minCol + 1) * (maxRow - minRow + 1);
     for (const layer of ALL_LAYERS) {
-      for (const [key, type] of layer) {
+      const entries = layer.size <= span ? layer : null;
+      const iter = entries ? entries.entries() : (function* () {
+        for (let r = minRow; r <= maxRow; r++) for (let c = minCol; c <= maxCol; c++) {
+          const k = c + "," + r, t = layer.get(k);
+          if (t !== undefined) yield [k, t];
+        }
+      })();
+      for (const [key, type] of iter) {
         const def = itemDefs[type];
         if (!def) continue;
         // Two ways in: anything solid blocks light by definition, and
@@ -702,6 +791,10 @@ function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
         // nothing looks wrong. The flowering bushes in assets/bushes/ are
         // deliberately left out, as asked.
         if (!def.collides && !def.castsLightShadow) continue;
+        // Per request: the mountain plateau tiles (top / inner / center /
+        // bottom mountain grass, `noLightShadow`, js/inventory.js) are the
+        // ground you walk on up there, not something standing in the light.
+        if (def.noLightShadow) continue;
         // Per request: nothing on layers 1 and 2 (dirt, the ground —
         // grass, water, port tiles) throws a shadow. The Water Crates
         // live on layer 2 by name but are real objects, so they keep one.
@@ -734,6 +827,14 @@ function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
         iconOpaqueNear(o.icon, worldCX - o.x, worldCY - o.y, 0)) out.splice(i, 1);
   }
 
+  // Farm animals in the light throw a shadow too (js/animals.js) — only
+  // for the lights that ask for them. Added after the drop above because
+  // their art isn't 1 art px = 1 world px; animalLightOccluders() does
+  // its own "light inside the animal" test.
+  if (opts && opts.withAnimals && player.scene !== "inside" && typeof animalLightOccluders === "function") {
+    for (const o of animalLightOccluders(minX, minY, maxX, maxY, worldCX, worldCY)) out.push(o);
+  }
+
   // Nearest-first, capped — a hard ceiling on how much work one frame can
   // ask for no matter how densely the player has built.
   if (out.length > maxOccluders) {
@@ -763,7 +864,14 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   const darkness = player.scene === "inside" ? getIndoorLighting().candle : getNightLightFactor();
   if (darkness <= 0.02) return;
 
-  const radius = size * PLAYER_GLOW_RADIUS_SCALE; // screen px
+  const screenRadius = size * PLAYER_GLOW_RADIUS_SCALE; // screen px
+  // Performance: the candle (its light AND its shadow mask) is built at the
+  // light buffer's own resolution (SCENE_LIGHT_SCALE — half) instead of full
+  // screen px. It ends up in that half-res buffer anyway, so nothing is
+  // lost, and the projection + blur work on a quarter of the pixels.
+  const Q = SCENE_LIGHT_SCALE;
+  const radius = screenRadius * Q; // canvas px
+  const zq = zoom * Q;             // world px -> canvas px
   const d = Math.ceil(radius * 2);
   if (d <= 0) return;
 
@@ -779,24 +887,41 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   //    from the light. Drawn source-over onto its own canvas so the
   //    overlapping copies simply union into one solid shape instead of
   //    stacking up unevenly.
-  const worldRadius = radius / zoom;
-  const occluders = collectLightOccluders(worldX, worldY, worldRadius);
+  const worldRadius = screenRadius / zoom;
+  // Performance: the player's own candle keeps full detail; everyone else's
+  // (Maria, the townsfolk) uses the nearest few shadow casters and fewer
+  // projection steps — they're small, soft and usually off to the side.
+  const isPlayerLight = worldX === player.x && worldY === player.y;
+  const occluders = collectLightOccluders(worldX, worldY, worldRadius,
+    { withAnimals: true, maxOccluders: isPlayerLight ? LIGHT_MAX_OCCLUDERS : NPC_LIGHT_MAX_OCCLUDERS });
+  const maxSteps = isPlayerLight ? LIGHT_SHADOW_MAX_STEPS : NPC_LIGHT_SHADOW_MAX_STEPS;
   let hasShadow = false;
+  // Performance: someone standing still (sitting, idle, Maria at work) with
+  // nothing moving around them gets the exact same candle as last frame —
+  // reuse it instead of re-projecting every shadow.
+  let ckey = Math.round(worldX * 2) + "," + Math.round(worldY * 2) + "|" + d + "|" + zoom;
+  for (const o of occluders) ckey += "|" + (o.icon ? (o.icon.lightSig || o.icon.src || "c") : "b") + Math.round(o.x) + "," + Math.round(o.y);
+  const cached = candleCache.get(ckey);
+  if (cached) {
+    candleCache.delete(ckey); candleCache.set(ckey, cached); // most recently used
+    addSceneLight(cached, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB);
+    return;
+  }
 
   if (occluders.length) {
     glowMaskCtx.setTransform(1, 0, 0, 1, 0, 0);
     glowMaskCtx.clearRect(0, 0, d, d);
     glowMaskCtx.fillStyle = "#000";
-    const far = worldRadius * 2; // past the glow's own edge — anything beyond is already dark
+    const far = worldRadius * 1.1; // just past the glow's own edge — anything beyond is already dark (performance: was 2x, twice the projection work for nothing visible)
 
     for (const o of occluders) {
       // The rect in canvas-local px at scale 1. Because the light sits at
       // the canvas center, projecting by `s` is just multiplying these by
       // `s` — the light-relative math collapses into a plain scale.
-      const bx = (o.x - worldX) * zoom;
-      const by = (o.y - worldY) * zoom;
-      const bw = o.w * zoom;
-      const bh = o.h * zoom;
+      const bx = (o.x - worldX) * zq;
+      const by = (o.y - worldY) * zq;
+      const bw = o.w * zq;
+      const bh = o.h * zq;
 
       // Nearest/farthest corner distances decide how far to project and
       // how finely to step, so a shadow neither falls short nor tears
@@ -815,7 +940,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
       const maxScale = Math.min(12, far / dMin);
       if (maxScale <= 1) continue;
       const steps = Math.max(3, Math.min(
-        LIGHT_SHADOW_MAX_STEPS,
+        maxSteps,
         Math.ceil(((maxScale - 1) * dMax) / LIGHT_SHADOW_STEP_PX),
       ));
 
@@ -847,7 +972,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   //    filtered separately.
   if (hasShadow) {
     glowCtx.globalCompositeOperation = "destination-out";
-    glowCtx.filter = "blur(2px)";
+    glowCtx.filter = "blur(1px)"; // 2px at full res
     glowCtx.drawImage(glowMaskCanvas, 0, 0);
     glowCtx.filter = "none";
     glowCtx.globalCompositeOperation = "source-over";
@@ -871,8 +996,16 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   //    night washes, where this candle used to land before them — so it's
   //    dimmed by hand to the same strength the washes used to leave it
   //    at (POST_GLOW_MATCH_CANDLE, the lamp's own figure for exactly this).
-  addSceneLight(glowCanvas, px - d / 2, py - d / 2, d, d, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB);
+  addSceneLight(glowCanvas, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB);
+  // keep a copy for next frame (see the cache lookup above)
+  const keep = document.createElement("canvas");
+  keep.width = d; keep.height = d;
+  keep.getContext("2d").drawImage(glowCanvas, 0, 0);
+  candleCache.set(ckey, keep);
+  if (candleCache.size > CANDLE_CACHE_MAX) candleCache.delete(candleCache.keys().next().value);
 }
+const CANDLE_CACHE_MAX = 24;
+const candleCache = new Map();
 
 // The player's own light — a thin wrapper around the shared
 // drawCharacterGlow() above, centred on the player.
@@ -1022,6 +1155,7 @@ function relightOccluders(feetY, isPlayer) {
         y: ((row + 1) * TILE - camY) * zoom - icon.height * zoom, w: icon.width * zoom, h: icon.height * zoom, alpha: 1 });
     }
     for (const o of citizenRelightOccluders(feetY)) out.push(o); // citizens in this room (js/citizens.js)
+    if (typeof mineRelightOccluders === "function") for (const o of mineRelightOccluders(feetY)) out.push(o); // cave mobs in front (js/mines.js)
     return out;
   }
   const nRow = Math.floor(feetY / TILE);
@@ -1031,7 +1165,7 @@ function relightOccluders(feetY, isPlayer) {
     const comma = key.indexOf(",");
     const col = +key.slice(0, comma), row = +key.slice(comma + 1);
     if (row < nRow - 2 || row > nRow + 14) return; // only things further down the screen can be in front (-2: a crate's band sits above its own tile)
-    if (itemSortY(type, col, row) <= feetY) return;
+    if (itemSortY(type, col, row) <= feetY + (/^(bush|decoFlower)/.test(type) ? CHARACTER_VISIBLE_FEET_EXTRA : 0)) return; // bushes: against the visible feet (drawableOrder())
     if (seated && col === player.sitAnchorCol && row === player.sitAnchorRow) return;
     const swap = nightSwapFor(type);
     const showNight = swap && swap.night > 0.5;
@@ -1043,7 +1177,7 @@ function relightOccluders(feetY, isPlayer) {
       // Same see-through check drawObjectLayerItem() uses for this frame.
       const minX = camX + r.x / zoom, minY = camY + r.y / zoom;
       if (shouldFadeForOcclusion(type, minX, minX + icon.width, minY, minY + icon.height,
-        itemSortY(type, col, row), showNight ? (def.nightMaskType || type) : type)) alpha = 1 - OBJECT_FADE_ALPHA;
+        itemSortY(type, col, row), showNight ? (def.nightMaskType || type) : type, col, row)) alpha = 1 - OBJECT_FADE_ALPHA;
     }
     out.push({ icon, x: r.x, y: r.y, w: r.w, h: r.h, alpha });
   });
@@ -1051,24 +1185,41 @@ function relightOccluders(feetY, isPlayer) {
   for (const layer of [groundLayer, groundOverlayLayer, upperLayer]) {
     layer.forEach((type, key) => {
       const def = itemDefs[type];
-      if (!def || !def.depthBand) return;
+      const flower = layer === groundOverlayLayer && /^decoFlower/.test(type);
+      if (!def || (!def.depthBand && !flower)) return;
       const [col, row] = key.split(",").map(Number);
-      if (itemSortY(type, col, row) <= feetY) return;
+      if (flower ? (row + 1) * TILE <= feetY + CHARACTER_VISIBLE_FEET_EXTRA : itemSortY(type, col, row) <= feetY) return;
       const icon = def.icon;
       if (!icon || !icon.width) return;
       out.push({ icon, x: ((col + 0.5) * TILE - camX) * zoom - icon.width * zoom / 2,
         y: ((row + 1) * TILE - camY) * zoom - icon.height * zoom, w: icon.width * zoom, h: icon.height * zoom, alpha: 1 });
     });
   }
+  // A Port Bridge covers whoever's feet are inside its span (under it) —
+  // same rule as renderWorldObjectsSorted(); never the player up on it.
+  if (!(isPlayer && player.elevated)) {
+    for (const comp of bridgeComponentsThisFrame) {
+      if (feetY >= comp.bottom) continue;
+      for (const [col, row, type] of comp.tiles) {
+        const icon = itemDefs[type] && itemDefs[type].icon;
+        if (!icon || !icon.width) continue;
+        out.push({ icon, x: (col * TILE - camX) * zoom, y: (row * TILE - camY) * zoom, w: TILE * zoom, h: TILE * zoom, alpha: 1 });
+      }
+    }
+  }
   // Wandering citizens standing in front (js/citizens.js).
   for (const o of citizenRelightOccluders(feetY)) out.push(o);
+  // Farm animals standing in front (js/animals.js).
+  for (const o of animalRelightOccluders(feetY)) out.push(o);
   return out;
 }
 
 function drawMaskedRelight(drawFn, px, py, size, feetY, strength, isPlayer) {
   // Room for the sprite plus whatever's held above the head.
-  const left = Math.floor(px - size), top = Math.floor(py - size * 1.5);
-  const w = Math.ceil(size * 2), h = Math.ceil(size * 2.5);
+  // Performance: just the sprite plus room above it for a held item — this
+  // used to be a 2 x 2.5 sprite-sized area (5x the sprite) per relight.
+  const left = Math.floor(px - size * 0.75), top = Math.floor(py - size * 1.25);
+  const w = Math.ceil(size * 1.5), h = Math.ceil(size * 2);
   if (left + w < 0 || top + h < 0 || left > view.width || top > view.height) return;
   if (relightCanvas.width !== w || relightCanvas.height !== h) {
     relightCanvas.width = w;
@@ -1150,9 +1301,7 @@ function drawNPC(px, py, scale) {
   // Picks idle vs walk based on npc.isWalking (set once per frame in
   // updateNPC(), js/npc.js, from the in-game clock — not recomputed
   // here), then facing within that pair.
-  const rightSheet = npc.isWalking ? assets.npcWalkRight : assets.npcIdleRight;
-  const leftSheet = npc.isWalking ? assets.npcWalkLeft : assets.npcIdleLeft;
-  const sheet = npc.facing === "left" ? leftSheet : rightSheet;
+  const sheet = currentNpcSheet();
   const sx = npc.frame * FRAME_SIZE;
   const size = NPC_DRAW_SIZE * scale;
   const feetY = py - size / 2 + size * SPRITE_FEET_FRACTION;
@@ -1255,9 +1404,12 @@ function drawLampNightRelight() {
     const r = objectArtRect(icon, root, col, row, camX, camY);
     if (r.x + r.w < 0 || r.y + r.h < 0 || r.x > view.width || r.y > view.height) continue;
     const rr = def.lightGlow.relightRect;
-    ctx.globalAlpha = night * strength * LAMP_RELIGHT_STRENGTH;
-    ctx.drawImage(icon, rr.x, rr.y, rr.w, rr.h,
-      r.x + rr.x * zoom, r.y + rr.y * zoom, rr.w * zoom, rr.h * zoom);
+    const lx = r.x + rr.x * zoom, ly = r.y + rr.y * zoom, lw = rr.w * zoom, lh = rr.h * zoom;
+    // The lit lantern is cut out wherever something in front of the post
+    // (a tree) covers it — same masked redraw the characters' relight uses.
+    const size = Math.max(lw, lh);
+    drawMaskedRelight((g) => g.drawImage(icon, rr.x, rr.y, rr.w, rr.h, lx, ly, lw, lh),
+      lx + lw / 2, ly + lh / 2, size, itemSortY(type, col, row), night * strength * LAMP_RELIGHT_STRENGTH, false);
   }
   ctx.restore();
 }
@@ -1286,11 +1438,13 @@ function drawCharacterNightRelights() {
     { sortY: npcInFront ? playerSort - 0.001 : playerSort + 0.001, draw: drawPlayerNightRelight },
     { sortY: playerSort, draw: drawNpcNightRelight }, // her place relative to the player, worked out above
   ];
-  if (player.scene === "outside" && npc.scene === "outside") {
+  if (player.scene === "outside" && npc.scene === "outside" && currentWorld === "main") {
     order[1].sortY = npc.y + (SPRITE_FEET_FRACTION - 0.5) * NPC_DRAW_SIZE;
     order[0].sortY = playerSort;
   }
   for (const c of citizenRelightList()) order.push(c);
+  for (const a of animalRelightList()) order.push(a); // animals standing in a light (js/animals.js)
+  if (typeof mineRelightList === "function") for (const m of mineRelightList()) order.push(m); // cave mobs in your light (js/mines.js)
   order.sort((a, b) => a.sortY - b.sortY);
   for (const o of order) o.draw();
 }
@@ -1359,7 +1513,7 @@ function drawFlatItemArt(type, col, row) {
 function drawGroundItemAt(type, col, row) {
   if (itemDefs[type].artRoot || itemDefs[type].litWindow) { drawFlatItemArt(type, col, row); return; }
   // While it snows a grass tile draws as snow in the same shape (js/snowground.js).
-  const icon = snowGroundIconFor(type, col, row) || itemDefs[type].icon;
+  const icon = snowGroundIconFor(type, col, row) || (typeof snowTreeIcon === "function" && snowTreeIcon(type)) || itemDefs[type].icon; // + winter mushrooms / flowers / leaves
   // Draw at native pixel size (1 source px = 1 world px, same convention
   // as every other tile-sheet asset in this project), bottom-center
   // anchored to the tile's bottom-center — like an object standing on
@@ -1514,11 +1668,17 @@ function isCharacterPixelOpaque(body, lx, ly) {
 // opaque pixel of the object? Walks the character's (small, cropped)
 // frame pixel by pixel, maps each one's center into world space, then
 // into the object's icon space (1 icon px = 1 world px).
+// Per request ("tyaka lang mag opacity kapag na reach yung ulo"): only the
+// HEAD counts — sprite rows above PLAYER_HEAD_BOTTOM_SPRITE (the chin, row
+// 31 of the 64px frame, measured off the idle/walk sheets). A fence, a
+// stone, a bush or anything else that only covers the legs/body leaves the
+// face showing, so it stays solid; it fades once its pixels reach the head.
+const PLAYER_HEAD_BOTTOM_SPRITE = 32;
 function characterTouchesObjectPixels(body, objMask, objMinX, objMinY) {
   const w = body.mask ? body.mask.w : PLAYER_BODY_FALLBACK.w;
-  const h = body.mask ? body.mask.h : PLAYER_BODY_FALLBACK.h;
   const ox = body.mask ? body.mask.x : PLAYER_BODY_FALLBACK.x;
   const oy = body.mask ? body.mask.y : PLAYER_BODY_FALLBACK.y;
+  const h = Math.min(body.mask ? body.mask.h : PLAYER_BODY_FALLBACK.h, PLAYER_HEAD_BOTTOM_SPRITE - oy);
   for (let ly = 0; ly < h; ly++) {
     const wy = body.frameTop + (oy + ly + 0.5) * body.scale;
     const py = Math.floor(wy - objMinY);
@@ -1590,8 +1750,36 @@ function characterFeetBehindObject(body, objMask, objMinX, objMinY) {
 // differently-shaped sprite at night: the fade has to match whichever
 // art is actually on screen, or the player would vanish behind pixels
 // that aren't there (or show through ones that are).
-function shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, objSortY, maskType) {
-  if (itemDefs[type].noOcclusionFade) return false;
+// The tree the player is chopping never goes see-through — per request
+// ("kapag nag puputol ng puno nagkakaroon ng opacity dapat hindi"). Only
+// that one tree, only while chopping it: mid-swing, or standing still
+// within CHOP_KEEP_SOLID_MS of the last swing. Walk off and the normal
+// occlusion fade applies again; every other tree is untouched.
+function isTreeBeingChopped(col, row) {
+  if (col == null) return false;
+  const t = player.harvestTarget;
+  const c = player.chopTree;
+  if (player.action && t && t.col === col && t.row === row) {
+    if (c && c.col === col && c.row === row) c.until = performance.now() + CHOP_KEEP_SOLID_MS; // count from the end of the swing
+    return true;
+  }
+  if (!c || c.col !== col || c.row !== row) return false;
+  if (performance.now() > c.until || Math.abs(player.x - c.x) > 1 || Math.abs(player.y - c.y) > 1) {
+    player.chopTree = null;
+    return false;
+  }
+  return true;
+}
+
+function shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, objSortY, maskType, col, row) {
+  const fdef = itemDefs[type];
+  if (fdef.noOcclusionFade) return false;
+  // Bushes never go see-through — per request ("yung bushes wag mo na
+  // lagyan ng opacity kapag dumaan yung character or mga npcs").
+  if (/^bush/.test(type)) return false;
+  if (isTreeBeingChopped(col, row)) return false;
+  // Chairs, benches and stools never fade (per request, "mga upuan wag lang yan ng opacity").
+  if (fdef.sittable || /chair|bench|stool/i.test(type)) return false;
   // Anything sittable stays fully solid while it's being sat on — per
   // request ("alisin mo lang opacity ng benchv at benchh kapag naka
   // sit"). The benches already carry `noOcclusionFade` so they can't
@@ -1605,8 +1793,12 @@ function shouldFadeForOcclusion(type, objMinX, objMaxX, objMinY, objMaxY, objSor
 
   const body = getPlayerOcclusionBody();
   if (body.maxX <= objMinX || body.minX >= objMaxX || body.maxY <= objMinY || body.minY >= objMaxY) return false;
+  // Nothing of it reaches up to the head — stays solid (cheap check before any pixel work).
+  const headBottomY = body.frameTop + PLAYER_HEAD_BOTTOM_SPRITE * body.scale;
+  if (objMinY >= headBottomY) return false;
 
-  if (itemDefs[type].fadeBoundingBoxOnly) return true;
+  // (`fadeBoundingBoxOnly` stones used to fade on any bounding-box overlap;
+  // now they follow the same head-pixel rule as everything else.)
 
   const objMask = getObjectMask(maskType || type);
   if (itemDefs[type].fadeOnlyWhenBehind && !characterFeetBehindObject(body, objMask, objMinX, objMinY)) return false;
@@ -1663,7 +1855,8 @@ function nightSwapFor(type) {
   if (!def.nightIcon || !def.nightIcon.width) return null;
   const night = getNightLightFactor();
   if (night <= 0.01) return null; // full daylight — nothing to swap in
-  return { icon: def.nightIcon, night, root: def.nightArtRoot || def.artRoot };
+  const nightIcon = (typeof isSnowGroundActive === "function" && isSnowGroundActive() && snowArtFor(def.nightIcon)) || def.nightIcon; // snowy lit lamp
+  return { icon: nightIcon, night, root: def.nightArtRoot || def.artRoot };
 }
 
 // A bush swaying / a tree shaking (js/plantfx.js) — drawn through a
@@ -1671,20 +1864,23 @@ function nightSwapFor(type) {
 function drawObjectLayerItem(type, col, row) {
   if (typeof applyPlantFxTransform === "function") {
     ctx.save();
-    const moved = applyPlantFxTransform(col, row);
+    const moved = applyPlantFxTransform(col, row, type);
     if (moved) {
       drawObjectLayerItemRaw(type, col, row);
+      if (typeof drawTreeCrack === "function") drawTreeCrack(type, col, row); // notch + cracks while being chopped (js/plantfx.js)
       ctx.restore();
       return;
     }
     ctx.restore();
   }
   drawObjectLayerItemRaw(type, col, row);
+  if (typeof drawTreeCrack === "function") drawTreeCrack(type, col, row);
 }
 
 function drawObjectLayerItemRaw(type, col, row) {
   const def = itemDefs[type];
-  const icon = def.icon;
+  // Snowing: trees wear a snowy copy of their art (snowTreeIcon(), js/snowground.js) — same size, so everything below lines up.
+  const icon = (typeof snowTreeIcon === "function" && snowTreeIcon(type)) || def.icon;
   const tileBottomY = itemSortY(type, col, row); // this item's Y-sort key — the band centre for a depthBand crate
   const day = objectArtRect(icon, def.artRoot, col, row, camX, camY);
   const swap = nightSwapFor(type);
@@ -1703,7 +1899,7 @@ function drawObjectLayerItemRaw(type, col, row) {
   const objMinY = camY + shownRect.y / zoom;
   const shouldFade = shouldFadeForOcclusion(
     type, objMinX, objMinX + shown.width, objMinY, objMinY + shown.height,
-    tileBottomY, maskType);
+    tileBottomY, maskType, col, row);
   const baseAlpha = shouldFade ? OBJECT_FADE_ALPHA : 1;
 
   if (swap) {
@@ -1902,9 +2098,16 @@ function buildShadowedPostGlow(entry, wx, wy, occluders) {
 // changed. The signature is every nearby occluder's sprite + position.
 function getShadowedPostGlow(key, wx, wy) {
   const occluders = collectLightOccluders(wx, wy, POST_GLOW_WORLD_SIZE / 2,
+    // No animals here (performance): a lamp's shadows are cached and only
+    // rebuilt when something around it changes — an animal idling in the
+    // pool changed it every frame (~9 ms rebuild each). Animals still throw
+    // shadows in the characters' candles, and are cut out of lamp light
+    // when they stand in front of it.
     { excludeKey: key, maxOccluders: POST_SHADOW_MAX_OCCLUDERS });
   let sig = wx + "," + wy + "|" + POST_GLOW_WORLD_SIZE;
-  for (const o of occluders) sig += "|" + (o.icon ? o.icon.src : "box") + "@" + o.x + "," + o.y;
+  // Moving things (animals) are rounded to 2 world px, so a lamp's shadows
+  // are rebuilt a few times a second as one walks by, not every frame.
+  for (const o of occluders) sig += "|" + (o.icon ? (o.icon.src || o.icon.lightSig || "cv") : "box") + "@" + (o.icon && o.icon.lightSig ? Math.round(o.x / 2) + "," + Math.round(o.y / 2) : o.x + "," + o.y);
   let entry = postShadowCache.get(key);
   if (!entry) { entry = { sig: null, canvas: null, mask: null }; postShadowCache.set(key, entry); }
   if (entry.sig !== sig) {
@@ -1913,6 +2116,58 @@ function getShadowedPostGlow(key, wx, wy) {
   }
   entry.seen = true;
   return entry.canvas;
+}
+
+/* Cave fog — per request ("yung ibang place na wala yung character is naka
+   black para di kita ... medyo diliman pa yung ibang paligid ... wag
+   masyadong dark parang sillouhette lang"): round the player the cave is as
+   lit as its lamps make it; a little further out it fades to a dark
+   silhouette (shapes still readable), and far away it's black. Outside the
+   cave's own picture is black too. Damage numbers / drops flying to you are
+   drawn after this (drawMineOverlay()), so they stay readable. */
+const CAVE_FOG_CLEAR = 46, CAVE_FOG_SILHOUETTE = 92, CAVE_FOG_DARK = 140, CAVE_FOG_BLACK = 185; // world px from the player
+function drawCaveFog(room, vw, vh) {
+  const px = (player.x - camX) * zoom, py = (player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE - 8 - camY) * zoom;
+  const R = CAVE_FOG_BLACK * zoom;
+  const g = ctx.createRadialGradient(px, py, CAVE_FOG_CLEAR * zoom, px, py, R);
+  const k = (d) => (d - CAVE_FOG_CLEAR) / (CAVE_FOG_BLACK - CAVE_FOG_CLEAR);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(k(CAVE_FOG_SILHOUETTE), "rgba(0,0,0,0.5)");
+  g.addColorStop(k(CAVE_FOG_DARK), "rgba(0,0,0,0.82)");
+  g.addColorStop(1, "rgba(0,0,0,1)");
+  ctx.save();
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, vw, vh);
+  // outside the cave's picture: plain black
+  ctx.fillStyle = "#000";
+  const x0 = (0 - camX) * zoom, y0 = (0 - camY) * zoom, x1 = (room.width - camX) * zoom, y1 = (room.height - camY) * zoom;
+  if (x0 > 0) ctx.fillRect(0, 0, x0, vh);
+  if (x1 < vw) ctx.fillRect(x1, 0, vw - x1, vh);
+  if (y0 > 0) ctx.fillRect(0, 0, vw, y0);
+  if (y1 < vh) ctx.fillRect(0, y1, vw, vh - y1);
+  ctx.restore();
+}
+
+// Indoors (rooms, caves) — per request ("lagyan mo nga ng circle light din yan
+// ... yung mga postlight sa cave dapat umiilaw din mapa araw or gabi"): every
+// decor piece with a `lightGlow` (the lit post lights, the Wall Candles)
+// adds its circle to the shared light buffer, as strong as the room's own
+// darkness calls for (getIndoorLighting().candle — full, always, in a cave).
+function drawIndoorLampGlows(room, strength) {
+  if (!room || !room.decor || strength <= 0.01) return;
+  if (!postGlowReady) buildPostGlowSprite();
+  for (const [key, type] of room.decor) {
+    const def = itemDefs[type];
+    if (!def || !def.lightGlow) continue;
+    const comma = key.indexOf(",");
+    const col = +key.slice(0, comma), row = +key.slice(comma + 1);
+    const size = POST_GLOW_WORLD_SIZE * (def.lightGlow.small ? 0.5 : 0.85) * zoom;
+    const wx = (col + 0.5) * TILE + def.lightGlow.offsetX;
+    const wy = (row + 1) * TILE + (def.lightGlow.groundOffsetY !== undefined ? def.lightGlow.groundOffsetY : def.lightGlow.offsetY);
+    const sx = (wx - camX) * zoom - size / 2, sy = (wy - camY) * zoom - size / 2;
+    if (sx + size < 0 || sy + size < 0 || sx > view.width || sy > view.height) continue;
+    addSceneLight(postGlowCanvas, sx, sy, size, size, strength * POST_GLOW_MATCH_CANDLE * (def.lightGlow.small ? 0.9 : 1));
+  }
 }
 
 function drawPostLightGlows(camX, camY) {
@@ -1940,7 +2195,12 @@ function drawPostLightGlows(camX, camY) {
     const sx = (wx - camX) * zoom - size / 2;
     const sy = (wy - camY) * zoom - size / 2;
     if (sx + size < 0 || sy + size < 0 || sx > view.width || sy > view.height) continue; // off-screen
-    addSceneLight(getShadowedPostGlow(key, wx, wy), sx, sy, size, size, strength); // merged with every other light, not stacked
+    // Per request: a lamp BEHIND a tree (or house...) must not shine over
+    // it — everything that sorts in front of the lamp is cut out of its
+    // light. A lamp in front of the tree still lights it, as before.
+    const cut = relightOccluders(itemSortY(type, col, row), false).filter((o) =>
+      o.x < sx + size && o.x + o.w > sx && o.y < sy + size && o.y + o.h > sy);
+    addSceneLight(getShadowedPostGlow(key, wx, wy), sx, sy, size, size, strength, undefined, cut); // merged with every other light, not stacked
   }
 
   // Drop cached lights for lamps that were removed or are off-screen, so
@@ -1955,8 +2215,8 @@ function drawPostLightGlows(camX, camY) {
 // just its own separate map so placing Dirt/Water never erases a Ground/
 // Port tile on the same spot (see layerForType() in inventory.js).
 function drawDirtLayer() {
-  dirtLayer.forEach((type, key) => {
-    const [col, row] = key.split(",").map(Number);
+  forEachTileInView(dirtLayer, (type, col, row) => {
+    if (type === "dirtRake" && typeof drawDirtRakeAuto === "function" && drawDirtRakeAuto(col, row)) return; // auto-tiled soil (js/farm.js)
     drawGroundItemAt(type, col, row);
   });
 }
@@ -1972,41 +2232,135 @@ function drawDirtLayer() {
 // something the character walks around — they're under your feet, on a
 // table, on a wall, or overhead. Same bottom-center anchoring as every
 // other placed item (drawGroundItemAt()).
+/* --- Performance: walk only the tiles on screen ----------------------
+   The flat layers (dirt, ground, ground overlay, upper, wall, ceiling)
+   used to be walked in full every frame — every placed tile on the whole
+   map was key-split and drawn, on or off screen. A big world (thousands
+   of tiles) paid for all of them. Now, once a layer holds more tiles than
+   the view can show, only the window around the view is looked up, row by
+   row. Margins: art is bottom-centre anchored on its tile, so it can reach
+   a few tiles sideways and up — not down. */
+const FLAT_VIEW_PAD_COLS = 4, FLAT_VIEW_PAD_ROWS_ABOVE = 1, FLAT_VIEW_PAD_ROWS_BELOW = 8;
+function forEachTileInView(layer, fn) {
+  const c0 = Math.floor(camX / TILE) - FLAT_VIEW_PAD_COLS;
+  const c1 = Math.ceil((camX + view.width / zoom) / TILE) + FLAT_VIEW_PAD_COLS;
+  const r0 = Math.floor(camY / TILE) - FLAT_VIEW_PAD_ROWS_ABOVE;
+  const r1 = Math.ceil((camY + view.height / zoom) / TILE) + FLAT_VIEW_PAD_ROWS_BELOW;
+  if (layer.size <= (c1 - c0 + 1) * (r1 - r0 + 1)) {
+    layer.forEach((type, key) => {
+      const comma = key.indexOf(",");
+      const col = +key.slice(0, comma), row = +key.slice(comma + 1);
+      if (col < c0 || col > c1 || row < r0 || row > r1) return;
+      fn(type, col, row);
+    });
+    return;
+  }
+  for (let row = r0; row <= r1; row++) {
+    for (let col = c0; col <= c1; col++) {
+      const type = layer.get(col + "," + row);
+      if (type !== undefined) fn(type, col, row);
+    }
+  }
+}
+
+// Per request: a cliff wall right beside dirt stairs (a stairway cut into
+// the cliff) gets a dark rock-coloured backing, so the gap its rounded side
+// leaves next to the stairs reads as shadowed rock instead of a hole to the
+// ground. The cliff's outer sides are left as they are.
+const MOUNTAIN_INNER_BACKING = "#47281f"; // the wall art's darkest rock tone
+function drawMountainInnerBacking(type, col, row) {
+  if (typeof isMountainWall !== "function" || !isMountainWall(type)) return;
+  if (!mountainStairsAt(col - 1, row) && !mountainStairsAt(col + 1, row)) return;
+  const x = Math.round((col * TILE - camX) * zoom), y = Math.round((row * TILE - camY) * zoom);
+  const size = Math.ceil(TILE * zoom);
+  ctx.fillStyle = MOUNTAIN_INNER_BACKING;
+  ctx.fillRect(x, y, size, size);
+}
+
+/* ---- tree shadows ------------------------------------------------------
+   Per request: the shadow sheet (assets/shadows/Shadows.png) cut into one
+   file per shadow, each tree drawn over the one that fits it — the leafy
+   canopies over the canopy-shaped ones, bare trees / stumps / trunks over
+   the ovals. Only by day: they fade out with the light at dusk
+   (getDayFactor()) and aren't drawn at night. */
+const TREE_SHADOW_FILES = ["ellipse_big", "ellipse_medium", "ellipse_small_a", "ellipse_small_b", "ellipse_tiny",
+  "blob_a", "blob_b", "canopy_big", "canopy_medium", "canopy_small"];
+const treeShadowArt = {};
+for (const n of TREE_SHADOW_FILES) { treeShadowArt[n] = new Image(); treeShadowArt[n].src = "assets/shadows/" + n + ".png"; }
+const TREE_SHADOW_FOR = {
+  treeBigOrange: "canopy_big",
+  treeMediumGreen: "canopy_medium", treeMediumLightGreen: "canopy_medium", treeMediumRed: "canopy_medium", treeMediumYellow: "canopy_medium",
+  treeThinGreen: "canopy_small", treeThinOrange: "canopy_small", treeTinyGreen: "ellipse_small_b",
+  treeThinNoLeaves1: "ellipse_small_a", treeThinNoLeaves2: "ellipse_small_a",
+  treeBigCutStump: "ellipse_small_a", treeThinCutStump: "ellipse_tiny", treeTinyCutStump: "ellipse_tiny",
+  treeMediumGreenTrunk: "blob_a", treeMediumRedYellowTrunk: "blob_a",
+};
+function drawTreeGroundShadows() {
+  const day = typeof getDayFactor === "function" ? getDayFactor() : 1;
+  if (day <= 0.03) return;
+  ctx.save();
+  ctx.globalAlpha = day;
+  ctx.imageSmoothingEnabled = false;
+  forEachTileInView(objectLayer, (type, col, row) => {
+    if (!/^tree/.test(type)) return;
+    const art = treeShadowArt[TREE_SHADOW_FOR[type] || "ellipse_small_a"];
+    if (!art || !art.width) return;
+    // moves with the tree's own animation (wind lean, chop shake — js/plantfx.js)
+    const dx = typeof plantFxShadowShift === "function" ? plantFxShadowShift(col, row, type) : 0;
+    const cx = (col + 0.5) * TILE + dx, cy = (row + 1) * TILE - 3; // around the foot of the trunk
+    ctx.drawImage(art, (cx - art.width / 2 - camX) * zoom, Math.round((cy - art.height / 2 - camY) * zoom), art.width * zoom, art.height * zoom);
+  });
+  // a tree being felled: its shadow swings out the way it falls, stretches
+  // along the ground as it lands, and fades with it
+  if (typeof fallingTrees !== "undefined") {
+    for (const f of fallingTrees) {
+      const art = treeShadowArt[TREE_SHADOW_FOR[f.type] || "ellipse_small_a"];
+      if (!art || !art.width) continue;
+      const fadeT = f.t - FELL_TIP_SECONDS - FELL_SETTLE_SECONDS;
+      const fade = fadeT > 0 ? Math.max(0, 1 - fadeT / FELL_FADE_SECONDS) : 1;
+      if (fade <= 0) continue;
+      const p = Math.min(1, Math.abs(Math.sin(fallAngle(f))));
+      const w = art.width * (1 + 0.6 * p), h = art.height * (1 - 0.25 * p);
+      const cx = f.pivotX + f.dir * f.srcH * 0.5 * p, cy = f.pivotY - 3;
+      ctx.globalAlpha = day * fade;
+      ctx.drawImage(art, (cx - w / 2 - camX) * zoom, (cy - h / 2 - camY) * zoom, w * zoom, h * zoom);
+    }
+  }
+  ctx.restore();
+}
+
 function drawGroundOverlay() {
-  groundOverlayLayer.forEach((type, key) => {
+  forEachTileInView(groundOverlayLayer, (type, col, row) => {
     if (itemDefs[type].depthBand) return; // mushrooms — Y-sorted with the player instead (renderWorldObjectsSorted())
-    const [col, row] = key.split(",").map(Number);
+    if (/^decoFlower/.test(type)) return; // the tall flowers — Y-sorted too (renderWorldObjectsSorted())
+    drawMountainInnerBacking(type, col, row);
     // snowy mountain-wall bottoms while it snows (js/snowground.js) — drawing only
     drawGroundItemAt(snowSwapMountainType(type), col, row);
   });
 }
 
 function drawUpperLayer() {
-  upperLayer.forEach((type, key) => {
+  forEachTileInView(upperLayer, (type, col, row) => {
     if (itemDefs[type].depthBand) return; // crates — Y-sorted with the player instead (renderWorldObjectsSorted())
-    const [col, row] = key.split(",").map(Number);
     drawGroundItemAt(type, col, row);
   });
 }
 
 function drawWallLayer() {
-  wallLayer.forEach((type, key) => {
-    const [col, row] = key.split(",").map(Number);
+  forEachTileInView(wallLayer, (type, col, row) => {
     drawGroundItemAt(type, col, row);
   });
 }
 
 function drawCeilingLayer() {
-  ceilingLayer.forEach((type, key) => {
-    const [col, row] = key.split(",").map(Number);
+  forEachTileInView(ceilingLayer, (type, col, row) => {
     drawGroundItemAt(type, col, row);
   });
 }
 
 function drawFlatGroundItems() {
-  groundLayer.forEach((type, key) => {
+  forEachTileInView(groundLayer, (type, col, row) => {
     if (itemDefs[type].depthBand) return; // Water Crates — Y-sorted with the player instead (renderWorldObjectsSorted())
-    const [col, row] = key.split(",").map(Number);
     drawGroundItemAt(type, col, row);
   });
 }
@@ -2028,7 +2382,8 @@ function drawWildgrassWhole(type, col, row) {
   const h = icon.height * zoom;
 
   const sway = wildgrassSway.get(tileKey(col, row));
-  const angle = sway ? sway.angle : 0; // -1..1ish, see wildgrass.js
+  const angle = (sway ? sway.angle : 0) // -1..1ish, see wildgrass.js
+    + (typeof windGrassAngle === "function" ? windGrassAngle(col, row) : 0); // gentle wind (js/plantfx.js)
   // NOTE: skew is negated relative to `angle` — with this shear matrix,
   // a POSITIVE c term shifts a point with NEGATIVE local y (the top of
   // the blade, above the root) to a SMALLER x (left). Since `angle`'s
@@ -2203,14 +2558,18 @@ function renderWorldObjectsSorted() {
     // Sitting should only change where the bench is relative to the
     // PLAYER; everything else keeps sorting against it as usual.
     const sittingOnThis = player.sitting && col === player.sitAnchorCol && row === player.sitAnchorRow;
-    if (itemDefs[type].splitDepthTopRows && !sittingOnThis) {
+    const citizenOnThis = !sittingOnThis && typeof citizenSittingOn === "function" ? citizenSittingOn(col, row) : null; // js/citizens.js
+    if (itemDefs[type].splitDepthTopRows && !sittingOnThis && !citizenOnThis) {
       pushSplitDepthDrawables(drawables, type, col, row, () => drawObjectLayerItem(type, col, row));
       return;
     }
     const sortY = itemDefs[type].alwaysBehindPlayer
       ? -Infinity
-      : (sittingOnThis ? seatedPlayerSortY - 0.001 : itemSortY(type, col, row));
-    drawables.push({ sortY, draw: () => drawObjectLayerItem(type, col, row) });
+      : (sittingOnThis ? seatedPlayerSortY - 0.001
+        : citizenOnThis ? citizenSortY(citizenOnThis) - 0.001
+        : itemSortY(type, col, row));
+    // bushes compare against characters' visible feet (drawableOrder())
+    drawables.push({ sortY, bush: /^bush/.test(type) && sortY !== -Infinity, draw: () => drawObjectLayerItem(type, col, row) });
   });
 
   // `depthBand` items on the overlay layer (mushrooms), layer 4 (the
@@ -2221,10 +2580,25 @@ function renderWorldObjectsSorted() {
   // is drawn over them.
   for (const layer of [groundLayer, groundOverlayLayer, upperLayer]) {
     layer.forEach((type, key) => {
-      if (!itemDefs[type].depthBand) return;
+      const flower = layer === groundOverlayLayer && /^decoFlower/.test(type);
+      if (!itemDefs[type].depthBand && !flower) return;
       const [col, row] = key.split(",").map(Number);
-      drawables.push({ sortY: itemSortY(type, col, row), draw: () => drawGroundItemAt(type, col, row) });
+      // The tall flowers (per request): over a character whose shoes are
+      // above their base, under one whose shoes have passed it — the same
+      // visible-feet rule as the bushes (drawableOrder()).
+      drawables.push({ sortY: flower ? (row + 1) * TILE : itemSortY(type, col, row), bush: flower, draw: () => drawGroundItemAt(type, col, row) });
     });
+  }
+
+  // Port Bridge (bridgeLayer): each connected bridge is ONE drawable,
+  // Y-sorted on its bottom edge like a big object. So a tree or anyone
+  // standing below the bridge draws over it (no more bridge on top of the
+  // trees, per request), while anything whose feet are inside the bridge's
+  // span — under it — is covered by it. The player, while up on it
+  // (player.elevated), is sorted just past the bridge instead (below).
+  bridgeComponentsThisFrame = computeBridgeComponents();
+  for (const comp of bridgeComponentsThisFrame) {
+    drawables.push({ sortY: comp.bottom, draw: () => drawBridgeComponent(comp) });
   }
 
   const playerTile = getPlayerTile();
@@ -2232,7 +2606,14 @@ function renderWorldObjectsSorted() {
   wildgrassLayer.forEach((type, key) => {
     if (key === playerDecorKey) return; // handled specially — see drawPlayerStandingDecor()
     const [col, row] = key.split(",").map(Number);
-    drawables.push({ sortY: (row + 1) * TILE, draw: () => drawWildgrassWhole(type, col, row) });
+    // Pebbles / XXS Stone lie flat on the ground: per request ("yung mga
+    // pebble na stone is dapat naka overlap yung character sa pebble laging
+    // behind") they sort before everything, so the player and every NPC /
+    // animal always draw on top of them, from any side.
+    const sortY = itemDefs[type].pebble ? -Infinity : (row + 1) * TILE;
+    // The tall flowers overlap like the bushes (drawableOrder()): over a
+    // character whose shoes are above their base, under one whose shoes have passed it.
+    drawables.push({ sortY, bush: /^decoFlower/.test(type), draw: () => drawWildgrassWhole(type, col, row) });
   });
 
   if (player.sleeping) {
@@ -2243,7 +2624,9 @@ function renderWorldObjectsSorted() {
   } else {
     const playerFeetWorldY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
     drawables.push({
-      sortY: playerFeetWorldY,
+      sortY: elevatedPlayerSortY(playerFeetWorldY),
+      feetY: player.elevated ? undefined : playerFeetWorldY,
+      character: true,
       draw: () => drawPlayer((player.x - camX) * zoom, (player.y - camY) * zoom, zoom),
     });
   }
@@ -2253,10 +2636,11 @@ function renderWorldObjectsSorted() {
   // drawing on top or underneath regardless of position. Skipped entirely
   // once she's gone indoors for the night (her sleep schedule, npc.js) —
   // she's drawn inside the room instead, by renderInteriorScene().
-  if (npc.scene === "outside") {
+  if (npc.scene === "outside" && currentWorld === "main") {
     const npcFeetWorldY = npc.y + (SPRITE_FEET_FRACTION - 0.5) * NPC_DRAW_SIZE;
     drawables.push({
       sortY: npcFeetWorldY,
+      character: true,
       draw: () => drawNPC((npc.x - camX) * zoom, (npc.y - camY) * zoom, zoom),
     });
   }
@@ -2266,9 +2650,100 @@ function renderWorldObjectsSorted() {
   // Citizens B-E wandering the map (js/citizens.js) — sorted on their
   // 25%-up overlap line, see citizenSortY().
   for (const d of citizenDrawables()) drawables.push(d);
+  // Farm animals wandering the map (js/animals.js) — plain feet Y-sort.
+  for (const d of animalDrawables()) drawables.push(d);
+  if (typeof farmDrawables === "function") for (const d of farmDrawables()) drawables.push(d); // crops + the harvest collector (js/farm.js)
+  if (typeof fallingTreeDrawables === "function") for (const d of fallingTreeDrawables()) drawables.push(d); // a felled tree toppling (js/plantfx.js)
+  if (typeof mineIndoorDrawables === "function") for (const d of mineIndoorDrawables()) drawables.push(d); // mobs + drops in the east worlds (js/mines.js)
 
-  drawables.sort((a, b) => a.sortY - b.sortY);
+  drawables.sort(drawableOrder);
   drawables.forEach((d) => d.draw());
+}
+
+// The bridges on the map, each a 4-connected group of bridge tiles
+// (stairs excluded): { tiles: [[col,row,type]], left/right/top/bottom in
+// world px }. Rebuilt every frame (a handful of tiles); also read by
+// relightOccluders() later in the same frame.
+let bridgeComponentsThisFrame = [];
+function computeBridgeComponents() {
+  const seen = new Set();
+  const comps = [];
+  bridgeLayer.forEach((type, key) => {
+    if (seen.has(key) || itemDefs[type].isStairs) return;
+    const comp = { tiles: [], left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+    const stack = [key];
+    seen.add(key);
+    while (stack.length) {
+      const k = stack.pop();
+      const [col, row] = k.split(",").map(Number);
+      comp.tiles.push([col, row, bridgeLayer.get(k)]);
+      comp.left = Math.min(comp.left, col * TILE);
+      comp.right = Math.max(comp.right, (col + 1) * TILE);
+      comp.top = Math.min(comp.top, row * TILE);
+      comp.bottom = Math.max(comp.bottom, (row + 1) * TILE);
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nk = tileKey(col + dc, row + dr);
+        const nt = bridgeLayer.get(nk);
+        if (nt && !seen.has(nk) && !itemDefs[nt].isStairs) { seen.add(nk); stack.push(nk); }
+      }
+    }
+    comps.push(comp);
+  });
+  return comps;
+}
+
+function drawBridgeComponent(comp) {
+  for (const [col, row, type] of comp.tiles) drawGroundItemAt(type, col, row);
+}
+
+// Up on a bridge the player must draw over it even though their feet are
+// inside its span: sort them just past the bottom of every bridge their
+// sprite overlaps.
+// Draw order for the depth-sorted pass: plain sortY, except between an
+// animal and a character (player, Maria, customers, citizens) — per request
+// ("kapag yung paa ng character or mga npc is nakalagpas sa paa ng mga yun
+// is mag overlap na yung character or npcs sa mga animals"): there it's
+// feet against feet, so the moment someone's feet are below the animal's
+// feet they draw over it. Characters carry `feetY` when their sortY isn't
+// their feet (citizens sort on a line 25% up their body).
+//
+// "Feet" here are the VISIBLE feet: the characters' usual sort point
+// (SPRITE_FEET_FRACTION, 0.62 of the frame) sits ~6 world px above the
+// soles they're drawn with (the lowest foot pixel is row 47 of 64), which
+// is why a sheep or bush whose base was above the character's shoes still
+// covered them. Same rule for bushes ("ganyan din dapat sa bushes"): a bush
+// sorts on its base (the tile's bottom edge) against the visible feet.
+const CHARACTER_VISIBLE_FEET_EXTRA = (48 / 64 - SPRITE_FEET_FRACTION) * DRAW_SIZE;
+function characterVisibleFeet(d) {
+  return (d.feetY != null ? d.feetY : d.sortY) + CHARACTER_VISIBLE_FEET_EXTRA;
+}
+function drawableOrder(a, b) {
+  const aChar = a.feetY != null || a.character, bChar = b.feetY != null || b.character;
+  if ((a.animal || a.bush) && bChar) return a.sortY - characterVisibleFeet(b) || -1;
+  if ((b.animal || b.bush) && aChar) return characterVisibleFeet(a) - b.sortY || 1;
+  return a.sortY - b.sortY;
+}
+
+function elevatedPlayerSortY(feetY) {
+  if (!player.elevated) return feetY;
+  const half = DRAW_SIZE / 2;
+  let y = feetY;
+  for (const comp of bridgeComponentsThisFrame) {
+    if (player.x + half <= comp.left || player.x - half >= comp.right) continue;
+    if (player.y + half <= comp.top || player.y - half >= comp.bottom) continue;
+    y = Math.max(y, comp.bottom + 0.01);
+  }
+  return y;
+}
+
+// Dirt Stairs (bridgeLayer, isStairs): on the ground/cliff, under every
+// character — drawn right after the ground overlay (render()).
+function drawStairsLayer() {
+  bridgeLayer.forEach((type, key) => {
+    if (!itemDefs[type].isStairs) return;
+    const [col, row] = key.split(",").map(Number);
+    drawGroundItemAt(type, col, row);
+  });
 }
 
 function drawPlacementRange(camX, camY) {
@@ -2279,6 +2754,7 @@ function drawPlacementRange(camX, camY) {
   // time in practice, so `heldItem` wins if somehow both were set.
   const holdingType = heldItem ? heldItem.type : player.grabbedType;
   if (!holdingType) return;
+  if (itemDefs[holdingType].seedOf) return; // seeds: only tilled tiles light up (drawFarmHighlights(), js/farm.js)
 
   // Multi-tile buildings with a construction timer (the house skins) get
   // their own preview instead of the generic per-tile range grid below —
@@ -2393,9 +2869,16 @@ function drawHeldGhostAt(type, col, row, camX, camY, blocked) {
 // drops things in FRONT of the player rather than under the cursor, so a
 // ghost at the mouse would point at the wrong tile entirely.
 function drawHeldItemGhost(camX, camY) {
+  if (!heldItem && player.grabbedType) { // carried (E grab): left-click puts it down here (placeGrabbedAtClick(), inventory.js)
+    const { col, row } = screenToTile(lastMouseClientX, lastMouseClientY);
+    if (col < 0 || row < 0 || col >= COLS || row >= ROWS || !isWithinPlacementRange(col, row)) return;
+    drawHeldGhostAt(player.grabbedType, col, row, camX, camY, !canPlaceGrabbedOutdoorAt(player.grabbedType, col, row));
+    return;
+  }
   if (!heldItem) return;
   const type = heldItem.type;
   const def = itemDefs[type];
+  if (def.seedOf) return; // seeds aren't placed as objects — they're planted (js/farm.js)
   const { col, row } = screenToTile(lastMouseClientX, lastMouseClientY);
   if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return;
 
@@ -2416,6 +2899,14 @@ function drawHeldItemGhost(camX, camY) {
 
 // Indoors — same idea against the room's own maps and bounds.
 function drawInteriorHeldItemGhost(room, camX, camY) {
+  if (!heldItem && player.grabbedType) { // carried (E grab): left-click puts it down here (placeGrabbedIndoorAt(), interior.js)
+    const { col, row } = screenToTile(lastMouseClientX, lastMouseClientY);
+    const p = interiorFeetTileAt(player.x, player.y);
+    if (Math.max(Math.abs(col - p.col), Math.abs(row - p.row)) > PLACEMENT_RANGE) return;
+    if (isBuildingType(itemDefs[player.grabbedType])) return;
+    drawHeldGhostAt(player.grabbedType, col, row, camX, camY, !grabbedIndoorTarget(room, player.grabbedType, col, row));
+    return;
+  }
   if (!heldItem) return;
   const type = heldItem.type;
   const def = itemDefs[type];
@@ -2495,6 +2986,48 @@ function drawInteriorPlacementRange(room, camX, camY) {
       ctx.strokeRect(screenX + 0.5, screenY + 0.5, size - 1, size - 1);
     }
   }
+}
+
+// Room Pickaxe / Room Hammer equipped inside a tile-shaped room
+// (js/roomCustomizer.js): the same white tile-border grid as holding an
+// item, so it reads the same way, plus the ONE tile F would dig (pickaxe)
+// or fill (hammer) outlined thicker — white when the swing will work, red
+// when it won't (roomToolTarget() runs the exact same checks the swing does).
+function drawRoomToolHighlight(room, camX, camY) {
+  if (heldItem || player.grabbedType) return; // the held-item grid is already showing
+  const tool = player.equippedWeapon;
+  if (typeof isRoomTool !== "function" || !isRoomTool(tool) || !isRoomCustomizable(room) || !room.custom) return;
+  const p = interiorFeetTileAt(player.x, player.y);
+  const size = TILE * zoom;
+  const maxCol = Math.ceil(room.width / TILE) - 1;
+  const maxRow = Math.ceil(room.height / TILE) - 1;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,0.55)";
+  for (let row = p.row - PLACEMENT_RANGE; row <= p.row + PLACEMENT_RANGE; row++) {
+    for (let col = p.col - PLACEMENT_RANGE; col <= p.col + PLACEMENT_RANGE; col++) {
+      if (col < 0 || row < 0 || col > maxCol || row > maxRow) continue;
+      const sx = Math.round((col * TILE - camX) * zoom), sy = Math.round((row * TILE - camY) * zoom);
+      ctx.strokeRect(sx + 0.5, sy + 0.5, size - 1, size - 1);
+    }
+  }
+  // The strip the next swing would change: aimed by the mouse when it's in
+  // reach (a click swings there), otherwise what F would hit in front.
+  const m = screenToTile(lastMouseClientX, lastMouseClientY);
+  const mouseIn = Math.max(Math.abs(m.col - p.col), Math.abs(m.row - p.row)) <= ROOM_TOOL_REACH;
+  let plan;
+  if (roomDrag && roomDrag.tool === tool) plan = currentRoomToolPlan(room, tool, { from: roomDrag.anchor, to: m }); // dragging: the rectangle so far
+  else plan = mouseIn ? roomToolTarget(room, tool, m) : roomToolTarget(room, tool, null);
+  for (const t of plan.tiles) {
+    const ok = plan.ok && t.ok;
+    if (!ok && plan.ok) continue; // a skipped tile of a good strip: leave it unmarked
+    const sx = Math.round((t.col * TILE - camX) * zoom), sy = Math.round((t.row * TILE - camY) * zoom);
+    ctx.fillStyle = ok ? "rgba(255,255,255,0.22)" : "rgba(220,40,40,0.25)";
+    ctx.fillRect(sx, sy, size, size);
+    ctx.strokeStyle = ok ? "rgba(255,255,255,0.95)" : "rgba(220,40,40,0.95)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx + 1, sy + 1, size - 2, size - 2);
+  }
+  ctx.lineWidth = 1;
 }
 
 // Preview for a multi-tile building (house skins) while it's held: the
@@ -2723,17 +3256,31 @@ function renderInteriorScene() {
   // difference — a NEGATIVE scroll — puts the room in the middle
   // instead. Rooms bigger than the screen still scroll and clamp exactly
   // as before.
-  camX = room.width <= viewWorldW
-    ? (room.width - viewWorldW) / 2
-    : clamp(player.x - viewWorldW / 2, 0, room.width - viewWorldW);
-  camY = room.height <= viewWorldH
-    ? (room.height - viewWorldH) / 2
-    : clamp(player.y - viewWorldH / 2, 0, room.height - viewWorldH);
+  // Caves: the camera stays centred on the player (no clamping to the
+  // cave's edge) — per request ("medyo center yung map medyo gilid kasi
+  // yung iba") — and beyond the cave is plain black.
+  const isCave = !!(room.custom && room.custom.floor === "cave");
+  if (isCave) {
+    camX = player.x - viewWorldW / 2;
+    camY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE - viewWorldH / 2;
+  } else {
+    camX = room.width <= viewWorldW
+      ? (room.width - viewWorldW) / 2
+      : clamp(player.x - viewWorldW / 2, 0, room.width - viewWorldW);
+    camY = room.height <= viewWorldH
+      ? (room.height - viewWorldH) / 2
+      : clamp(player.y - viewWorldH / 2, 0, room.height - viewWorldH);
+  }
 
   ctx.clearRect(0, 0, vw, vh);
-  ctx.fillStyle = "#0a0a0a";
+  ctx.fillStyle = isCave ? "#000" : "#0a0a0a";
   ctx.fillRect(0, 0, vw, vh);
-  ctx.drawImage(room.image, camX, camY, viewWorldW, viewWorldH, 0, 0, vw, vh);
+  {
+    // only the part of the room picture that's on screen (the camera may look past its edges)
+    const sx = Math.max(0, camX), sy = Math.max(0, camY);
+    const ex = Math.min(room.width, camX + viewWorldW), ey = Math.min(room.height, camY + viewWorldH);
+    if (ex > sx && ey > sy) ctx.drawImage(room.image, sx, sy, ex - sx, ey - sy, (sx - camX) * zoom, (sy - camY) * zoom, (ex - sx) * zoom, (ey - sy) * zoom);
+  }
 
   // Placed Collision Blocks (js/interior.js's `room.collisions`) are
   // invisible once placed — per request ("wag mo na siyang lagyan ng
@@ -2847,6 +3394,8 @@ function renderInteriorScene() {
   }
   for (const d of customerDrawables()) indoorChars.push(d); // tavern customers (js/customers.js)
   for (const d of citizenIndoorDrawables(player.activeRoomId)) indoorChars.push(d); // citizens sheltering here for the night (js/citizens.js)
+  if (typeof mineIndoorDrawables === "function") for (const d of mineIndoorDrawables(player.activeRoomId)) indoorChars.push(d); // mobs + their drops (js/mines.js)
+  if (typeof shopKeeperDrawables === "function") for (const d of shopKeeperDrawables()) indoorChars.push(d); // the Smith / the Alchemist (js/shops.js)
   indoorChars.sort((a, b) => a.sortY - b.sortY);
   indoorChars.forEach((c) => c.draw());
   indoorOnTop.forEach((d) => d()); // things on top of furniture + ceiling, over everyone
@@ -2857,6 +3406,7 @@ function renderInteriorScene() {
   drawThrownTosses(); // T-key throw arc for a grabbed Collision Block (js/inventory.js's tryThrowGrabbedInteriorItem(), interior.js) — same visual as the outdoor throw
   drawInteriorHeldItemGhost(room, camX, camY); // see-through mock-up of what's held, under the cursor — drawn BEFORE the grid so the outline stays readable on top of it
   drawInteriorPlacementRange(room, camX, camY); // white/red tile-border grid while holding something, same idea as drawPlacementRange() outdoors
+  drawRoomToolHighlight(room, camX, camY); // Room Pickaxe/Hammer: same grid + the one tile F will change (js/roomCustomizer.js)
 
   // Day/night sky tint indoors — per request ("kung ano yung dilim sa
   // labas kapag nagagagabi ganun din [sa loob]... nag fafade yung kulay
@@ -2889,8 +3439,11 @@ function renderInteriorScene() {
     ctx.fillRect(0, 0, vw, vh);
     ctx.restore();
   }
+  drawIndoorLampGlows(room, lighting.candle); // lamps and wall candles in the room shine too (caves: always)
   flushSceneLights(); // the candles, merged, after the washes — same as outdoors
   drawCharacterNightRelights(); // and the same relight, so the player (and Maria, if she's in this room) keep their colours indoors too
+  if (isCave) drawCaveFog(room, vw, vh);
+  if (typeof drawMineOverlay === "function") drawMineOverlay(); // damage numbers, drops flying to you, the hurt flash (js/mines.js)
 
   // Small "how to leave" hint — the exit mat isn't otherwise marked as
   // interactive, so this keeps it discoverable. Pinned to the bottom of
@@ -3011,27 +3564,19 @@ function ensureVignetteBuffers(vw, vh) {
 function drawVignetteBlur() {
   // Per request ("kapag gabi kahit wala na, tuwing sunny day lang"):
   // only shows on a clear, fully-daylit sky — not at night (getDayFactor()
-  // 0 through twilight) and not on a Rainy/Snow day either, since a
-  // blurred rim reads as a bright, in-focus-center camera effect that
-  // doesn't fit an already-dim or overcast scene the way it does a sunny
-  // one.
-  if (getDayFactor() < 1 || getCurrentWeather().name !== "Sunny") return;
-
-  const vw = view.width;
-  const vh = view.height;
-  ensureVignetteBuffers(vw, vh);
-
-  vignetteBlurCtx.clearRect(0, 0, vw, vh);
-  vignetteBlurCtx.filter = `blur(${VIGNETTE_BLUR_PX}px)`;
-  vignetteBlurCtx.drawImage(view, 0, 0); // a blurred copy of the frame just drawn to the main canvas
-  vignetteBlurCtx.filter = "none";
-
-  // Punch the center out of that blurred copy, leaving only the edges.
-  vignetteBlurCtx.globalCompositeOperation = "destination-in";
-  vignetteBlurCtx.drawImage(vignetteMaskCanvas, 0, 0);
-  vignetteBlurCtx.globalCompositeOperation = "source-over";
-
-  ctx.drawImage(vignetteBlurCanvas, 0, 0); // composite the edge-only blur back onto the sharp frame
+  // 0 through twilight) and not on a Rainy/Snow day either.
+  setVignetteBlur(getDayFactor() >= 1 && getCurrentWeather().name === "Sunny");
+}
+// Performance: the blur is the #vignette-blur overlay (style.css) — the
+// browser blurs what's behind it on the GPU. Drawing a blurred copy of the
+// frame ourselves meant reading the whole canvas back mid-frame, which
+// stalled every frame (~20-70 ms measured). Here we only switch it on/off.
+let vignetteEl = null, vignetteOn = null;
+function setVignetteBlur(on) {
+  if (vignetteOn === on) return;
+  vignetteOn = on;
+  if (!vignetteEl) vignetteEl = document.getElementById("vignette-blur");
+  if (vignetteEl) vignetteEl.classList.toggle("on", on);
 }
 
 // A distinct blue night tint — per request ("kapag gabi... kaya ba ng
@@ -3042,7 +3587,7 @@ function drawVignetteBlur() {
 // wash — low alpha, clearly blue rather than just dark — layered on top
 // of that overlay (not replacing it) so night specifically picks up an
 // obvious cool/moonlit cast rather than just losing brightness.
-const NIGHT_BLUE_TINT = "rgba(40,70,160,0.16)";
+const NIGHT_BLUE_TINT = "rgba(52,86,200,0.2)"; // per request: night reads blue, like Stardew Valley
 
 function drawNightBlueTint() {
   const nightFactor = 1 - getDayFactor(); // 0 in full day, 1 in full night, easing through twilight same as everything else
@@ -3059,6 +3604,7 @@ function render() {
   if (player.scene === "inside") {
     renderInteriorScene();
     // No vignette blur indoors — per request, it's an outside-only effect.
+    setVignetteBlur(false);
     drawSceneFadeOverlay();
     return;
   }
@@ -3076,12 +3622,12 @@ function render() {
   camX = clamp(
     player.x - viewWorldW / 2,
     0,
-    Math.max(0, MAP_W - viewWorldW),
+    Math.max(0, worldW() - viewWorldW), // js/worlds.js
   );
   camY = clamp(
     player.y - viewWorldH / 2,
     0,
-    Math.max(0, MAP_H - viewWorldH),
+    Math.max(0, worldH() - viewWorldH),
   );
 
   ctx.clearRect(0, 0, vw, vh);
@@ -3089,8 +3635,11 @@ function render() {
   drawSnowGroundFill(); // while it snows, the grass fill shows as snow (js/snowground.js)
 
   drawDirtLayer();       // 1 — bare earth, the bottom of the stack
+  if (typeof drawFarmSoil === "function") drawFarmSoil(); // wet tilled soil (js/farm.js)
   drawFlatGroundItems(); // 2 — grass / water / port tiles
   drawGroundOverlay();   // 2 over — mushrooms, flowers, leaves, lit-window glow: on the ground, not instead of it
+  drawStairsLayer();     // Dirt Stairs — over the mountain wall they're on, under the characters
+  drawTreeGroundShadows(); // soft shadows under the trees, daytime only (assets/shadows/)
 
   // Weather FX (js/weatherfx.js) — cloud ground-shadows and "behind" fog
   // patches go on the ground, under items/player, so the character
@@ -3099,6 +3648,7 @@ function render() {
   drawFogLayer(camX, camY, false);
   drawWeatherBackFX(); // the BACK row of snow/rain/leaves — behind characters and trees (js/weatherfx.js)
 
+  drawBirdShadows(); // birds' shadows on the ground, under every object (js/birds.js)
   drawPlayerStandingDecor(); // the ONE decor tile (if any) the player is standing on — always fully behind them (see js/camera.js)
   renderWorldObjectsSorted(); // stones/trees/house + every OTHER decor tile + player, depth-sorted by Y (see above)
   if (typeof drawLeafFlecks === "function") drawLeafFlecks(); // leaves shaken off bushes (js/plantfx.js)
@@ -3116,9 +3666,11 @@ function render() {
   drawThrownTosses(); // T-key throw arc (js/resources.js) — same layer of the render as the pickups above
   drawHeldItemGhost(camX, camY); // see-through mock-up of what's held, under the cursor — drawn BEFORE the grid so the outline stays readable on top of it
   drawPlacementRange(camX, camY); // overlay on top so the grid is always visible, even over a tall object
+  if (typeof drawFarmHighlights === "function") drawFarmHighlights(camX, camY); // white borders on farm tiles (js/farm.js)
 
   // Clouds float above everything on the ground; rain falls in front of
   // that (js/weatherfx.js).
+  drawBirds(); // flocks flying over everything, under the clouds (js/birds.js)
   drawCloudSprites(camX, camY);
   drawWeatherOverlayFX();
 
@@ -3142,6 +3694,7 @@ function render() {
   flushSceneLights();             // ...and every light lands at once, merged instead of stacked
   drawLampNightRelight();         // the lit lanterns get most of their own colour back, so they don't look dead
   drawCharacterNightRelights();   // then the characters get their own colours back ON TOP, so no light can overdrive them
+  if (typeof drawMineOverlay === "function") drawMineOverlay(); // east worlds: damage numbers, drops flying to you, hurt flash (js/mines.js)
   drawVignetteBlur(); // soft edge blur, all four sides, sunny daytime only — see above
   drawSceneFadeOverlay(); // interior enter/exit fade-to-black (js/interior.js) — drawn last, over absolutely everything
 }

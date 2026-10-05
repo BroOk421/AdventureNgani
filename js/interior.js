@@ -64,6 +64,7 @@ const INTERIOR_ROOM_BLUEPRINTS = {
   //     y 103, under the cream upper wall and its dark trim band.
   //   - the doormat is the green rug at x 129-158, y 279-292.
   house_room: {
+    customizable: true, // the player's own room can be restyled/resized (js/roomCustomizer.js, H)
     owner: "player", // the player's own house — lit while you're awake, dark once you're asleep in bed (camera.js getRoomOwnerPresence())
     image: assets.houseRoom,
     width: 300,
@@ -349,6 +350,14 @@ const INTERIOR_ROOM_BLUEPRINTS = {
    rebuilt from its id alone on load (see getOrCreateInteriorRoom()),
    before any of them has been walked into this session. */
 const INTERIOR_ROOMS = {};
+Object.assign(INTERIOR_ROOM_BLUEPRINTS, TOWN_ROOM_BLUEPRINTS); // the town houses' rooms (js/townBuildings.js)
+// The townsfolk's cabin (the little House in town, now someone else's) — same room art, nobody's lights.
+INTERIOR_ROOM_BLUEPRINTS.cabin_room = Object.assign({}, INTERIOR_ROOM_BLUEPRINTS.house_room, { owner: undefined, customizable: false, defaultDecor: undefined });
+// The player's own House (now in the wild world, js/worlds.js) starts with a bed and a few things.
+INTERIOR_ROOM_BLUEPRINTS.house_room.defaultDecor = [
+  [3, 10, "bedBig"], [1, 8, "bldPlantA"], [16, 8, "bldPlantFlower"], [15, 16, "bldChest"], [9, 13, "floorMatBldGreen"],
+  [9, 12, "bldTableRound"], [7, 12, "bldChair"], [11, 12, "bldChair"], [5, 5, "bldWallWindow"], [13, 5, "bldWallWindow"],
+];
 
 function interiorRoomId(blueprintId, col, row) {
   return blueprintId + "@" + col + "," + row;
@@ -377,6 +386,19 @@ function getOrCreateInteriorRoom(roomId) {
     // See interiorTableAt().
     tableTop: new Map(),
   });
+  // Furnished rooms (the town houses, js/townBuildings.js): a room made
+  // for the first time gets its blueprint's furniture. A room that's in
+  // the save being loaded keeps only what was saved.
+  if (blueprint.customDefaults || INTERIOR_SAVED_CUSTOM[roomId]) {
+    applyRoomCustom(room, Object.assign({}, INTERIOR_SAVED_CUSTOM[roomId] || blueprint.customDefaults));
+  }
+  if (blueprint.defaultDecor && !INTERIOR_SAVED_ROOM_IDS.has(roomId)) {
+    for (const [col, row, type] of blueprint.defaultDecor) {
+      if (!itemDefs[type]) continue;
+      if (room.custom && !defaultDecorFits(room, type, col, row)) continue; // a small new room only gets what fits
+      (isInteriorFloorType(type) ? room.floorDecor : room.decor).set(col + "," + row, type);
+    }
+  }
   INTERIOR_ROOMS[roomId] = room;
   return room;
 }
@@ -490,6 +512,12 @@ function tryPlayerEnterInterior(type, placedCol, placedRow) {
       showLockedDoorToast("The tavern is closed — Maria isn't home.");
       return false;
     }
+  }
+  // The grocery (per request): open Monday-Friday 08:00-18:00, and only
+  // while its keeper is in — otherwise the door stays shut.
+  if (def.citizenShop && typeof isGroceryOpen === "function" && !isGroceryOpen()) {
+    showLockedDoorToast("Sarado ang grocery. Bukas Lunes-Biyernes, 8:00-18:00.");
+    return false;
   }
   beginSceneFade(() => enterInterior(type, placedCol, placedRow));
   return true;
@@ -740,6 +768,25 @@ function interiorFeetTileAt(x, y) {
 // walls follow the art, not the 16px grid (smallInterior is 300px — 18.75
 // tiles — so its walls don't land on tile boundaries at all).
 function isInteriorWallAt(room, x, y) {
+  // Tile-shaped rooms (js/roomCustomizer.js): the feet may only stand on
+  // the room's floor (and doorway) tiles — every other tile is wall.
+  if (room.floorTiles) {
+    // Every non-floor tile is a FULL 16x16 solid block (per request: the
+    // body was walking into the wall trim). The whole drawn feet area is
+    // tested — the 12px-wide body from the feet line down to the soles
+    // (~6px lower) — so neither the sides nor the shoes reach into a wall
+    // tile or the frame drawn in it.
+    const feetY = y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+    const soleY = feetY + (48 / 64 - SPRITE_FEET_FRACTION) * DRAW_SIZE - 0.01;
+    const x0 = x - BODY_COLLISION_HALF_W, x1 = x + BODY_COLLISION_HALF_W - 0.001;
+    for (const py of [feetY, soleY]) {
+      const fy = Math.floor(py / TILE);
+      for (const fx of [x0, x1]) {
+        if (!room.floorTiles.has(Math.floor(fx / TILE) + "," + fy)) return true;
+      }
+    }
+    return false;
+  }
   if (!room.walls) return false;
   const feetY = y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
   // The feet are a 12px-wide line now, not a point (see bodyFeetCols(),
@@ -751,8 +798,37 @@ function isInteriorWallAt(room, x, y) {
   return false;
 }
 
+// Round tables (`collisionTopStrip`, a fraction of a tile): per request,
+// a thin extra strip of collision along the BOTTOM of the tile row just
+// above the table's footprint — 25% of a tile (4px) — so walking down
+// from behind stops before the feet sink into the table top. Cached per
+// room the same way interiorSolidDecorTiles() is.
+function interiorTopStrips(room) {
+  const c = room.topStripCache, now = Date.now();
+  if (c && c.size === room.decor.size && now - c.at < 250) return c.list;
+  const list = [];
+  for (const [key, type] of room.decor) {
+    const def = itemDefs[type];
+    if (!def || !def.collisionTopStrip) continue;
+    const [col, row] = key.split(",").map(Number);
+    const tiles = getObjectFootprintBlockedTiles(type, col, row);
+    if (!tiles.length) continue;
+    const top = Math.min(...tiles.map((t) => t.row));
+    const c0 = Math.min(...tiles.map((t) => t.col)), c1 = Math.max(...tiles.map((t) => t.col));
+    list.push({ x0: c0 * TILE + 2, x1: (c1 + 1) * TILE - 2, y0: top * TILE - TILE * def.collisionTopStrip, y1: top * TILE });
+  }
+  room.topStripCache = { at: now, size: room.decor.size, list };
+  return list;
+}
+
 function isInteriorBodyBlockedAt(room, x, y) {
   if (isInteriorWallAt(room, x, y)) return true;
+  if (room.decor && room.decor.size) {
+    const fy = y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+    for (const s of interiorTopStrips(room)) {
+      if (fy >= s.y0 && fy < s.y1 && x + BODY_COLLISION_HALF_W > s.x0 && x - BODY_COLLISION_HALF_W < s.x1) return true;
+    }
+  }
   const t = interiorFeetTileAt(x, y);
   for (const col of bodyFeetCols(x)) { // js/player.js — both edges of the feet
     if (isInteriorTileBlocked(room, col, t.row)) return true;
@@ -1000,6 +1076,7 @@ function placeInteriorDecorAt(col, row) {
   if (player.scene !== "inside") return;
   const def = itemDefs[heldItem.type];
   if (def.interiorOnly) return; // Collision Block goes through placeInteriorCollisionAt() instead
+  if (def.isBridge || def.isStairs) return; // the Port Bridge is an outdoor, mountain-to-mountain thing
   if (isBuildingType(def)) return; // a whole house/building makes no sense inside a room — furniture is fine
   const room = INTERIOR_ROOMS[player.activeRoomId];
   if (!room) return;
@@ -1067,6 +1144,38 @@ function getInteriorTileInFrontOfPlayer() {
 // picture frames, windows, furniture) — per request ("pwede rin ERT
 // apply mo sa lahat ng doors"): grabbing/placing now works the same way
 // for any of them, not just the Collision Block.
+// Left-click counterpart of the E put-down indoors (placeGrabbedAtClick(),
+// js/inventory.js): any tile in the placement grid round the player.
+// Returns { map, key } where it would go, or null if it can't go there.
+function grabbedIndoorTarget(room, type, col, row) {
+  const def = itemDefs[type];
+  if (!def || isBuildingType(def)) return null;
+  if (col < 0 || row < 0 || col * TILE >= room.width || row * TILE >= room.height) return null;
+  const p = interiorFeetTileAt(player.x, player.y);
+  if (Math.max(Math.abs(col - p.col), Math.abs(row - p.row)) > PLACEMENT_RANGE) return null;
+  const key = tileKey(col, row);
+  if (def.interiorOnly) { // the Collision Block — never on your own feet
+    if (room.collisions.has(key) || (col === p.col && row === p.row)) return null;
+    return { map: room.collisions, key };
+  }
+  if (canPlaceOnTableTop(room, type, col, row)) return { map: room.tableTop, key }; // a small thing clicked onto a table
+  const map = interiorMapFor(room, type);
+  if (map.has(key)) return null;
+  if (isInteriorPlacementBlocked(room, type, col, row) || interiorFootprintCoversPlayer(type, col, row)) return null;
+  return { map, key };
+}
+function placeGrabbedIndoorAt(col, row) {
+  const room = INTERIOR_ROOMS[player.activeRoomId];
+  if (!room || !player.grabbedType) return false;
+  const t = grabbedIndoorTarget(room, player.grabbedType, col, row);
+  if (!t) return false;
+  t.map.set(t.key, player.grabbedType);
+  player.grabbedType = null;
+  player.mode = "normal";
+  saveGame();
+  return true;
+}
+
 function tryGrabOrPlaceIndoorItemInFront() {
   if (player.scene !== "inside") return;
   const room = INTERIOR_ROOMS[player.activeRoomId];
@@ -1218,10 +1327,20 @@ function updatePlayerInsideInterior(dt) {
     return;
   }
 
+  // Stamina works indoors exactly as outdoors (js/player.js) — per request,
+  // in every room, cave and map: Shift runs and drains it, otherwise it
+  // regenerates; an exhausted player can't run until it recovers.
+  if (player.stamina <= 0) player.staminaExhausted = true;
+  else if (player.stamina >= player.maxStamina * STAMINA_RUN_RECOVER_PCT) player.staminaExhausted = false;
+  const indoorStarving = isPlayerStarving();
+  const running = moving && keys["shift"] && player.stamina > 0 && !player.staminaExhausted && !indoorStarving;
+  if (running) player.stamina = Math.max(0, player.stamina - STAMINA_DRAIN_PER_SEC * dt);
+  else player.stamina = Math.min(player.maxStamina, player.stamina + STAMINA_REGEN_PER_SEC * dt);
+
   if (moving) {
     const len = Math.hypot(vx, vy) || 1;
     vx /= len; vy /= len;
-    const speed = player.speed * (isPlayerStarving() ? HUNGRY_WALK_MULT : 1); // slower on an empty stomach (js/player.js)
+    const speed = player.speed * (running ? player.runMult : 1) * (indoorStarving ? HUNGRY_WALK_MULT : 1); // slower on an empty stomach (js/player.js)
     const wantX = clamp(player.x + vx * speed * dt, DRAW_SIZE / 2, room.width - DRAW_SIZE / 2);
     const wantY = clamp(player.y + vy * speed * dt, DRAW_SIZE / 2, room.height - DRAW_SIZE / 2);
 
@@ -1248,7 +1367,7 @@ function updatePlayerInsideInterior(dt) {
     player.facing = vx !== 0 ? (vx > 0 ? "right" : "left") : (vy > 0 ? "down" : "up");
   }
 
-  const nextAnim = moving ? "walk" : "idle";
+  const nextAnim = moving ? (running ? "run" : "walk") : "idle";
   if (nextAnim !== player.anim) {
     player.anim = nextAnim;
     player.frame = 0;

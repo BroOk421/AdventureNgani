@@ -72,14 +72,48 @@ const CUSTOMER_MENU = [
   { type: "foodBeer", strip: assets.stripBeer, bubble: assets.orderBeer },
 ];
 
-// The look — the player's own sheets for now (per request, "pansamantalang
-// npc na itsura ng character ko"). Replace per customer later.
+// Per request ("palitan mo yung ibang customer ng npc"): every other
+// customer comes in looking like one of the townsfolk (Citizen B-E) instead
+// of the player's placeholder look.
+// Now every customer is one of the townsfolk — the player's own look is
+// the player's (sample outfit #2), so the old placeholder customers became
+// the new F and G (outfits #1 and #3).
+const CUSTOMER_NPC_LOOKS = ["B", "C", "D", "E", "F", "G", "I", "J", "K", "L", "M", "N", "O", "P", "Q"];
+function customerLookFor(i) {
+  return CUSTOMER_NPC_LOOKS[i % CUSTOMER_NPC_LOOKS.length];
+}
+
+// The look. Player-look customers use the player's own sheets (down/up/side).
+// NPC-look customers only have SIDE art (right-facing, flipped for left like
+// the player's), so `sideOnly`: walking up/down keeps their last side
+// facing, and they only take seats that face left or right (freeSeatFor()).
 function customerSprites(c) {
+  if (c.look) {
+    const L = "citizen" + c.look;
+    // B..E only have side art; F..K have front/back too.
+    const full = !!(assets[L + "WalkDown"] && assets[L + "WalkDown"].width);
+    const walkS = assets[L + "WalkRight"], idleS = assets[L + "IdleRight"], sitS = assets[L + "SitRight"];
+    return {
+      sideOnly: !full,
+      walk: { down: full ? assets[L + "WalkDown"] : walkS, up: full ? assets[L + "WalkUp"] : walkS, side: walkS },
+      idle: { down: full ? assets[L + "IdleDown"] : idleS, up: full ? assets[L + "IdleUp"] : idleS, side: idleS },
+      sit: { front: full ? assets[L + "SitFront"] : sitS, side: sitS },
+    };
+  }
   return {
     walk: { down: assets.walkDown, up: assets.walkUp, side: assets.walkSide },
     idle: { down: assets.idleDown, up: assets.idleUp, side: assets.idleSide },
     sit: { front: assets.sitFront, side: assets.sitSide },
   };
+}
+
+// What a seated customer holds while eating each dish (see drawCustomer()).
+const CUSTOMER_EAT_HELD = { meatItem: "Meat", foodSalad: "Spoon", foodBeer: "Mug" };
+function customerEatSheets(orderType, look) {
+  const what = CUSTOMER_EAT_HELD[orderType];
+  if (!what) return null;
+  if (look) return { front: assets["citizen" + look + "EatFront" + what], side: assets["citizen" + look + "EatSide" + what] };
+  return { front: assets["sitEatFront" + what], side: assets["sitEatSide" + what] };
 }
 
 const customers = [];
@@ -90,6 +124,8 @@ function initCustomers() {
   for (let i = 0; i < CUSTOMER_COUNT; i++) {
     customers.push({
       id: i,
+      look: customerLookFor(i), // null = the player's look, else a citizen's ("B".."E")
+      side: "right",            // last left/right facing — what side-only looks show when walking up/down
       scene: "away", state: "away",
       fx: 0, fy: 0,           // FEET position — world px outside, room px inside
       facing: "down", anim: "idle", frame: 0, frameTimer: 0,
@@ -194,10 +230,12 @@ function findTableSeats(room) {
   return seats;
 }
 
-function freeSeatFor(room) {
+function freeSeatFor(room, who) {
   const taken = new Set(customers.filter((c) => c.seat).map((c) => c.seat.key));
   const tv = customerTavern();
+  const sideOnly = !!(who && who.look && customerSprites(who).sideOnly); // B..E: no front sit art
   const seats = findTableSeats(room).filter((s) => !taken.has(s.key) &&
+    !(sideOnly && s.facing !== "left" && s.facing !== "right") &&
     !(player.sitting && player.scene === "inside" && player.sitAnchorCol === s.anchorCol && player.sitAnchorRow === s.anchorRow) &&
     // Dirty dishes still on that table (js/waiter.js) — sit somewhere else.
     !(tv && typeof tableHasLeftovers === "function" && tableHasLeftovers(tv.roomId, s.tableCol, s.tableRow)));
@@ -289,6 +327,7 @@ function walkCustomer(c, dt) {
     c.fy += (dy / d) * step;
   }
   if (d > 0.01) c.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+  if (c.facing === "left" || c.facing === "right") c.side = c.facing;
   c.anim = "walk";
   return false;
 }
@@ -411,7 +450,7 @@ function updateCustomer(c, dt, t) {
     case "waitSeat": {
       c.anim = "idle";
       if (!open) { headForExit(c, t); break; }
-      const seat = freeSeatFor(t.room);
+      const seat = freeSeatFor(t.room, c);
       if (seat) {
         c.seat = seat;
         c.counterSpot = null;
@@ -472,6 +511,12 @@ function updateCustomer(c, dt, t) {
         // on the table for them to clear.
         if (c.servedByWaiter && c.seat && t && typeof leaveTableLeftover === "function") {
           leaveTableLeftover(t.roomId, c.seat.tableCol, c.seat.tableRow, c.order.type);
+        }
+        // Per request the empty mug appears once the drinker has gone — even
+        // when Maria served (nobody clears those, so it goes after a while).
+        else if (c.seat && t && c.order && c.order.type === "foodBeer" && typeof leaveTableLeftover === "function") {
+          leaveTableLeftover(t.roomId, c.seat.tableCol, c.seat.tableRow, c.order.type);
+          tableLeftovers[tableLeftovers.length - 1].clearAt = Date.now() + LEFTOVER_AUTO_CLEAR_MS;
         }
         c.servedByWaiter = false;
         c.anim = "idle";
@@ -658,15 +703,24 @@ function drawCustomer(c) {
   const size = DRAW_SIZE * zoom;
   let x = c.fx, fy = c.fy;
   let sheet;
+  // Side-only looks facing up/down are drawn on their last left/right side.
+  const face = sp.sideOnly && (c.facing === "up" || c.facing === "down") ? c.side : c.facing;
   // Sitting needs a seat to sit on — guarded so a customer caught
   // between states can never crash the frame.
   if (c.anim === "sit" && c.seat) {
-    sheet = (c.facing === "left" || c.facing === "right") ? sp.sit.side : sp.sit.front;
-    x += (c.facing === "left" ? -c.seat.poseX : c.seat.poseX);
+    sheet = (face === "left" || face === "right") ? sp.sit.side : sp.sit.front;
+    // Eating: same seated pose, a hand going to the mouth with what they
+    // ordered — meat, a spoon for the salad, a mug for the beer.
+    const eat = c.state === "eating" && c.order ? customerEatSheets(c.order.type, c.look) : null;
+    if (eat) {
+      const e = (face === "left" || face === "right") ? eat.side : eat.front;
+      if (e && e.width) sheet = e;
+    }
+    x += (face === "left" ? -c.seat.poseX : c.seat.poseX);
     fy += c.seat.poseY;
   } else {
     const set = c.anim === "walk" ? sp.walk : sp.idle; // (a "sit" with no seat falls back to standing)
-    sheet = c.facing === "up" ? set.up : c.facing === "down" ? set.down : set.side;
+    sheet = face === "up" ? set.up : face === "down" ? set.down : set.side;
   }
   if (!sheet || !sheet.width) return;
   const px = (x - camX) * zoom;
@@ -674,7 +728,7 @@ function drawCustomer(c) {
   const sx = c.frame * FRAME_SIZE;
   if (c.anim !== "sit") drawShadow(px, py - size / 2 + size * SPRITE_FEET_FRACTION, size, sheet, sx);
   ctx.save();
-  if (c.facing === "left") {
+  if (face === "left") {
     ctx.translate(px, py);
     ctx.scale(-1, 1);
     ctx.drawImage(sheet, sx, 0, FRAME_SIZE, FRAME_SIZE, -size / 2, -size / 2, size, size);
@@ -694,7 +748,7 @@ function customerDrawables() {
     if (inside) {
       if (c.scene !== "inside" || !t || t.roomId !== player.activeRoomId) continue;
     } else if (c.scene !== "outside") continue;
-    out.push({ sortY: c.fy, draw: () => drawCustomer(c) });
+    out.push({ sortY: c.fy, character: true, draw: () => drawCustomer(c) });
   }
   return out;
 }
@@ -708,10 +762,17 @@ function drawCustomerFoodAndBubbles() {
   const size = DRAW_SIZE * zoom;
   for (const c of customers) {
     if (c.scene !== "inside") continue;
+    // The beer mug is in their hand the whole time they drink (the seated
+    // eating animation holds it), so it isn't on the table at all; the empty
+    // mug shows up there once they've left (leftovers, js/waiter.js).
+    if (c.state === "eating" && c.order && c.order.type === "foodBeer") continue;
     if (c.state === "eating" && c.seat && c.order && c.order.strip.width) {
       const strip = c.order.strip;
       const frames = Math.max(1, Math.floor(strip.width / 16));
-      const frame = Math.min(frames - 1, Math.floor((c.eatT / c.eatDur) * frames));
+      // The Grilled Meat is in their hand while they eat it (the seated eating
+      // animation holds it), so the plate shows empty — its last frame.
+      const frame = c.order.type === "meatItem" ? frames - 1
+        : Math.min(frames - 1, Math.floor((c.eatT / c.eatDur) * frames));
       const w = 16 * zoom, h = strip.height * zoom;
       const x = ((c.seat.tableCol + 0.5) * TILE - camX) * zoom - w / 2;
       const y = ((c.seat.tableRow + 1) * TILE - camY) * zoom - h;

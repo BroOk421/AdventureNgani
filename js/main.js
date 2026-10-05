@@ -60,12 +60,15 @@ function loopFrame(now) {
   updateNPC(dt); // idle animation + facing auto-switch for the shopkeeper (js/npc.js)
   updateCustomers(dt); // tavern customers coming, ordering, eating, leaving (js/customers.js)
   updateCitizens(dt); // Citizen B-E strolling around the map, avoiding collisions (js/citizens.js)
+  updateAnimals(dt); // chickens, pigs, cows, sheep wandering near their spots (js/animals.js)
+  updateBirds(dt); // flocks of 1-3 birds crossing the sky on sunny days (js/birds.js)
   updateWaiterJob(); // waiter shift hours, Maria's evening payday (js/waiter.js)
   updatePlayerStats(dt); // food depletion + playtime accumulation (js/hud.js)
   updateWeather(); // re-rolls Sunny/Rainy/Snow once per in-game day, weighted by season (js/calendar.js)
   updateWeatherFX(dt); // rain/snow/cloud/fog particles + god rays, gated/nudged by that weather (js/weatherfx.js)
   updateSceneFade(); // js/interior.js — advances the enter/exit fade-to-black, before movement reads its frozen state
   updatePlayer(dt);
+  if (typeof updateFarm === "function") updateFarm(); // crops, sacks, the harvest collector (js/farm.js)
   updateHeldItemPlacement(); // keeps placing while the mouse is held (js/inventory.js)
   updateBenchHover(); // which sittable item (if any) the cursor is over right now (js/furniture.js) — before render() so the highlight is current this frame
   render();
@@ -82,6 +85,7 @@ function start() {
   updateDayNight(); // make sure the clock is current before placing anyone by it
   placePlayerAtHomeDoor(); // always start in front of your own house's door, if you have one (js/interior.js)
   placeNpcForCurrentTime(); // Maria starts wherever her schedule has her right now (js/npc.js)
+  startInDefaultWorld(); // the wild world is home now — you start at your House there (js/worlds.js)
   setupPlacementClickHandler();
   setupNpcClickHandler(); // left-click-the-shopkeeper-to-shop (js/npc.js)
   setupBedClickHandler(); // left-click a placed Big Bed at night to sleep (js/resources.js)

@@ -886,7 +886,13 @@ function drawCarriedOrder(px, py, size, scale, g = ctx) {
 
 // Empty plates / mugs on the tables — the last frame of what was eaten
 // (the same strip, same spot, the customer ate it from).
+// Empty mugs left by customers Maria served (js/customers.js) clear
+// themselves after this long — nobody else would ever pick them up.
+const LEFTOVER_AUTO_CLEAR_MS = 20000;
 function drawTableLeftovers() {
+  if (tableLeftovers.some((k) => k.clearAt && Date.now() > k.clearAt)) {
+    tableLeftovers = tableLeftovers.filter((k) => !(k.clearAt && Date.now() > k.clearAt));
+  }
   if (player.scene !== "inside") return;
   const seen = new Map(); // two on one table: nudge the second aside
   for (const k of tableLeftovers) {

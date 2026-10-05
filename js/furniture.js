@@ -193,6 +193,10 @@ function setupBenchClickHandler() {
     const { col, row } = screenToTile(e.clientX, e.clientY);
     const seat = findSeatAt(col, row);
     if (!seat) return; // not a seat tile (or not furniture at all) — ignore
+    if (player.scene === "outside" && typeof citizenOnSeatTile === "function" && citizenOnSeatTile(seat.seatCol, seat.seatRow)) {
+      showTooFarToast("Someone is sitting there.");
+      return;
+    }
     if (!isPlayerWithinReachOfTiles([{ col: seat.seatCol, row: seat.seatRow }])) {
       showTooFarToast("Get closer to sit down.");
       return;

@@ -55,11 +55,24 @@ const pendingRespawns = new Map();  // "col,row" -> { type, respawnAt } (saved)
 // entry has a `resource` config) within HARVEST_RANGE of the player's
 // current tile. Same Chebyshev-distance neighborhood placement already
 // uses (getPlayerTile(), js/inventory.js).
+// Per request: the town's trees can't be cut — only the ones in the other
+// worlds (the wild world west of town, and the east worlds). Stones still break.
+function isProtectedTownTree(type) {
+  return typeof currentWorld !== "undefined" && currentWorld === "main" && /^tree/.test(type);
+}
+let townTreeToastAt = 0;
 function findHarvestableTarget() {
   const p = getPlayerTile();
   for (let row = p.row - HARVEST_RANGE; row <= p.row + HARVEST_RANGE; row++) {
     for (let col = p.col - HARVEST_RANGE; col <= p.col + HARVEST_RANGE; col++) {
       const type = getLayerItemId(objectLayer, col, row);
+      if (type && itemDefs[type].resource && isProtectedTownTree(type)) {
+        if (performance.now() - townTreeToastAt > 4000 && typeof showToast === "function") {
+          townTreeToastAt = performance.now();
+          showToast("Bawal magputol ng puno sa town — sa ibang map ka magputol");
+        }
+        continue;
+      }
       if (type && itemDefs[type].resource) {
         return { col, row, type };
       }
@@ -214,12 +227,26 @@ function resolveHarvestHit(target) {
   const hits = (resourceHits.get(key) || 0) + 1;
   // A small shake on every chop — per request (js/plantfx.js).
   if (typeof triggerTreeShake === "function" && typeof isShakingTree === "function" && isShakingTree(type)) triggerTreeShake(col, row);
+  // ...and a stone trembles under every pickaxe hit (js/plantfx.js).
+  if (typeof triggerStoneShake === "function" && def.resource.breakAnim === "crush") triggerStoneShake(col, row);
+  // Chips and leaves on every chop, a big shower on the last (js/plantfx.js).
+  if (typeof treeChopFx === "function" && typeof isShakingTree === "function" && isShakingTree(type)) {
+    treeChopFx(type, col, row, hits >= def.resource.hitsToBreak);
+  }
   if (hits < def.resource.hitsToBreak) {
     resourceHits.set(key, hits);
     return;
   }
 
   resourceHits.delete(key);
+  // Trees topple over before the wood pops out (js/plantfx.js) — the stump
+  // below is what's left standing.
+  let fellingAnim = false, onLand = null;
+  if (typeof startTreeFall === "function" && typeof isShakingTree === "function" && isShakingTree(type) && def.resource.dropItem) {
+    const item = def.resource.dropItem, amount = def.resource.dropAmount || 1;
+    onLand = (x, y) => spawnFloatingPickups(x, y, item, amount);
+    fellingAnim = startTreeFall(type, col, row, onLand);
+  }
   objectLayer.delete(key);
 
   if (def.resource.replaceWith) {
@@ -234,7 +261,7 @@ function resolveHarvestHit(target) {
     // something tall like a tree.
     const worldX = (col + 0.5) * TILE;
     const worldY = (row + 0.3) * TILE;
-    spawnFloatingPickups(worldX, worldY, def.resource.dropItem, amount);
+    if (!fellingAnim) spawnFloatingPickups(worldX, worldY, def.resource.dropItem, amount); // else: where the tree lands
   }
 
   if (def.resource.respawnMinutes) {
@@ -245,6 +272,7 @@ function resolveHarvestHit(target) {
     pendingRespawns.set(key, {
       type: respawnType,
       respawnAt: Date.now() + def.resource.respawnMinutes * 60 * 1000,
+      world: typeof currentWorld !== "undefined" ? currentWorld : "main", // regrows in the world it was cut in
     });
   }
 
@@ -258,9 +286,13 @@ function resolveHarvestHit(target) {
 function updateResources() {
   if (pendingRespawns.size === 0) return;
   const now = Date.now();
+  const here = typeof currentWorld !== "undefined" ? currentWorld : "main";
   pendingRespawns.forEach((info, key) => {
+    // Only in its own world (older entries had no world: the town). A tree
+    // cut in the wild / east worlds regrows there once you're back in it.
+    if ((info.world || "main") !== here) return;
     if (now >= info.respawnAt) {
-      objectLayer.set(key, info.type);
+      if (!objectLayer.has(key)) objectLayer.set(key, info.type); // something built there since? then it doesn't come back
       pendingRespawns.delete(key);
     }
   });
