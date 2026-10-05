@@ -24,7 +24,15 @@ let camX = 0;
 let camY = 0;
 
 function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
+  // On a phone (js/mobile.js) the canvas is drawn at 1 canvas px per CSS px
+  // instead of the full device resolution. A phone screen is 2.5-3x DPR, so
+  // full resolution meant 6-9x more pixels to draw every frame (the lag),
+  // and because ZOOM is in canvas px it also made the camera look far away.
+  // At 1x, ZOOM_MIN (3.5) looks the same as on a desktop monitor. The pixel
+  // art is scaled up by the browser with image-rendering: pixelated, so it
+  // stays sharp.
+  const isMobile = typeof MOBILE_ON !== "undefined" && MOBILE_ON;
+  const dpr = isMobile ? 1 : (window.devicePixelRatio || 1);
   // Render at full device-pixel resolution so nothing gets upscaled/blurred
   // by the browser, then keep the CSS size at the window size.
   view.width = Math.round(window.innerWidth * dpr);

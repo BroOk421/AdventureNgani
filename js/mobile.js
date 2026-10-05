@@ -7,11 +7,11 @@
      - bottom left: the joystick (drag = W A S D) and Takbo (Shift on/off)
      - bottom right: ATTACK (F; its label follows what you hold: ESPADA,
        PANA), Kuha (E), Hagis (T), Itago (R)
-     - top right: the minimap as a circle (tap = the full map), a weather
-       bubble on it (tap = today's weather), and under it Menu — tap it and
+     - top right: the minimap as a circle (tap = the full map), the round
+       day/night monitor on it (tap = today's weather), and under it Menu — tap it and
        Profile (P), Bag (B) and Settings (Map, Save, Export, Import) drop down
-     - top left: the bars, with the time/date/weather card under them (the
-       game's own HUD)
+     - top left: the bars (a bit smaller), with the time/date/weather card
+       under them (the game's own HUD)
    Every button just presses the same key the keyboard would, so nothing
    behaves differently from the desktop. Tapping a mob attacks it (a tap is
    a click). The page doesn't scroll or zoom.
@@ -55,7 +55,17 @@ if (MOBILE_ON) {
   #mb-grab { right: 128px; bottom: 26px; width: 58px; height: 58px; }
   #mb-throw { right: 120px; bottom: 98px; width: 50px; height: 50px; }
   #mb-keep { right: 58px; bottom: 128px; width: 50px; height: 50px; }
-  #mb-weather { right: 86px; top: 4px; width: 50px; height: 50px; color: #e8c84a; box-shadow: 0 2px 0 #1a110a; z-index: 47; }
+  /* the round day/night monitor takes the old sun bubble's spot, overlapping the minimap */
+  body.mobile #daycycle-hud { position: fixed; right: 84px; top: 2px; width: 62px !important; height: 66px !important; z-index: 47; pointer-events: auto; touch-action: none; }
+  /* top left: just the bars now, a bit smaller */
+  body.mobile #left-hud { top: 8px; left: 8px; gap: 4px; }
+  body.mobile #stat-section { width: 128px; box-sizing: border-box; padding: 4px 6px; gap: 3px; }
+  body.mobile .stat-bar { height: 12px; border-radius: 4px; }
+  body.mobile .stat-bar-label { font-size: 8.5px; }
+  body.mobile #calendar-section, body.mobile #position-section { width: 128px; padding: 3px 6px; }
+  body.mobile .hud-row, body.mobile #clock-hud { font-size: 9.5px; }
+  /* the full-screen blur on sunny days is very heavy on a phone GPU */
+  body.mobile #vignette-blur { display: none !important; }
   #mb-menu-col { right: 38px; top: 114px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
   #mb-menu-col .mb-btn { width: 48px; height: 48px; }
   #mb-drop { display: none; flex-direction: column; gap: 6px; }
@@ -140,16 +150,13 @@ if (MOBILE_ON) {
     attackBtn.innerHTML = (kind === "bow" ? ICON.bow : ICON.sword) + "<span>" + (kind === "bow" ? "PANA" : kind === "sword" ? "ESPADA" : "ATTACK") + "</span>";
   }, 300);
 
-  // weather bubble on the minimap
-  const weatherBtn = tapBtn("mb-weather", "mb-round", ICON.sun, () => {
+  // the day/night monitor (top right, on the minimap): tap = today's weather
+  const dayMon = document.getElementById("daycycle-hud");
+  if (dayMon) dayMon.addEventListener("pointerdown", (e) => {
+    e.preventDefault(); e.stopPropagation();
     const w = typeof currentWeather !== "undefined" ? currentWeather : null;
     if (typeof showToast === "function") showToast("Panahon ngayon: " + (w ? (w.name || w.id || w) : "—"));
-  }, "Weather");
-  setInterval(() => {
-    const w = typeof currentWeather !== "undefined" && currentWeather ? String(currentWeather.id || currentWeather.name || currentWeather).toLowerCase() : "";
-    const icon = /rain/.test(w) ? ICON.rain : /snow/.test(w) ? ICON.snow : ICON.sun;
-    if (weatherBtn.dataset.icon !== icon) { weatherBtn.innerHTML = icon; weatherBtn.dataset.icon = icon; }
-  }, 1000);
+  });
 
   // Menu -> Profile, Bag, Settings (drop down)
   const col = add(`<div id="mb-menu-col" class="mb">
