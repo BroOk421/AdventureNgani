@@ -532,3 +532,6 @@ const WEATHER_SUNRAY_MULT = {
 // closer, so the same speed looked too fast on the small screen.
 const MOBILE_SPEED_MULT = 0.7;
 function mobileSpeedMult() { return typeof MOBILE_ON !== "undefined" && MOBILE_ON ? MOBILE_SPEED_MULT : 1; }
+// Phone (js/mobile.js) camera zoom. Higher = closer, lower = farther.
+// Desktop keeps ZOOM_MIN above.
+const MOBILE_ZOOM = 2;

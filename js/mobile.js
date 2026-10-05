@@ -31,6 +31,7 @@ function mobileTap(key) { mobileKey(key, true); setTimeout(() => mobileKey(key, 
 
 if (MOBILE_ON) {
   document.body.classList.add("mobile");
+  zoom = MOBILE_ZOOM; // phone camera (js/config.js)
   const vp = document.querySelector('meta[name="viewport"]');
   if (vp) vp.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover");
   const css = document.createElement("style");
@@ -55,8 +56,8 @@ if (MOBILE_ON) {
   #mb-grab { right: 128px; bottom: 26px; width: 58px; height: 58px; }
   #mb-throw { right: 120px; bottom: 98px; width: 50px; height: 50px; }
   #mb-keep { right: 58px; bottom: 128px; width: 50px; height: 50px; }
-  /* the round day/night monitor takes the old sun bubble's spot, sitting ON TOP of the minimap (the minimap is behind it) */
-  body.mobile #daycycle-hud { position: fixed; right: 70px; top: 0px; width: 64px !important; height: 69px !important; z-index: 48; pointer-events: auto; touch-action: none; }
+  /* the round day/night monitor takes the old sun bubble's spot, just left of the minimap, not overlapping it */
+  body.mobile #daycycle-hud { position: fixed; right: 118px; top: 6px; width: 64px !important; height: 69px !important; z-index: 48; pointer-events: auto; touch-action: none; }
   /* top left: just the bars now, a bit smaller */
   body.mobile #left-hud { top: 8px; left: 8px; gap: 4px; }
   body.mobile #stat-section { width: 128px; box-sizing: border-box; padding: 4px 6px; gap: 3px; }
