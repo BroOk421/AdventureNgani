@@ -8,8 +8,9 @@
      - bottom right: ATTACK (F; its label follows what you hold: ESPADA,
        PANA), Kuha (E), Hagis (T), Itago (R)
      - top right: the minimap as a circle (tap = the full map), the round
-       day/night monitor on it (tap = today's weather), and under it Menu — tap it and
-       Profile (P), Bag (B) and Settings (Map, Save, Export, Import) drop down
+       day/night monitor under it (tap = today's weather), and left of it two
+       small buttons, Menu and Bag (B) — tap Menu and Profile (P) and Settings
+       (Map, Save, Export, Import) drop down
      - top left: the bars (a bit smaller), with the time/date/weather card
        under them (the game's own HUD)
    Every button just presses the same key the keyboard would, so nothing
@@ -56,8 +57,8 @@ if (MOBILE_ON) {
   #mb-grab { right: 128px; bottom: 26px; width: 58px; height: 58px; }
   #mb-throw { right: 120px; bottom: 98px; width: 50px; height: 50px; }
   #mb-keep { right: 58px; bottom: 128px; width: 50px; height: 50px; }
-  /* the round day/night monitor takes the old sun bubble's spot, just left of the minimap, not overlapping it */
-  body.mobile #daycycle-hud { position: fixed; right: 118px; top: 6px; width: 64px !important; height: 69px !important; z-index: 48; pointer-events: auto; touch-action: none; }
+  /* the round day/night monitor sits under the minimap, centred on it */
+  body.mobile #daycycle-hud { position: fixed; right: 30px; top: 112px; width: 64px !important; height: 69px !important; z-index: 48; pointer-events: auto; touch-action: none; }
   /* top left: just the bars now, a bit smaller */
   body.mobile #left-hud { top: 8px; left: 8px; gap: 4px; }
   body.mobile #stat-section { width: 128px; box-sizing: border-box; padding: 4px 6px; gap: 3px; }
@@ -67,11 +68,16 @@ if (MOBILE_ON) {
   body.mobile .hud-row, body.mobile #clock-hud { font-size: 9.5px; }
   /* the full-screen blur on sunny days is very heavy on a phone GPU */
   body.mobile #vignette-blur { display: none !important; }
-  #mb-menu-col { right: 38px; top: 114px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-  #mb-menu-col .mb-btn { width: 48px; height: 48px; }
+  /* Menu + Bag: small, side by side, left of the minimap (where the monitor was).
+     The icons are 15x15; the buttons stay 30x30 so a thumb can still hit them. */
+  #mb-menu-col { right: 122px; top: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  #mb-top-row { display: flex; flex-direction: row; gap: 8px; }
+  #mb-top-row .mb-btn { width: 30px; height: 30px; border-radius: 8px; }
+  #mb-top-row .mb-btn svg { width: 15px; height: 15px; }
+  #mb-drop .mb-btn { width: 44px; height: 44px; }
   #mb-drop { display: none; flex-direction: column; gap: 6px; }
   #mb-drop.open { display: flex; }
-  #mb-settings { right: 96px; top: 114px; display: none; flex-direction: column; gap: 6px; padding: 8px; background: #2a1d14; border: 2px solid #a8743e; border-radius: 10px; }
+  #mb-settings { right: 176px; top: 46px; display: none; flex-direction: column; gap: 6px; padding: 8px; background: #2a1d14; border: 2px solid #a8743e; border-radius: 10px; }
   #mb-settings.open { display: flex; }
   #mb-settings button { min-width: 120px; min-height: 40px; background: #3b2a1e; border: 2px solid #a8743e; border-radius: 8px; color: #f3e2c3; font: 12px 'Pixelify Sans', ui-monospace, monospace; }
   `;
@@ -151,7 +157,7 @@ if (MOBILE_ON) {
     attackBtn.innerHTML = (kind === "bow" ? ICON.bow : ICON.sword) + "<span>" + (kind === "bow" ? "PANA" : kind === "sword" ? "ESPADA" : "ATTACK") + "</span>";
   }, 300);
 
-  // the day/night monitor (top right, on the minimap): tap = today's weather
+  // the day/night monitor (top right, under the minimap): tap = today's weather
   const dayMon = document.getElementById("daycycle-hud");
   // out of #left-hud (its z-index 30 would keep the monitor under the minimap)
   if (dayMon) document.body.appendChild(dayMon);
@@ -163,15 +169,17 @@ if (MOBILE_ON) {
 
   // Menu -> Profile, Bag, Settings (drop down)
   const col = add(`<div id="mb-menu-col" class="mb">
-    <button class="mb-btn" data-a="menu" aria-label="Menu" aria-expanded="false">${ICON.menu}<span>Menu</span></button>
+    <div id="mb-top-row">
+      <button class="mb-btn" data-a="menu" aria-label="Menu" aria-expanded="false">${ICON.menu}</button>
+      <button class="mb-btn" data-a="bag" aria-label="Bag">${ICON.bag}</button>
+    </div>
     <div id="mb-drop">
       <button class="mb-btn" data-a="profile" aria-label="Profile">${ICON.profile}<span>Profile</span></button>
-      <button class="mb-btn" data-a="bag" aria-label="Bag">${ICON.bag}<span>Bag</span></button>
       <button class="mb-btn" data-a="settings" aria-label="Settings">${ICON.gear}<span>Settings</span></button>
     </div></div>`);
   const drop = col.querySelector("#mb-drop"), menuBtn = col.querySelector('[data-a="menu"]');
   const settings = add(`<div id="mb-settings" class="mb">
-    <button data-s="map">Map</button><button data-s="save">Save</button><button data-s="export">Export</button><button data-s="import">Import</button></div>`);
+    <button data-s="map">Map</button><button data-s="save">Save</button><button data-s="export">Export</button><button data-s="import">Import</button><button data-s="fps">FPS</button></div>`);
   const clickToolbar = (re) => { for (const b of document.querySelectorAll("#top-toolbar button")) if (re.test(b.textContent)) { b.click(); return true; } return false; };
   col.addEventListener("pointerdown", (e) => {
     const b = e.target.closest("button"); if (!b) return;
@@ -190,8 +198,26 @@ if (MOBILE_ON) {
     else if (s === "save") clickToolbar(/Save/);
     else if (s === "export") clickToolbar(/Export/);
     else if (s === "import") clickToolbar(/Import/);
+    else if (s === "fps") toggleFps();
     settings.classList.remove("open");
   });
+
+  // FPS readout (Settings > FPS) — top centre, to see how smooth it runs on this phone
+  let fpsEl = null, fpsOn = false, fpsFrames = 0, fpsLast = 0;
+  function toggleFps() {
+    fpsOn = !fpsOn;
+    if (!fpsEl) {
+      fpsEl = add('<div id="mb-fps" class="mb" style="left:50%;top:6px;transform:translateX(-50%);padding:2px 8px;background:rgba(26,17,10,0.7);border:1px solid #a8743e;border-radius:6px;font-size:12px;pointer-events:none"></div>');
+    }
+    fpsEl.style.display = fpsOn ? "block" : "none";
+    if (fpsOn) { fpsFrames = 0; fpsLast = performance.now(); requestAnimationFrame(fpsTick); }
+  }
+  function fpsTick(now) {
+    if (!fpsOn) return;
+    fpsFrames++;
+    if (now - fpsLast >= 500) { fpsEl.textContent = Math.round(fpsFrames * 1000 / (now - fpsLast)) + " FPS"; fpsFrames = 0; fpsLast = now; }
+    requestAnimationFrame(fpsTick);
+  }
 
   // no page scroll / pinch zoom / long-press menus while playing
   document.addEventListener("touchmove", (e) => { if (!e.target.closest || !e.target.closest("#inventory, #npc-shop-overlay, #profile-overlay, .scroll-ok")) e.preventDefault(); }, { passive: false });

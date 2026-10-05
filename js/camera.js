@@ -2527,6 +2527,20 @@ function drawThrownTosses() {
 // position (same SPRITE_FEET_FRACTION math used everywhere else — see
 // getPlayerTile() in inventory.js). Smaller Y (further "up"/away) draws
 // first; larger Y (further "down"/toward the viewer) draws after, on top.
+// True when an item's art is completely off screen (with a margin as big
+// as the art itself, so swaying trees / night art / odd anchors never pop).
+// Off-screen items are skipped before sorting and drawing — the whole map
+// used to be sorted and drawn every frame even though only a small part of
+// it is ever visible (a big cost on a phone).
+function itemOffscreen(type, col, row) {
+  const d = itemDefs[type];
+  const ic = d && d.icon;
+  if (!ic || !ic.width) return false;
+  const m = (32 + Math.max(ic.width, ic.height)) * zoom;
+  const x = ((col + 0.5) * TILE - camX) * zoom, y = ((row + 1) * TILE - camY) * zoom;
+  return x + m < 0 || y + m < 0 || x - m > view.width || y - m > view.height;
+}
+
 function renderWorldObjectsSorted() {
   const drawables = [];
   // Worked out up front because the objectLayer pass below needs it to
@@ -2540,6 +2554,7 @@ function renderWorldObjectsSorted() {
     // each other.
     if (player.sleeping && key === tileKey(player.sleepBedCol, player.sleepBedRow)) return;
     const [col, row] = key.split(",").map(Number);
+    if (itemOffscreen(type, col, row)) return;
     // `alwaysBehindPlayer` (Flowering Bush, Mushroom (B) — per request,
     // "naka behind lang sa character"): skip the normal Y-sort entirely
     // and always draw before the player, regardless of relative
@@ -2591,6 +2606,7 @@ function renderWorldObjectsSorted() {
       const flower = layer === groundOverlayLayer && /^decoFlower/.test(type);
       if (!itemDefs[type].depthBand && !flower) return;
       const [col, row] = key.split(",").map(Number);
+      if (itemOffscreen(type, col, row)) return;
       // The tall flowers (per request): over a character whose shoes are
       // above their base, under one whose shoes have passed it — the same
       // visible-feet rule as the bushes (drawableOrder()).
@@ -2614,6 +2630,7 @@ function renderWorldObjectsSorted() {
   wildgrassLayer.forEach((type, key) => {
     if (key === playerDecorKey) return; // handled specially — see drawPlayerStandingDecor()
     const [col, row] = key.split(",").map(Number);
+    if (itemOffscreen(type, col, row)) return;
     // Pebbles / XXS Stone lie flat on the ground: per request ("yung mga
     // pebble na stone is dapat naka overlap yung character sa pebble laging
     // behind") they sort before everything, so the player and every NPC /

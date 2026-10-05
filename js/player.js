@@ -644,7 +644,7 @@ function updatePlayer(dt) {
   if (moving) {
     const len = Math.hypot(vx, vy) || 1;
     vx /= len; vy /= len;
-    const speed = player.speed * (running ? player.runMult : 1) * (starving ? HUNGRY_WALK_MULT : 1) * mobileSpeedMult();
+    const speed = player.speed * (running ? player.runMult : 1) * (starving ? HUNGRY_WALK_MULT : 1) * mobileSpeedMult(running);
 
     const wantX = clamp(player.x + vx * speed * dt, DRAW_SIZE / 2, worldW() - DRAW_SIZE / 2); // js/worlds.js
     const wantY = clamp(player.y + vy * speed * dt, DRAW_SIZE / 2, worldH() - DRAW_SIZE / 2);
@@ -715,11 +715,13 @@ function updatePlayer(dt) {
   // carry* sheets share the same frame counts/speeds as their normal
   // counterparts (idle/walk/run), so the anim key alone is enough here —
   // spriteForFacing() is what actually picks the carry vs normal sheet.
-  const fps = ANIM_FPS[player.anim] * (player.anim === "walk" && isPlayerStarving() ? HUNGRY_WALK_ANIM_MULT : 1); // tired, slower steps while starving
+  const fps = ANIM_FPS[player.anim] * (player.anim === "walk" && isPlayerStarving() ? HUNGRY_WALK_ANIM_MULT : 1) * (player.anim === "idle" ? 1 : mobileAnimMult()); // tired, slower steps while starving
   const frameCount = FRAME_COUNTS[player.anim];
   player.frameTimer += dt;
   if (player.frameTimer >= 1 / fps) {
-    player.frameTimer = 0;
+    // keep the leftover time (not reset to 0) so every step lasts the same
+    // length — resetting made the steps uneven, which read as choppy
+    player.frameTimer = Math.min(player.frameTimer - 1 / fps, 1 / fps);
     player.frame = (player.frame + 1) % frameCount;
   }
 }

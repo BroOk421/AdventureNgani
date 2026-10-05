@@ -1340,7 +1340,7 @@ function updatePlayerInsideInterior(dt) {
   if (moving) {
     const len = Math.hypot(vx, vy) || 1;
     vx /= len; vy /= len;
-    const speed = player.speed * (running ? player.runMult : 1) * (indoorStarving ? HUNGRY_WALK_MULT : 1) * mobileSpeedMult(); // slower on an empty stomach (js/player.js)
+    const speed = player.speed * (running ? player.runMult : 1) * (indoorStarving ? HUNGRY_WALK_MULT : 1) * mobileSpeedMult(running); // slower on an empty stomach (js/player.js)
     const wantX = clamp(player.x + vx * speed * dt, DRAW_SIZE / 2, room.width - DRAW_SIZE / 2);
     const wantY = clamp(player.y + vy * speed * dt, DRAW_SIZE / 2, room.height - DRAW_SIZE / 2);
 
@@ -1373,11 +1373,13 @@ function updatePlayerInsideInterior(dt) {
     player.frame = 0;
     player.frameTimer = 0;
   }
-  const fps = ANIM_FPS[player.anim] * (player.anim === "walk" && isPlayerStarving() ? HUNGRY_WALK_ANIM_MULT : 1);
+  const fps = ANIM_FPS[player.anim] * (player.anim === "walk" && isPlayerStarving() ? HUNGRY_WALK_ANIM_MULT : 1) * (player.anim === "idle" ? 1 : mobileAnimMult());
   const frameCount = FRAME_COUNTS[player.anim];
   player.frameTimer += dt;
   if (player.frameTimer >= 1 / fps) {
-    player.frameTimer = 0;
+    // keep the leftover time (not reset to 0) so every step lasts the same
+    // length — resetting made the steps uneven, which read as choppy
+    player.frameTimer = Math.min(player.frameTimer - 1 / fps, 1 / fps);
     player.frame = (player.frame + 1) % frameCount;
   }
 

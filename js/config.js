@@ -530,8 +530,19 @@ const WEATHER_SUNRAY_MULT = {
 
 // Phone (js/mobile.js) walking/running speed, x normal. The phone camera is
 // closer, so the same speed looked too fast on the small screen.
-const MOBILE_SPEED_MULT = 0.7;
-function mobileSpeedMult() { return typeof MOBILE_ON !== "undefined" && MOBILE_ON ? MOBILE_SPEED_MULT : 1; }
+const MOBILE_SPEED_MULT = 0.55;
+// Phone run speed: running is this many times the (phone) walk speed.
+// The desktop uses player.runMult (1.8); on the phone 1.8 felt too fast.
+const MOBILE_RUN_MULT = 1.45;
+function mobileSpeedMult(running) {
+  if (typeof MOBILE_ON === "undefined" || !MOBILE_ON) return 1;
+  return MOBILE_SPEED_MULT * (running ? MOBILE_RUN_MULT / player.runMult : 1);
+}
 // Phone (js/mobile.js) camera zoom. Higher = closer, lower = farther.
 // Desktop keeps ZOOM_MIN above.
 const MOBILE_ZOOM = 2;
+// Phone walk/run animation speed, x normal — slowed less than the movement
+// so the steps don't look like slow motion, but enough that the feet don't
+// slide. (Idle is not affected.)
+const MOBILE_ANIM_MULT = 0.75;
+function mobileAnimMult() { return typeof MOBILE_ON !== "undefined" && MOBILE_ON ? MOBILE_ANIM_MULT : 1; }
