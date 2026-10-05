@@ -1340,7 +1340,7 @@ function updatePlayerInsideInterior(dt) {
   if (moving) {
     const len = Math.hypot(vx, vy) || 1;
     vx /= len; vy /= len;
-    const speed = player.speed * (running ? player.runMult : 1) * (indoorStarving ? HUNGRY_WALK_MULT : 1); // slower on an empty stomach (js/player.js)
+    const speed = player.speed * (running ? player.runMult : 1) * (indoorStarving ? HUNGRY_WALK_MULT : 1) * mobileSpeedMult(); // slower on an empty stomach (js/player.js)
     const wantX = clamp(player.x + vx * speed * dt, DRAW_SIZE / 2, room.width - DRAW_SIZE / 2);
     const wantY = clamp(player.y + vy * speed * dt, DRAW_SIZE / 2, room.height - DRAW_SIZE / 2);
 
@@ -1359,7 +1359,7 @@ function updatePlayerInsideInterior(dt) {
       if (vx === 0 && vy !== 0 && Math.abs(player.y - beforeY) < 0.01) {
         const tx = (Math.floor(player.x / TILE) + 0.5) * TILE;
         if (Math.abs(tx - player.x) > 0.01 && !isInteriorBodyBlockedAt(room, tx, wantY)) {
-          const step = Math.sign(tx - player.x) * Math.min(Math.abs(tx - player.x), player.speed * dt);
+          const step = Math.sign(tx - player.x) * Math.min(Math.abs(tx - player.x), player.speed * mobileSpeedMult() * dt);
           if (!isInteriorBodyBlockedAt(room, player.x + step, player.y)) player.x += step;
         }
       }

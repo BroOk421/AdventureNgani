@@ -3280,6 +3280,12 @@ function renderInteriorScene() {
       : clamp(player.y - viewWorldH / 2, 0, room.height - viewWorldH);
   }
 
+  // Snap the camera to whole canvas pixels. A camera between pixels makes
+  // the un-smoothed pixel art land on a different pixel each frame, so the
+  // whole map shimmers/jitters while walking (very visible on a phone).
+  camX = Math.round(camX * zoom) / zoom;
+  camY = Math.round(camY * zoom) / zoom;
+
   ctx.clearRect(0, 0, vw, vh);
   ctx.fillStyle = isCave ? "#000" : "#0a0a0a";
   ctx.fillRect(0, 0, vw, vh);
@@ -3637,6 +3643,12 @@ function render() {
     0,
     Math.max(0, worldH() - viewWorldH),
   );
+
+  // Snap the camera to whole canvas pixels. A camera between pixels makes
+  // the un-smoothed pixel art land on a different pixel each frame, so the
+  // whole map shimmers/jitters while walking (very visible on a phone).
+  camX = Math.round(camX * zoom) / zoom;
+  camY = Math.round(camY * zoom) / zoom;
 
   ctx.clearRect(0, 0, vw, vh);
   ctx.drawImage(worldCanvas, camX, camY, viewWorldW, viewWorldH, 0, 0, vw, vh);

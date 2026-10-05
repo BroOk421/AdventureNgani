@@ -644,7 +644,7 @@ function updatePlayer(dt) {
   if (moving) {
     const len = Math.hypot(vx, vy) || 1;
     vx /= len; vy /= len;
-    const speed = player.speed * (running ? player.runMult : 1) * (starving ? HUNGRY_WALK_MULT : 1);
+    const speed = player.speed * (running ? player.runMult : 1) * (starving ? HUNGRY_WALK_MULT : 1) * mobileSpeedMult();
 
     const wantX = clamp(player.x + vx * speed * dt, DRAW_SIZE / 2, worldW() - DRAW_SIZE / 2); // js/worlds.js
     const wantY = clamp(player.y + vy * speed * dt, DRAW_SIZE / 2, worldH() - DRAW_SIZE / 2);

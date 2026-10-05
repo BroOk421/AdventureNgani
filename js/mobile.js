@@ -55,8 +55,8 @@ if (MOBILE_ON) {
   #mb-grab { right: 128px; bottom: 26px; width: 58px; height: 58px; }
   #mb-throw { right: 120px; bottom: 98px; width: 50px; height: 50px; }
   #mb-keep { right: 58px; bottom: 128px; width: 50px; height: 50px; }
-  /* the round day/night monitor takes the old sun bubble's spot, overlapping the minimap */
-  body.mobile #daycycle-hud { position: fixed; right: 84px; top: 2px; width: 62px !important; height: 66px !important; z-index: 47; pointer-events: auto; touch-action: none; }
+  /* the round day/night monitor takes the old sun bubble's spot, sitting ON TOP of the minimap (the minimap is behind it) */
+  body.mobile #daycycle-hud { position: fixed; right: 70px; top: 0px; width: 64px !important; height: 69px !important; z-index: 48; pointer-events: auto; touch-action: none; }
   /* top left: just the bars now, a bit smaller */
   body.mobile #left-hud { top: 8px; left: 8px; gap: 4px; }
   body.mobile #stat-section { width: 128px; box-sizing: border-box; padding: 4px 6px; gap: 3px; }
@@ -152,6 +152,8 @@ if (MOBILE_ON) {
 
   // the day/night monitor (top right, on the minimap): tap = today's weather
   const dayMon = document.getElementById("daycycle-hud");
+  // out of #left-hud (its z-index 30 would keep the monitor under the minimap)
+  if (dayMon) document.body.appendChild(dayMon);
   if (dayMon) dayMon.addEventListener("pointerdown", (e) => {
     e.preventDefault(); e.stopPropagation();
     const w = typeof currentWeather !== "undefined" ? currentWeather : null;

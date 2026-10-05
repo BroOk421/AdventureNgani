@@ -527,3 +527,8 @@ const WEATHER_SUNRAY_MULT = {
   Thunderstorm: 0.05,
   Snow: 0.5,
 };
+
+// Phone (js/mobile.js) walking/running speed, x normal. The phone camera is
+// closer, so the same speed looked too fast on the small screen.
+const MOBILE_SPEED_MULT = 0.7;
+function mobileSpeedMult() { return typeof MOBILE_ON !== "undefined" && MOBILE_ON ? MOBILE_SPEED_MULT : 1; }
