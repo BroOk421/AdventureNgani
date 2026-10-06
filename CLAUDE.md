@@ -6347,3 +6347,28 @@ browser can't show a stale cave texture.
   Equipment list (G). The fresh start no longer puts the starter tools on
   the hotbar; the chest window's bag doesn't list them. index.html ->
   ?v=20261040a.
+
+## Phone G button, no tile seams, gold to 0, compact Profile
+
+- js/mobile.js: #mb-equip (the Equipment list, G) under the day/night circle.
+- js/camera.js drawGroundItemAt(): each tile's edges are rounded to whole
+  screen px on their own, so neighbours always meet (no hairline seams at
+  the fractional zooms).
+- js/freshStart.js: once (player.goldResetV1, saved) the gold goes to 0.
+- js/gear.js Profile: 4 rows — Armor / Helmet / Gauntlet, Ring / Ring,
+  Shield / Sword, Boots — the character spans rows 2-3, so the bars and
+  stats sit higher. index.html -> ?v=20261041a.
+
+## Black minimap indoors; Boots on the Shield / Sword row
+
+- js/worlds.js: inside a room the minimap stays on screen as a black dial
+  (was hidden). js/gear.js Profile: 3 rows — Armor / Helmet / Gauntlet,
+  Ring / you / Ring, Shield / Boots / Sword (character box 104x104 shown at
+  80px). index.html -> ?v=20261042a.
+
+## Profile: bigger idle, no shadow, + only with points
+
+- js/gear.js: the Profile's character is just the body cut from the idle
+  frame (px 16..48 x 14..50) at 3x, filling its box; no shadow; the
+  attributes' "+" buttons appear only while there are points to spend.
+  index.html -> ?v=20261043a.

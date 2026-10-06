@@ -152,7 +152,7 @@ function buildProfile() {
   profileEl.innerHTML = `
   <div style="background:#3b2a1e;border:3px solid #a8743e;border-radius:10px;padding:8px 10px;color:#f3e2c3;box-shadow:0 8px 30px rgba(0,0,0,.6);width:250px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:13px">Profile</b><button id="profile-close" style="background:#6b4a2e;color:#f3e2c3;border:1px solid #a8743e;border-radius:4px;cursor:pointer;font-size:11px">✕</button></div>
-    <div id="profile-grid" style="display:grid;grid-template-columns:44px 104px 44px;grid-template-rows:44px 44px 44px 44px 44px;gap:4px;align-items:center;justify-items:center;justify-content:center"></div>
+    <div id="profile-grid" style="display:grid;grid-template-columns:44px 104px 44px;grid-template-rows:44px 80px 44px;gap:4px;align-items:center;justify-items:center;justify-content:center"></div>
     <div id="profile-bars" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-top:6px;font-size:10px"></div>
     <div id="profile-attrs" style="margin-top:6px;font-size:11px"></div>
     <div id="profile-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;margin-top:6px;font-size:11px"></div>
@@ -161,7 +161,8 @@ function buildProfile() {
   profileEl.addEventListener("mousedown", (e) => { if (e.target === profileEl) toggleProfile(false); });
   profileEl.querySelector("#profile-close").addEventListener("click", () => toggleProfile(false));
   const grid = profileEl.querySelector("#profile-grid");
-  const layout = [["helmet", 2, 1], ["armor", 1, 2], ["ringL", 1, 3], ["shield", 1, 4], ["gauntlet", 3, 2], ["ringR", 3, 3], ["weapon", 3, 4], ["boots", 2, 5]];
+  // Per request: compact — Armor / Helmet / Gauntlet, then Ring / you / Ring, then Shield / Boots / Sword
+  const layout = [["helmet", 2, 1], ["armor", 1, 1], ["gauntlet", 3, 1], ["ringL", 1, 2], ["ringR", 3, 2], ["shield", 1, 3], ["boots", 2, 3], ["weapon", 3, 3]];
   for (const [id, col, row] of layout) {
     const b = document.createElement("div");
     b.dataset.slot = id;
@@ -170,8 +171,8 @@ function buildProfile() {
     grid.appendChild(b);
   }
   profileCanvas = document.createElement("canvas");
-  profileCanvas.width = 104; profileCanvas.height = 140;
-  profileCanvas.style.cssText = "grid-column:2;grid-row:2 / span 3;image-rendering:pixelated";
+  profileCanvas.width = 96; profileCanvas.height = 108; // the body only (frame px 16..48 x 14..50), drawn at 3x
+  profileCanvas.style.cssText = "grid-column:2;grid-row:2;height:80px;width:auto;image-rendering:pixelated";
   grid.appendChild(profileCanvas);
 }
 function profileBar(label, val, max, color) {
@@ -200,7 +201,7 @@ function renderProfile() {
   const attrsEl = profileEl.querySelector("#profile-attrs");
   attrsEl.innerHTML = `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><b>Attributes</b><span style="color:${pts ? "#9cf59a" : "#c8b8a0"}">Points: ${pts}</span></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 8px">` + ATTR_ROWS.map(([k, name, desc]) =>
-      `<div title="${desc}" style="display:flex;justify-content:space-between;align-items:center;cursor:help"><b style="color:#9fd0ff">${name}</b><span>${player.attrs[k]} <button data-attr="${k}" ${pts ? "" : "disabled"} style="padding:0 4px;font-size:10px;background:#4a6b2e;color:#fff;border:1px solid #7fae4e;border-radius:3px;cursor:pointer">+</button></span></div>`).join("") + "</div>";
+      `<div title="${desc}" style="display:flex;justify-content:space-between;align-items:center;cursor:help"><b style="color:#9fd0ff">${name}</b><span>${player.attrs[k]}${pts ? ` <button data-attr="${k}" style="padding:0 4px;font-size:10px;background:#4a6b2e;color:#fff;border:1px solid #7fae4e;border-radius:3px;cursor:pointer">+</button>` : ""}</span></div>`).join("") + "</div>";
   for (const btn of attrsEl.querySelectorAll("[data-attr]")) btn.addEventListener("click", (e) => { e.stopPropagation(); spendStat(btn.dataset.attr); });
   profileEl.querySelector("#profile-stats").innerHTML = STAT_ROWS.map(([name, val, desc]) =>
     `<div title="${desc}" style="display:flex;justify-content:space-between;cursor:help"><b style="color:#ffd88a">${name}</b><span>${val()}</span></div>`).join("");
@@ -253,11 +254,10 @@ setInterval(() => {
   const sheet = typeof spriteForFacing === "function" ? spriteForFacing("idle", "down", "normal") : null;
   const g = profileCanvas.getContext("2d");
   g.clearRect(0, 0, profileCanvas.width, profileCanvas.height);
-  g.fillStyle = "rgba(0,0,0,0.25)"; g.beginPath(); g.ellipse(52, 96, 20, 5, 0, 0, Math.PI * 2); g.fill();
   if (sheet && sheet.width) {
     const f = Math.floor(performance.now() / 250) % Math.max(1, Math.round(sheet.width / 64));
     g.imageSmoothingEnabled = false;
-    g.drawImage(sheet, f * 64, 0, 64, 64, -12, -24, 128, 128); // the body, centred
+    g.drawImage(sheet, f * 64 + 16, 14, 32, 36, 0, 0, 96, 108); // per request: the idle body fills the box (no shadow)
   }
   if (!profileEl.matches(":hover")) renderProfile();
 }, 250);
