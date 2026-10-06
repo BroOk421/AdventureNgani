@@ -398,7 +398,7 @@ const CALENDAR_SEASON_ICONS = {
 // matter the month. Put it back to null and the normal daily roll
 // (MONTH_WEATHER_WEIGHTS below) takes over again. It's a `let`, so it can
 // also be changed live from the browser console: FORCE_WEATHER = "Snow"
-let FORCE_WEATHER = "Snow";
+let FORCE_WEATHER = null;
 
 const WEATHER_STATES = [
   { name: "Sunny", icon: "☀️" },
@@ -545,4 +545,6 @@ const MOBILE_ZOOM = 2;
 // so the steps don't look like slow motion, but enough that the feet don't
 // slide. (Idle is not affected.)
 const MOBILE_ANIM_MULT = 0.75;
-function mobileAnimMult() { return typeof MOBILE_ON !== "undefined" && MOBILE_ON ? MOBILE_ANIM_MULT : 1; }
+function mobileAnimMult() {
+  return typeof MOBILE_ON !== "undefined" && MOBILE_ON ? MOBILE_ANIM_MULT : 1;
+}

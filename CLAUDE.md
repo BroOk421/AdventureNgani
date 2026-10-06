@@ -6115,3 +6115,16 @@ browser can't show a stale cave texture.
   is three soft strokes instead of a blur.
 - Headless phone-size Sharp test (east world, snow, day): ~42 -> ~54 fps.
   index.html -> ?v=20261025a (+ js/chunks.js).
+
+## Culling: only the screen + 3 tiles
+
+- js/culling.js (new, after critters.js): CULL_MARGIN = 3 tiles past the
+  screen. itemOffscreen() replaced: a placed object is drawn only when its
+  art rectangle (+1 tile slack for night/snow art) reaches the screen +
+  margin. drawMob() / drawMineDrop() skip mobs and resting drops outside it.
+  updateMob(): a mob off screen and outside its aggro range (+24 px) thinks
+  only every 0.25 s with the saved-up time (attacking, stunned, targeted,
+  on-screen or close mobs: every frame). Everything else (ground chunks,
+  flat layers, citizens, animals, lights, critters, chests) was already
+  culled. Headless phone Sharp east-world snow: ~54 -> ~61 fps.
+  index.html -> ?v=20261026a (+ js/culling.js).
