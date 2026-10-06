@@ -395,7 +395,7 @@ function treeTrunkSpot(type) {
     try {
       const c = document.createElement("canvas");
       c.width = icon.width; c.height = icon.height;
-      const g = c.getContext("2d");
+      const g = c.getContext("2d", { willReadFrequently: true });
       g.drawImage(icon, 0, 0);
       const d = g.getImageData(0, 0, icon.width, icon.height).data;
       const H = icon.height, W = icon.width;

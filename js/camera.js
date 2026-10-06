@@ -47,6 +47,12 @@ function resizeCanvas() {
   ctx.imageSmoothingEnabled = false; // resizing resets this on some browsers
 }
 window.addEventListener("resize", resizeCanvas);
+// Phones: the window size can change without a plain "resize" (the app going
+// full screen, the rotation settling) — catch those too, a frame later when
+// the new size is actually in place.
+const resizeSoon = () => requestAnimationFrame(resizeCanvas);
+window.addEventListener("orientationchange", resizeSoon);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", resizeSoon);
 
 // scratch canvas reused every frame to build a silhouette out of the
 // currently-playing sprite frame (so the shadow has an actual head,
@@ -605,29 +611,51 @@ function getOccluderSilhouette(icon) {
   c.width = icon.width;
   c.height = icon.height;
   const cc = c.getContext("2d");
-  cc.drawImage(icon, 0, 0);
-  // Keep ONLY the sprite's real pixels, flattened to solid black. Faint
-  // pixels (soft glows, anti-aliased halos, near-invisible padding) are
-  // dropped entirely rather than kept at their low alpha — projected a
-  // few dozen times each, those faint pixels were what filled a sprite's
-  // empty deadspace with a grey box.
-  try {
-    const img = cc.getImageData(0, 0, icon.width, icon.height);
-    const px = img.data;
-    for (let i = 0; i < px.length; i += 4) {
-      const solid = px[i + 3] >= 128;
-      px[i] = px[i + 1] = px[i + 2] = 0;
-      px[i + 3] = solid ? 255 : 0;
+  // Performance (phones): getImageData() on a normal (GPU) canvas makes the
+  // browser stop and wait for the graphics chip to finish EVERYTHING it was
+  // drawing, then copy pixels back — measured at hundreds of ms per call.
+  // A walking citizen / animal shows a new animation frame -> a new icon ->
+  // one of those stalls each time: the big lag spikes at night.
+  //  - a canvas source (citizen / animal frames, snowy copies): the shape is
+  //    made with compositing only, entirely on the GPU, no read-back;
+  //  - an image file: its pixels are read on a CPU-side scratch canvas
+  //    (willReadFrequently), which never touches the GPU.
+  const isCanvasSource = typeof HTMLCanvasElement !== "undefined" && icon instanceof HTMLCanvasElement;
+  if (!isCanvasSource) {
+    try {
+      const s = document.createElement("canvas");
+      s.width = icon.width;
+      s.height = icon.height;
+      const sc = s.getContext("2d", { willReadFrequently: true });
+      sc.drawImage(icon, 0, 0);
+      // Keep ONLY the sprite's real pixels, flattened to solid black. Faint
+      // pixels (soft glows, anti-aliased halos, near-invisible padding) are
+      // dropped entirely rather than kept at their low alpha — projected a
+      // few dozen times each, those faint pixels were what filled a sprite's
+      // empty deadspace with a grey box.
+      const img = sc.getImageData(0, 0, icon.width, icon.height);
+      const px = img.data;
+      for (let i = 0; i < px.length; i += 4) {
+        const solid = px[i + 3] >= 128;
+        px[i] = px[i + 1] = px[i + 2] = 0;
+        px[i + 3] = solid ? 255 : 0;
+      }
+      sc.putImageData(img, 0, 0);
+      cc.drawImage(s, 0, 0); // one upload into a normal canvas, then it's drawn from the GPU like any sprite
+      OCCLUDER_SILHOUETTE_CACHE.set(icon, c);
+      return c;
+    } catch (e) {
+      // file:// can taint the canvas in some browsers — fall back below
     }
-    cc.putImageData(img, 0, 0);
-  } catch (e) {
-    // file:// can taint the canvas in some browsers — fall back to the
-    // plain alpha-shape silhouette.
-    cc.globalCompositeOperation = "source-in";
-    cc.fillStyle = "#000";
-    cc.fillRect(0, 0, icon.width, icon.height);
-    cc.globalCompositeOperation = "source-over";
   }
+  // The plain alpha-shape silhouette (pixel-art frames are fully opaque or
+  // fully clear anyway).
+  cc.clearRect(0, 0, icon.width, icon.height);
+  cc.drawImage(icon, 0, 0);
+  cc.globalCompositeOperation = "source-in";
+  cc.fillStyle = "#000";
+  cc.fillRect(0, 0, icon.width, icon.height);
+  cc.globalCompositeOperation = "source-over";
   OCCLUDER_SILHOUETTE_CACHE.set(icon, c);
   return c;
 }
@@ -697,7 +725,7 @@ function iconOpaqueNear(icon, px, py, r) {
         const c = document.createElement("canvas");
         c.width = icon.width;
         c.height = icon.height;
-        const g = c.getContext("2d");
+        const g = c.getContext("2d", { willReadFrequently: true }); // CPU-side: reading it back never stalls the GPU
         g.drawImage(icon, 0, 0);
         const d = g.getImageData(0, 0, icon.width, icon.height).data;
         const a = new Uint8Array(icon.width * icon.height);
@@ -970,9 +998,10 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   // (Maria, the townsfolk) uses the nearest few shadow casters and fewer
   // projection steps — they're small, soft and usually off to the side.
   const isPlayerLight = worldX === player.x && worldY === player.y;
+  const phone = isMobileMode();
   const occluders = collectLightOccluders(worldX, worldY, worldRadius,
-    { withAnimals: true, maxOccluders: isPlayerLight ? LIGHT_MAX_OCCLUDERS : NPC_LIGHT_MAX_OCCLUDERS });
-  const maxSteps = isPlayerLight ? LIGHT_SHADOW_MAX_STEPS : NPC_LIGHT_SHADOW_MAX_STEPS;
+    { withAnimals: true, maxOccluders: isPlayerLight ? LIGHT_MAX_OCCLUDERS : (phone ? 4 : NPC_LIGHT_MAX_OCCLUDERS) });
+  const maxSteps = isPlayerLight ? (phone ? 24 : LIGHT_SHADOW_MAX_STEPS) : (phone ? 10 : NPC_LIGHT_SHADOW_MAX_STEPS);
   let hasShadow = false;
   // Performance: someone standing still (sitting, idle, Maria at work) with
   // nothing moving around them gets the exact same candle as last frame —
@@ -1050,9 +1079,12 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   //    filtered separately.
   if (hasShadow) {
     glowCtx.globalCompositeOperation = "destination-out";
-    glowCtx.filter = "blur(1px)"; // 2px at full res
+    // Phones: no filter — a canvas blur is one of the most expensive things a
+    // phone GPU can be asked for, and this half-res candle is smoothed on
+    // the way up to the screen anyway.
+    if (!phone) glowCtx.filter = "blur(1px)"; // 2px at full res
     glowCtx.drawImage(glowMaskCanvas, 0, 0);
-    glowCtx.filter = "none";
+    if (!phone) glowCtx.filter = "none";
     glowCtx.globalCompositeOperation = "source-over";
   }
 
@@ -1076,11 +1108,21 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   //    at (POST_GLOW_MATCH_CANDLE, the lamp's own figure for exactly this).
   addSceneLight(glowCanvas, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
   // keep a copy for next frame (see the cache lookup above)
-  const keep = document.createElement("canvas");
-  keep.width = d; keep.height = d;
-  keep.getContext("2d").drawImage(glowCanvas, 0, 0);
+  // Performance: a walking character misses this cache every frame, so the
+  // canvas the oldest entry was using is recycled instead of creating (and
+  // later garbage-collecting) a brand-new GPU canvas each time.
+  let keep = null;
+  if (candleCache.size >= CANDLE_CACHE_MAX) {
+    const oldKey = candleCache.keys().next().value;
+    keep = candleCache.get(oldKey);
+    candleCache.delete(oldKey);
+  }
+  if (!keep) keep = document.createElement("canvas");
+  if (keep.width !== d || keep.height !== d) { keep.width = d; keep.height = d; }
+  const kg = keep.getContext("2d");
+  kg.clearRect(0, 0, d, d);
+  kg.drawImage(glowCanvas, 0, 0);
   candleCache.set(ckey, keep);
-  if (candleCache.size > CANDLE_CACHE_MAX) candleCache.delete(candleCache.keys().next().value);
 }
 const CANDLE_CACHE_MAX = 24;
 // The counter pieces (bartender*) in the room, as screen-space cutouts for
@@ -1234,9 +1276,78 @@ function drawPlayerNightRelight() {
    only cut out by that much, so the fade still reads the same. */
 const relightCanvas = document.createElement("canvas");
 
+/* Performance (phones): every lamp, every citizen, every animal and every
+   lantern relight asked relightOccluders() for the same objects again —
+   a dozen-plus full row scans a frame at night. The STILL things in front
+   (objects, crates, flowers, bridges) are now collected ONCE per frame for
+   the whole screen, each with the depth it has to beat (`k`), and every
+   non-player caller just keeps the ones whose `k` is past its own feet.
+   Same answer the per-call scan gave, a fraction of the work. The player's
+   own call (see-through fading, the seat) still runs the full version. */
+let relightFrameId = 0;          // bumped at the start of every render()
+let relightStaticFrame = -1, relightStaticList = null;
+function relightStaticOccludersMobile() {
+  if (relightStaticFrame === relightFrameId && relightStaticList) return relightStaticList;
+  const out = [];
+  const vr0 = Math.floor(camY / TILE) - 4, vr1 = Math.ceil((camY + view.height / zoom) / TILE) + 16;
+  const vc0 = Math.floor(camX / TILE) - 10, vc1 = Math.ceil((camX + view.width / zoom) / TILE) + 10;
+  const objRows = layerRows(objectLayer, "relightObj", (type) => { const d = itemDefs[type]; return !!(d && !d.alwaysBehindPlayer); });
+  for (let row = vr0; row <= vr1; row++) {
+    const list = objRows.get(row);
+    if (!list) continue;
+    for (const [col, type] of list) {
+      if (col < vc0 || col > vc1) continue;
+      const def = itemDefs[type];
+      const swap = nightSwapFor(type);
+      const showNight = swap && swap.night > 0.5;
+      const icon = showNight ? swap.icon : def.icon;
+      if (!icon || !icon.width) continue;
+      const r = objectArtRect(icon, showNight ? swap.root : def.artRoot, col, row, camX, camY);
+      const k = itemSortY(type, col, row) - (/^(bush|decoFlower)/.test(type) ? CHARACTER_VISIBLE_FEET_EXTRA : 0);
+      out.push({ icon, x: r.x, y: r.y, w: r.w, h: r.h, alpha: 1, k });
+    }
+  }
+  [groundLayer, groundOverlayLayer, upperLayer].forEach((layer, li) => {
+    const rows = layerRows(layer, "relightBand" + li, (type) => {
+      const def = itemDefs[type];
+      return !!(def && (def.depthBand || (layer === groundOverlayLayer && /^decoFlower/.test(type))));
+    });
+    for (let row = vr0; row <= vr1; row++) {
+      const list = rows.get(row);
+      if (!list) continue;
+      for (const [col, type] of list) {
+        if (col < vc0 || col > vc1) continue;
+        const def = itemDefs[type];
+        const flower = layer === groundOverlayLayer && /^decoFlower/.test(type);
+        const icon = def.icon;
+        if (!icon || !icon.width) continue;
+        const k = flower ? (row + 1) * TILE - CHARACTER_VISIBLE_FEET_EXTRA : itemSortY(type, col, row);
+        out.push({ icon, x: ((col + 0.5) * TILE - camX) * zoom - icon.width * zoom / 2,
+          y: ((row + 1) * TILE - camY) * zoom - icon.height * zoom, w: icon.width * zoom, h: icon.height * zoom, alpha: 1, k });
+      }
+    }
+  });
+  for (const comp of bridgeComponentsThisFrame) {
+    for (const [col, row, type] of comp.tiles) {
+      const icon = itemDefs[type] && itemDefs[type].icon;
+      if (!icon || !icon.width) continue;
+      out.push({ icon, x: (col * TILE - camX) * zoom, y: (row * TILE - camY) * zoom, w: TILE * zoom, h: TILE * zoom, alpha: 1, k: comp.bottom });
+    }
+  }
+  relightStaticList = out;
+  relightStaticFrame = relightFrameId;
+  return out;
+}
+
 function relightOccluders(feetY, isPlayer) {
   const out = [];
   const seated = isPlayer && player.sitting;
+  if (!isPlayer && player.scene !== "inside" && isMobileMode()) {
+    for (const o of relightStaticOccludersMobile()) if (o.k > feetY) out.push(o);
+    for (const o of citizenRelightOccluders(feetY)) out.push(o);
+    for (const o of animalRelightOccluders(feetY)) out.push(o);
+    return out;
+  }
   if (player.scene === "inside") {
     const room = INTERIOR_ROOMS[player.activeRoomId];
     if (!room) return out;
@@ -1368,9 +1479,11 @@ function drawMaskedRelight(drawFn, px, py, size, feetY, strength, isPlayer) {
   const left = Math.floor(px - size * 0.75), top = Math.floor(py - size * 1.25);
   const w = Math.ceil(size * 1.5), h = Math.ceil(size * 2);
   if (left + w < 0 || top + h < 0 || left > view.width || top > view.height) return;
-  if (relightCanvas.width !== w || relightCanvas.height !== h) {
-    relightCanvas.width = w;
-    relightCanvas.height = h;
+  // Performance: grow-only. Every character / lantern asked for a different
+  // size, so the canvas was re-allocated on the GPU several times a frame.
+  if (relightCanvas.width < w || relightCanvas.height < h) {
+    relightCanvas.width = Math.max(relightCanvas.width, w);
+    relightCanvas.height = Math.max(relightCanvas.height, h);
   }
   const g = relightCanvas.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -1394,7 +1507,7 @@ function drawMaskedRelight(drawFn, px, py, size, feetY, strength, isPlayer) {
   ctx.save();
   ctx.imageSmoothingEnabled = false;
   ctx.globalAlpha = strength;
-  ctx.drawImage(relightCanvas, left, top);
+  ctx.drawImage(relightCanvas, 0, 0, w, h, left, top, w, h);
   ctx.restore();
 }
 
@@ -1533,7 +1646,7 @@ function drawLampNightRelight() {
   if (night <= 0.01) return;
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  for (const [key, type] of objectLayer) {
+  for (const [key, type] of lampEntries()) {
     const def = itemDefs[type];
     if (!def || !def.lightGlow || !def.lightGlow.relightRect) continue;
     // The lit art: a lamp with a night swap only shows it once it's dark
@@ -2178,9 +2291,12 @@ const POST_SHADOW_MAX_OCCLUDERS = 28; // nearest-first cap per lamp
 const POST_SHADOW_STRENGTH = 0.9;    // how much light a shadow removes (1 = pitch black, lower = softer)
 const POST_SHADOW_BLUR_PX = 3;       // world px of softening on the shadow edges
 const postShadowCache = new Map();   // lamp "col,row" -> { sig, canvas }
+const POST_SHADOW_CACHE_MAX = 40;    // phones: lamps kept even while off screen
 
 function buildShadowedPostGlow(entry, wx, wy, occluders) {
-  const R = POST_SHADOW_RES;
+  // Phones: 1 cache px per world px — a quarter of the pixels to build, the
+  // pool is soft light anyway (and the screen is only ~2.7 px per world px).
+  const R = isMobileMode() ? 1 : POST_SHADOW_RES;
   const n = POST_GLOW_WORLD_SIZE * R;
   if (!entry.canvas) {
     entry.canvas = document.createElement("canvas");
@@ -2313,6 +2429,19 @@ function drawIndoorLampGlows(room, strength) {
   }
 }
 
+// Performance (phones): the lamps on / near the screen, from row buckets,
+// instead of walking every placed object on the map (twice a frame at night).
+function lampEntries() {
+  if (!isMobileMode()) return objectLayer;
+  const rows = layerRows(objectLayer, "lamps", (type) => !!(itemDefs[type] && itemDefs[type].lightGlow));
+  const pad = Math.ceil(POST_GLOW_WORLD_SIZE / TILE);
+  const r0 = Math.floor(camY / TILE) - pad, r1 = Math.ceil((camY + view.height / zoom) / TILE) + pad;
+  const c0 = Math.floor(camX / TILE) - pad, c1 = Math.ceil((camX + view.width / zoom) / TILE) + pad;
+  const out = [];
+  for (let r = r0; r <= r1; r++) { const a = rows.get(r); if (a) for (const e of a) if (e[0] >= c0 && e[0] <= c1) out.push([e[2], e[1]]); }
+  return out;
+}
+
 function drawPostLightGlows(camX, camY) {
   const night = getNightLightFactor();
   if (night <= 0.01) return; // daylight — the lamps are off
@@ -2322,7 +2451,7 @@ function drawPostLightGlows(camX, camY) {
 
   const size = POST_GLOW_WORLD_SIZE * zoom;
   const strength = night * POST_GLOW_MATCH_CANDLE;
-  for (const [key, type] of objectLayer) {
+  for (const [key, type] of lampEntries()) {
     const def = itemDefs[type];
     if (!def || !def.lightGlow) continue;
     const comma = key.indexOf(",");
@@ -2348,7 +2477,16 @@ function drawPostLightGlows(camX, camY) {
 
   // Drop cached lights for lamps that were removed or are off-screen, so
   // the cache can't grow without bound.
-  for (const [key, entry] of postShadowCache) if (!entry.seen) postShadowCache.delete(key);
+  // Phones: off-screen lamps keep their light (up to POST_SHADOW_CACHE_MAX),
+  // so walking back and forth doesn't rebuild it — that rebuild is hundreds
+  // of drawImage calls plus a blur, a hitch each time a lamp came back.
+  if (!isMobileMode()) { for (const [key, entry] of postShadowCache) if (!entry.seen) postShadowCache.delete(key); }
+  else if (postShadowCache.size > POST_SHADOW_CACHE_MAX) {
+    for (const [key, entry] of postShadowCache) {
+      if (postShadowCache.size <= POST_SHADOW_CACHE_MAX) break;
+      if (!entry.seen) postShadowCache.delete(key);
+    }
+  }
 }
 
 // Base terrain (Dirt, Water — `layer: "terrain"` in itemDefs,
@@ -2775,7 +2913,7 @@ function renderWorldObjectsSorted() {
 
   const playerTile = getPlayerTile();
   const playerDecorKey = tileKey(playerTile.col, playerTile.row);
-  wildgrassLayer.forEach((type, key) => {
+  const wildBody = (type, key) => {
     if (key === playerDecorKey) return; // handled specially — see drawPlayerStandingDecor()
     const [col, row] = key.split(",").map(Number);
     if (itemOffscreen(type, col, row)) return;
@@ -2787,7 +2925,11 @@ function renderWorldObjectsSorted() {
     // The tall flowers overlap like the bushes (drawableOrder()): over a
     // character whose shoes are above their base, under one whose shoes have passed it.
     drawables.push({ sortY, bush: /^decoFlower/.test(type), draw: () => drawWildgrassWhole(type, col, row) });
-  });
+  };
+  if (isMobileMode()) {
+    const wildRows = layerRows(wildgrassLayer, "drawWild", () => true);
+    for (let r = vr0; r <= vr1; r++) { const a = wildRows.get(r); if (a) for (const e of a) if (e[0] >= vc0 && e[0] <= vc1) wildBody(e[1], e[2]); }
+  } else wildgrassLayer.forEach(wildBody);
 
   if (player.sleeping) {
     // Drawn at the BED's own position, not the player's (they're not
@@ -2839,7 +2981,17 @@ function renderWorldObjectsSorted() {
 // world px }. Rebuilt every frame (a handful of tiles); also read by
 // relightOccluders() later in the same frame.
 let bridgeComponentsThisFrame = [];
+let bridgeCompCache = null, bridgeCompVer = -1, bridgeCompWorld = null;
 function computeBridgeComponents() {
+  // Performance: the flood fill over every bridge tile ran every frame; the
+  // bridges only change when one is placed / removed (or the world changes).
+  const ver = layerVersions.get(bridgeLayer);
+  if (bridgeCompCache && ver !== undefined && ver === bridgeCompVer && bridgeCompWorld === currentWorld) return bridgeCompCache;
+  bridgeCompCache = computeBridgeComponentsNow();
+  bridgeCompVer = ver; bridgeCompWorld = currentWorld;
+  return bridgeCompCache;
+}
+function computeBridgeComponentsNow() {
   const seen = new Set();
   const comps = [];
   bridgeLayer.forEach((type, key) => {
@@ -2867,6 +3019,13 @@ function computeBridgeComponents() {
 }
 
 function drawBridgeComponent(comp) {
+  // Phones: only the tiles near the screen (a long bridge was ~250 draws a frame).
+  if (isMobileMode()) {
+    const c0 = Math.floor(camX / TILE) - 2, c1 = Math.ceil((camX + view.width / zoom) / TILE) + 2;
+    const r0 = Math.floor(camY / TILE) - 2, r1 = Math.ceil((camY + view.height / zoom) / TILE) + 4;
+    for (const [col, row, type] of comp.tiles) if (col >= c0 && col <= c1 && row >= r0 && row <= r1) drawGroundItemAt(type, col, row);
+    return;
+  }
   for (const [col, row, type] of comp.tiles) drawGroundItemAt(type, col, row);
 }
 
@@ -3783,6 +3942,7 @@ function drawNightBlueTint() {
 }
 
 function render() {
+  relightFrameId++; // per-frame caches (relightStaticOccludersMobile())
   beginSceneLights(); // every light this frame collects here, merged — see addSceneLight()
   if (player.scene === "inside") {
     renderInteriorScene();

@@ -6484,3 +6484,26 @@ browser can't show a stale cave texture.
   (the live fallback / desktop path) so neighbouring tiles share an edge pixel.
 - js/mobile.js: #mb-equip (shirt icon + "G" badge) under #daycycle-hud, presses G
   (toggleEquipment). index.html -> ?v=20261053a.
+
+## Startup size jump, old items on hotkeys, weather that keeps going
+
+- **Startup on the phone** — the page was painted once at desktop size before
+  js/mobile.js shrank it, and the Android app went full screen only once the
+  window got focus (a resize a moment later). Now index.html sets the phone
+  viewport in `<head>` and keeps everything behind a "Loading…" screen
+  (`html.agn-booting`) until js/main.js `revealGameWhenSettled()` sees the
+  window size stop changing (and the font loaded), then fades in once.
+  MainActivity hides the system bars already in `onCreate()` and pins the
+  WebView's text zoom to 100%. camera.js also resizes on
+  `visualViewport` resize / `orientationchange`.
+- **Hotkeys** — the hotbar points at inventory slots by index and the
+  inventory keeps a slot (count 0) for every type, so used-up / wiped items
+  kept their picture on the hotkey. `pruneHotbar()` (js/inventory.js) clears
+  any hotkey whose slot isn't shown in the bag (`inventorySlotShown()`), on
+  every `renderHotbar()` and every 400 ms.
+- **Weather** — js/calendar.js remembers today's weather with its day
+  (localStorage `agn-weather-v1`), so reopening the game keeps it; a new day
+  keeps yesterday's weather 45% of the time; a change while playing fades
+  over 15 s (`weatherWeight(name)`), used by js/weatherfx.js (rain/snow
+  density + alpha, clouds, sun rays, lightning) and js/snowground.js (the
+  ground turns halfway through the fade).

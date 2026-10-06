@@ -91,17 +91,89 @@ function pickWeightedWeather(monthIndex) {
   return WEATHER_STATES[0]; // fallback in case a month's weights don't sum to exactly 1
 }
 
-let currentWeather = WEATHER_STATES[0]; // placeholder — corrected by the forced first roll below
-let lastWeatherRollDay = -1; // -1 never matches a real getGameDay() (always >= 1), forcing a real roll on the first updateWeather() call
+let currentWeather = WEATHER_STATES[0]; // placeholder — corrected by the first updateWeather() call
+let lastWeatherRollDay = -1; // -1 never matches a real getGameDay() (always >= 1), forcing a real pick on the first updateWeather() call
 
-// Called every frame (main.js's loop, same call site js/hud.js's old
-// updateWeather() used to occupy) — cheap: only actually rerolls weather
-// when the in-game day counter has changed, not every frame.
+/* --- The weather keeps going (per request: "dapat continues lang kahit
+   mag exit at mag open ... hindi basta basta nagpapalit, kung mag palit
+   man smooth transition"):
+   - Today's weather is remembered (localStorage, WEATHER_SAVE_KEY) with
+     the day it belongs to. Closing and opening the app, reloading, or
+     going in and out of rooms gives back the SAME weather for that day —
+     before, every launch rolled a brand-new one.
+   - A new day keeps yesterday's weather now and then
+     (WEATHER_KEEP_CHANCE), so it doesn't flip every single day.
+   - When it does change while you're playing, the old weather fades out
+     and the new one fades in over WEATHER_FADE_SEC (weatherWeight(),
+     used by js/weatherfx.js and js/snowground.js) instead of switching
+     in one frame. */
+const WEATHER_SAVE_KEY = "agn-weather-v1";
+const WEATHER_FADE_SEC = 15;
+const WEATHER_KEEP_CHANCE = 0.45;
+let weatherPrev = null;     // the weather fading out (null = no transition running)
+let weatherFadeStart = 0;   // performance.now() when the transition began
+
+function readSavedWeather() {
+  try {
+    const o = JSON.parse(localStorage.getItem(WEATHER_SAVE_KEY) || "null");
+    if (!o || typeof o.day !== "number") return null;
+    const state = WEATHER_STATES.find((w) => w.name === o.name);
+    return state ? { day: o.day, state } : null;
+  } catch (e) { return null; }
+}
+function writeSavedWeather(day, state) {
+  try { localStorage.setItem(WEATHER_SAVE_KEY, JSON.stringify({ day, name: state.name })); } catch (e) { /* private mode */ }
+}
+
+function seasonalWeather(season) {
+  const name = (typeof SEASON_WEATHER !== "undefined" && SEASON_WEATHER[season]) || "Sunny";
+  return WEATHER_STATES.find((w) => w.name === name) || WEATHER_STATES[0];
+}
+
+// Called every frame (main.js's loop) — cheap: only does anything when
+// the in-game day counter has changed.
 function updateWeather() {
   const day = getGameDay();
   if (day === lastWeatherRollDay) return;
+  const firstCall = lastWeatherRollDay === -1;
   lastWeatherRollDay = day;
-  currentWeather = pickWeightedWeather(getCalendarDate().monthIndex);
+
+  // Per request ("dapat seasonal lang kapag refresh ng page ganun parin"):
+  // the weather now simply follows the SEASON (SEASON_WEATHER, js/config.js)
+  // — no daily random roll any more. The season comes from the in-game
+  // date, which is itself kept across reloads (js/daynight.js), so a
+  // refresh, closing the app or going in and out of rooms always gives
+  // the same weather; it only changes when the season does (with the
+  // fade below while you're playing).
+  const next = seasonalWeather(getCurrentSeason());
+  writeSavedWeather(day, next);
+
+  // On launch the weather is simply there; a change while playing fades.
+  if (!firstCall && next !== currentWeather) {
+    weatherPrev = weatherPrev && weatherFadeT() < 0.5 ? weatherPrev : currentWeather;
+    weatherFadeStart = performance.now();
+  }
+  currentWeather = next;
+}
+
+// 0 -> 1 progress of the running transition (1 = none running), eased.
+function weatherFadeT() {
+  if (!weatherPrev) return 1;
+  const t = (performance.now() - weatherFadeStart) / 1000 / WEATHER_FADE_SEC;
+  if (t >= 1) { weatherPrev = null; return 1; }
+  return t * t * (3 - 2 * t);
+}
+
+// How much of a weather is showing right now, 0..1 — the current one
+// fading in while the previous one fades out. js/weatherfx.js scales the
+// rain / snow / clouds / sun rays by this.
+function weatherWeight(name) {
+  const cur = getCurrentWeather();
+  if (FORCE_WEATHER) return cur.name === name ? 1 : 0;
+  const t = weatherFadeT();
+  let w = cur.name === name ? t : 0;
+  if (weatherPrev && weatherPrev.name === name) w += 1 - t;
+  return w;
 }
 
 function getCurrentWeather() {

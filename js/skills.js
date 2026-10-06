@@ -308,7 +308,7 @@ function playerPixels(x, y, max) {
   const size = DRAW_SIZE, k = size / FRAME_SIZE, flip = player.facing === "left";
   try {
     const c = document.createElement("canvas"); c.width = c.height = FRAME_SIZE;
-    const g = c.getContext("2d");
+    const g = c.getContext("2d", { willReadFrequently: true });
     if (flip) { g.translate(FRAME_SIZE, 0); g.scale(-1, 1); }
     g.drawImage(sheet, player.frame * FRAME_SIZE, 0, FRAME_SIZE, FRAME_SIZE, 0, 0, FRAME_SIZE, FRAME_SIZE);
     const d = g.getImageData(0, 0, FRAME_SIZE, FRAME_SIZE).data, pts = [];

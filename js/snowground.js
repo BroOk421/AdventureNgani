@@ -26,6 +26,8 @@ const SNOW_GROUND_BASE = "terrainSnowCenterSnow3";
 const SNOW_GROUND_PARTIAL = new Set(["terrainSnowCenterSnow5"]);
 
 function isSnowGroundActive() {
+  // across a weather change the ground turns (or melts) halfway through the fade (js/calendar.js)
+  if (typeof weatherWeight === "function") return weatherWeight("Snow") >= 0.5;
   return getCurrentWeather().name === "Snow";
 }
 

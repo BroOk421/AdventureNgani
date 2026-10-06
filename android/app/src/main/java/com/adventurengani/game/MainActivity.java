@@ -14,6 +14,26 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         useHighestRefreshRate();
+        // Full screen straight away, before the game's page is first laid out — not only once the
+        // window gets focus (onWindowFocusChanged below), which resized the page a moment after it
+        // opened: the game showed at one size and then jumped to another.
+        hideSystemBars();
+        // The game's own sizes, whatever the phone's font-size setting is (a big system font
+        // made the HUD text bigger than designed).
+        try {
+            if (getBridge() != null && getBridge().getWebView() != null)
+                getBridge().getWebView().getSettings().setTextZoom(100);
+        } catch (Exception ignored) { }
+    }
+
+    private void hideSystemBars() {
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_FULLSCREEN);
     }
 
     // Ask for the screen's fastest mode (90 / 120 Hz on phones that have it). Android often keeps
@@ -36,14 +56,6 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) {
-            getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_FULLSCREEN);
-        }
+        if (hasFocus) hideSystemBars();
     }
 }

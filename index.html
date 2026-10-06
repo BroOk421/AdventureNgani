@@ -3,10 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Startup without the size jump (per request: "sa pag open palang ng game lumalaki
+     tapos pupunta sa original na size"). On a phone the page used to be painted once at
+     desktop size (HUD/bars big, the default zoom) before js/mobile.js shrank everything,
+     and the Android app's full-screen switch resized the window a moment later. Now the
+     phone viewport is set right here, before anything is drawn, and the game stays hidden
+     behind a plain loading screen until it has started at its final size (js/main.js
+     revealGameWhenSettled()), then fades in once. -->
+<script>
+(function () {
+  var d = document.documentElement;
+  d.className += " agn-booting";
+  try {
+    var q = location.search, mob = /[?&]mobile=1\b/.test(q) ? true : /[?&]mobile=0\b/.test(q) ? false :
+      !!(window.matchMedia && matchMedia("(pointer: coarse)").matches) || "ontouchstart" in window || navigator.maxTouchPoints > 0;
+    if (mob) {
+      d.className += " agn-mobile";
+      var vp = document.querySelector('meta[name="viewport"]');
+      if (vp) vp.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover");
+    }
+  } catch (e) { /* keep defaults */ }
+  // never stay hidden forever, whatever happens during loading
+  setTimeout(function () { d.classList.remove("agn-booting"); }, 30000);
+})();
+</script>
+<style>
+  html.agn-booting, html.agn-booting body { background: #1a110a; }
+  html.agn-booting body > :not(#agn-boot) { opacity: 0 !important; pointer-events: none !important; }
+  html.agn-revealing body > * { transition: opacity 0.35s ease !important; }
+  #agn-boot { position: fixed; inset: 0; z-index: 99999; display: flex; align-items: center; justify-content: center;
+    background: #1a110a; color: #f3e2c3; font: 600 16px ui-monospace, monospace; letter-spacing: 2px;
+    transition: opacity 0.35s ease; pointer-events: none; }
+  html:not(.agn-booting) #agn-boot { opacity: 0; }
+</style>
 <title>RPG Prototype</title>
-<link rel="stylesheet" href="style.css?v=20261053a">
+<link rel="stylesheet" href="style.css?v=20261056a">
 </head>
 <body>
+  <div id="agn-boot">Loading…</div>
   <canvas id="view"></canvas>
   <!-- Sunny-day edge blur (js/camera.js drawVignetteBlur()): the browser blurs
        what's behind this, masked to the screen edges — no canvas read-back. -->
@@ -218,63 +252,64 @@
   <!-- ?v=... is a cache buster: browsers hang on to js/*.js and style.css
        hard, so an update can look like nothing changed at all. Bump this
        string whenever a file here changes and every client reloads them. -->
-  <script src="js/config.js?v=20261053a"></script>
-  <script src="js/objectAlphaMasks.js?v=20261053a"></script>
-  <script src="js/daynight.js?v=20261053a"></script>
-  <script src="js/calendar.js?v=20261053a"></script>
-  <script src="js/townBuildings.data.js?v=20261053a"></script>
-  <script src="js/mineLevels.data.js?v=20261053a"></script>
-  <script src="js/shops.data.js?v=20261053a"></script>
-  <script src="js/assets.js?v=20261053a"></script>
-  <script src="js/townBuildings.js?v=20261053a"></script>
-  <script src="js/input.js?v=20261053a"></script>
-  <script src="js/inventory.js?v=20261053a"></script>
-  <script src="js/resources.js?v=20261053a"></script>
-  <script src="js/interior.js?v=20261053a"></script>
-  <script src="js/furniture.js?v=20261053a"></script>
-  <script src="js/wildgrass.js?v=20261053a"></script>
-  <script src="js/defaultMap.data.js?v=20261053a"></script>
-  <script src="js/save.js?v=20261053a"></script>
-  <script src="js/roomCustomizer.js?v=20261053a"></script>
-  <script src="js/world.js?v=20261053a"></script>
-  <script src="js/player.js?v=20261053a"></script>
-  <script src="js/npc.js?v=20261053a"></script>
-  <script src="js/customers.js?v=20261053a"></script>
-  <script src="js/citizens.js?v=20261053a"></script>
-  <script src="js/animals.js?v=20261053a"></script>
-  <script src="js/birds.js?v=20261053a"></script>
-  <script src="js/waiter.js?v=20261053a"></script>
-  <script src="js/plantfx.js?v=20261053a"></script>
-  <script src="js/hud.js?v=20261053a"></script>
-  <script src="js/daycyclehud.js?v=20261053a"></script>
-  <script src="js/camera.js?v=20261053a"></script>
-  <script src="js/weatherfx.js?v=20261053a"></script>
-  <script src="js/snowground.js?v=20261053a"></script>
-  <script src="js/farm.js?v=20261053a"></script>
-  <script src="js/autotile.js?v=20261053a"></script>
-  <script src="js/chunks.js?v=20261053a"></script>
-  <script src="js/wildWorld.data.js?v=20261053a"></script>
-  <script src="js/eastWorlds.data.js?v=20261053a"></script>
-  <script src="js/worlds.js?v=20261053a"></script>
-  <script src="js/mines.js?v=20261053a"></script>
-  <script src="js/gear.js?v=20261053a"></script>
-  <script src="js/worldmap.js?v=20261053a"></script>
-  <script src="js/mobile.js?v=20261053a"></script>
-  <script src="js/shops.js?v=20261053a"></script>
-  <script src="js/upgrades.js?v=20261053a"></script>
-  <script src="js/combat.js?v=20261053a"></script>
-  <script src="js/itemInfo.js?v=20261053a"></script>
-  <script src="js/fishing.js?v=20261053a"></script>
-  <script src="js/skills.js?v=20261053a"></script>
-  <script src="js/critters.js?v=20261053a"></script>
-  <script src="js/farWorlds.js?v=20261053a"></script>
-  <script src="js/culling.js?v=20261053a"></script>
-  <script src="js/legendary.js?v=20261053a"></script>
-  <script src="js/freshStart.js?v=20261053a"></script>
-  <script src="js/quests.js?v=20261053a"></script>
-  <script src="js/storage.js?v=20261053a"></script>
-  <script src="js/forest.js?v=20261053a"></script>
-  <script src="js/treasure.js?v=20261053a"></script>
-  <script src="js/main.js?v=20261053a"></script>
+  <script src="js/config.js?v=20261056a"></script>
+  <script src="js/objectAlphaMasks.js?v=20261056a"></script>
+  <script src="js/daynight.js?v=20261056a"></script>
+  <script src="js/calendar.js?v=20261056a"></script>
+  <script src="js/townBuildings.data.js?v=20261056a"></script>
+  <script src="js/mineLevels.data.js?v=20261056a"></script>
+  <script src="js/shops.data.js?v=20261056a"></script>
+  <script src="js/assets.js?v=20261056a"></script>
+  <script src="js/townBuildings.js?v=20261056a"></script>
+  <script src="js/input.js?v=20261056a"></script>
+  <script src="js/inventory.js?v=20261056a"></script>
+  <script src="js/resources.js?v=20261056a"></script>
+  <script src="js/interior.js?v=20261056a"></script>
+  <script src="js/furniture.js?v=20261056a"></script>
+  <script src="js/wildgrass.js?v=20261056a"></script>
+  <script src="js/defaultMap.data.js?v=20261056a"></script>
+  <script src="js/save.js?v=20261056a"></script>
+  <script src="js/roomCustomizer.js?v=20261056a"></script>
+  <script src="js/world.js?v=20261056a"></script>
+  <script src="js/player.js?v=20261056a"></script>
+  <script src="js/npc.js?v=20261056a"></script>
+  <script src="js/customers.js?v=20261056a"></script>
+  <script src="js/citizens.js?v=20261056a"></script>
+  <script src="js/animals.js?v=20261056a"></script>
+  <script src="js/birds.js?v=20261056a"></script>
+  <script src="js/waiter.js?v=20261056a"></script>
+  <script src="js/plantfx.js?v=20261056a"></script>
+  <script src="js/hud.js?v=20261056a"></script>
+  <script src="js/daycyclehud.js?v=20261056a"></script>
+  <script src="js/camera.js?v=20261056a"></script>
+  <script src="js/weatherfx.js?v=20261056a"></script>
+  <script src="js/snowground.js?v=20261056a"></script>
+  <script src="js/farm.js?v=20261056a"></script>
+  <script src="js/autotile.js?v=20261056a"></script>
+  <script src="js/chunks.js?v=20261056a"></script>
+  <script src="js/wildWorld.data.js?v=20261056a"></script>
+  <script src="js/eastWorlds.data.js?v=20261056a"></script>
+  <script src="js/worlds.js?v=20261056a"></script>
+  <script src="js/mines.js?v=20261056a"></script>
+  <script src="js/gear.js?v=20261056a"></script>
+  <script src="js/worldmap.js?v=20261056a"></script>
+  <script src="js/mobile.js?v=20261056a"></script>
+  <script src="js/shops.js?v=20261056a"></script>
+  <script src="js/upgrades.js?v=20261056a"></script>
+  <script src="js/combat.js?v=20261056a"></script>
+  <script src="js/itemInfo.js?v=20261056a"></script>
+  <script src="js/fishing.js?v=20261056a"></script>
+  <script src="js/skills.js?v=20261056a"></script>
+  <script src="js/critters.js?v=20261056a"></script>
+  <script src="js/farWorlds.js?v=20261056a"></script>
+  <script src="js/culling.js?v=20261056a"></script>
+  <script src="js/legendary.js?v=20261056a"></script>
+  <script src="js/freshStart.js?v=20261056a"></script>
+  <script src="js/quests.js?v=20261056a"></script>
+  <script src="js/storage.js?v=20261056a"></script>
+  <script src="js/forest.js?v=20261056a"></script>
+  <script src="js/treasure.js?v=20261056a"></script>
+  <script src="js/swordanim.js?v=20261056a"></script>
+  <script src="js/main.js?v=20261056a"></script>
 </body>
 </html>

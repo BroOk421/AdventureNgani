@@ -329,7 +329,7 @@ function portSpans(type) {
   sp = [];
   try {
     const c = document.createElement("canvas"); c.width = icon.width; c.height = icon.height;
-    const g = c.getContext("2d"); g.drawImage(icon, 0, 0);
+    const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(icon, 0, 0);
     const d = g.getImageData(0, 0, c.width, c.height).data;
     for (let y = 0; y < c.height; y++) {
       let x0 = -1;

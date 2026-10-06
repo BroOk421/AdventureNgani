@@ -271,12 +271,14 @@ if (MOBILE_ON) {
       fpsEl = add('<div id="mb-fps" class="mb" style="left:50%;top:6px;transform:translateX(-50%);padding:2px 8px;background:rgba(26,17,10,0.7);border:1px solid #a8743e;border-radius:6px;font-size:12px;pointer-events:none"></div>');
     }
     fpsEl.style.display = fpsOn ? "block" : "none";
-    if (fpsOn) { fpsFrames = 0; fpsLast = performance.now(); requestAnimationFrame(fpsTick); }
+    if (fpsOn) { fpsFrames = gameFrames(); fpsLast = performance.now(); requestAnimationFrame(fpsTick); }
   }
+  // Counts the frames the game actually DREW (js/main.js), not screen refreshes —
+  // with the 60 FPS cap a 120 Hz screen would otherwise read 120.
+  const gameFrames = () => (typeof gameFrameCount !== "undefined" ? gameFrameCount : 0);
   function fpsTick(now) {
     if (!fpsOn) return;
-    fpsFrames++;
-    if (now - fpsLast >= 500) { fpsEl.textContent = Math.round(fpsFrames * 1000 / (now - fpsLast)) + " FPS"; fpsFrames = 0; fpsLast = now; }
+    if (now - fpsLast >= 500) { const f = gameFrames(); fpsEl.textContent = Math.round((f - fpsFrames) * 1000 / (now - fpsLast)) + " FPS"; fpsFrames = f; fpsLast = now; }
     requestAnimationFrame(fpsTick);
   }
 

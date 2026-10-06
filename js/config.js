@@ -400,6 +400,18 @@ const CALENDAR_SEASON_ICONS = {
 // also be changed live from the browser console: FORCE_WEATHER = "Snow"
 let FORCE_WEATHER = null;
 
+// The weather of each season — per request ("dapat seasonal lang"): it no
+// longer changes day to day, only when the season changes (js/calendar.js
+// updateWeather()). Any WEATHER_STATES name works here: "Sunny", "Cloudy",
+// "Rainy", "Thunderstorm", "Snow". (MONTH_WEATHER_WEIGHTS below is no
+// longer used for the daily weather.)
+const SEASON_WEATHER = {
+  Spring: "Sunny",
+  Summer: "Sunny",
+  Fall: "Cloudy",
+  Winter: "Snow",
+};
+
 const WEATHER_STATES = [
   { name: "Sunny", icon: "☀️" },
   { name: "Cloudy", icon: "☁️" },
@@ -550,6 +562,11 @@ function mobileSpeedMult(running) {
 // Phone (js/mobile.js) camera zoom. Higher = closer, lower = farther.
 // Desktop keeps ZOOM_MIN above.
 const MOBILE_ZOOM = 2.7; // per request: a closer phone camera (was 2)
+// Phone frame cap. A 90/120 Hz screen (MainActivity asks for the fastest mode)
+// made the game draw the whole night scene up to 120 times a second — twice
+// the work, the phone heating up and slowing itself down, then lagging. 60 is
+// smooth and steady; set to 0 for no cap.
+const MOBILE_MAX_FPS = 60;
 // Phone walk/run animation speed, x normal — slowed less than the movement
 // so the steps don't look like slow motion, but enough that the feet don't
 // slide. (Idle is not affected.)

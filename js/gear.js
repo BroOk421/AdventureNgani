@@ -360,7 +360,9 @@ function autoAttackTick(zone, st, dt) {
   player.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
   if (attackCooldown <= 0 && !player.mineSwing) {
     startMineSwing();
-    attackCooldown = 1 / Math.max(0.3, playerStats().spd);
+    // swords: the quick chop-style cadence (SWORD_ATTACK_INTERVAL, js/combat.js); bows and the rest as before
+    const iv = typeof isSwordWeapon === "function" && isSwordWeapon(player.equippedWeapon) && typeof SWORD_ATTACK_INTERVAL !== "undefined" ? SWORD_ATTACK_INTERVAL : 1;
+    attackCooldown = iv / Math.max(0.3, playerStats().spd);
     return true;
   }
   return false;
@@ -776,3 +778,34 @@ function grantGearTrial() {
   };
 }
 setTimeout(() => { try { grantGearTrial(); } catch (e) { console.error(e); } }, 4000);
+
+/* ---------------- buying gear: equipped straight away ----------------
+   Per request ("yung mga nabibili pala sa shop ... equip na lang tapos
+   mapunta sa profile"): a sword, bow or piece of armour bought from a
+   shop is put on right away (if your level allows it) and shows in the
+   Profile (P); it doesn't go to the Equipment list (G) — that one is just
+   the starting kit (isDefaultKitItem(), js/inventory.js). */
+{
+  const base = buyFromNpc;
+  buyFromNpc = function (type, price) {
+    const before = player.gold;
+    const r = base.apply(this, arguments);
+    if (player.gold >= before) return r; // nothing was bought
+    const d = itemDefs[type];
+    if (!d || itemLocked(type)) return r;
+    let equipped = false;
+    if (d.weapon && d.weapon.damage && d.equipSlot === "weapon") {
+      equipWeapon(type); equipped = true;
+    } else if (d.gear && d.gear.kind) {
+      const slots = GEAR_SLOTS.filter((s) => s.kind === d.gear.kind);
+      const free = slots.find((s) => !player.equipment[s.id]) || slots[0];
+      if (free) { equipGear(free.id, type); equipped = player.equipment[free.id] === type; }
+    }
+    if (equipped) {
+      if (typeof showToast === "function") showToast("Equipped: " + d.name + " — see your Profile (P)");
+      if (typeof renderProfile === "function") renderProfile();
+      if (typeof saveGame === "function") saveGame();
+    }
+    return r;
+  };
+}

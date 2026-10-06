@@ -272,7 +272,7 @@ function computeFootprintOpacityGrid(type) {
     const c = document.createElement("canvas");
     c.width = icon.width;
     c.height = icon.height;
-    const cx = c.getContext("2d");
+    const cx = c.getContext("2d", { willReadFrequently: true });
     cx.drawImage(icon, 0, 0);
     const data = cx.getImageData(0, 0, icon.width, icon.height).data;
     for (let j = 0; j < heightTiles; j++) {
@@ -495,7 +495,7 @@ function getIconOpaqueBBox(type) {
     const c = document.createElement("canvas");
     c.width = icon.width;
     c.height = icon.height;
-    const cx = c.getContext("2d");
+    const cx = c.getContext("2d", { willReadFrequently: true });
     cx.drawImage(icon, 0, 0);
     const data = cx.getImageData(0, 0, icon.width, icon.height).data;
     let x0 = icon.width, y0 = icon.height, x1 = 0, y1 = 0;
@@ -4812,6 +4812,19 @@ function closeEquipmentWeaponPicker() {
 // equips it via the same equipWeapon() the inventory's right-click menu
 // uses (js/inventory.js) — this is just a second entry point to the same
 // action, not a separate equip mechanic.
+// Per request ("yung mga nabibili pala sa shop di na dapat mapunta sa hotkey
+// G pang default lang yun ... equip na lang tapos mapunta sa profile"): the
+// Equipment list (G) only offers the starting kit — the tools (Hoe, Axe,
+// Pickaxe, Rod, Watering Can...) and the weapons you start with. Swords and
+// bows you buy or find are equipped straight away when bought and picked in
+// the Profile (P) — its Sword slot — from then on.
+function isDefaultKitItem(type) {
+  const d = itemDefs[type];
+  if (!d) return false;
+  if (!(d.weapon && d.weapon.damage)) return true;   // a tool
+  return (d.startCount || 0) > 0 || !!d.unlimited;   // a weapon you started with
+}
+
 function openEquipmentWeaponPicker() {
   equipmentPickerEl.innerHTML = "";
 
@@ -4833,6 +4846,7 @@ function openEquipmentWeaponPicker() {
       !slot ||
       itemDefs[slot.type].equipSlot !== "weapon" ||
       (!itemDefs[slot.type].unlimited && slot.count <= 0) || // only what you own
+      !isDefaultKitItem(slot.type) || // bought / found swords and bows live in the Profile (P), not here
       seenTypes.has(slot.type)
     )
       return;
@@ -4887,7 +4901,29 @@ document.addEventListener("click", (e) => {
 
 const hotbarEl = document.getElementById("hotbar");
 
+// A hotkey only shows what you actually have. The inventory keeps a slot
+// for every item type (count 0 when you have none — see commitPlacementUse()),
+// and the hotbar points at those slots by index, so an item that ran out,
+// was sold, wiped by the fresh start, or is a hidden building-mode piece
+// used to keep its old picture on the hotkey (with a 0). Per request
+// ("yung old na mga item is lumilitaw pa sa hotkey slots dapat hindi"):
+// such a hotkey is cleared — the slot is empty again, free to reassign.
+function hotbarSlotUsable(invIndex) {
+  if (invIndex === null || invIndex === undefined) return false;
+  const slot = inventory[invIndex];
+  if (!slot || !itemDefs[slot.type]) return false;
+  return typeof inventorySlotShown === "function" ? inventorySlotShown(slot) : slot.count > 0;
+}
+function pruneHotbar() {
+  let changed = false;
+  for (let i = 0; i < hotbar.length; i++) {
+    if (hotbar[i] !== null && !hotbarSlotUsable(hotbar[i])) { hotbar[i] = null; changed = true; }
+  }
+  return changed;
+}
+
 function renderHotbar() {
+  pruneHotbar();
   hotbarEl.innerHTML = "";
   for (let i = 0; i < HOTBAR_SIZE; i++) {
     const invIndex = hotbar[i];
@@ -5416,7 +5452,7 @@ window.addEventListener("keydown", (e) => {
     if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
     selectedHotbarIndex = slotIdx;
     const invIndex = hotbar[selectedHotbarIndex];
-    const slot = invIndex !== null ? inventory[invIndex] : null;
+    const slot = hotbarSlotUsable(invIndex) ? inventory[invIndex] : null;
     if (slot) useOrHoldSlot(invIndex);
     else renderHotbar();
   }
@@ -5424,3 +5460,6 @@ window.addEventListener("keydown", (e) => {
 
 renderHotbar();
 renderInventory();
+// Counts also change outside this file (shops, quests, chests, the farm...), not all of which
+// re-render the hotbar — so now and then, clear any hotkey whose item has run out.
+setInterval(() => { if (pruneHotbar()) renderHotbar(); }, 400);

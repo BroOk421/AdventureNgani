@@ -46,7 +46,21 @@ function isSwordWeapon(type) {
   const d = type && itemDefs[type];
   return !!(d && d.weapon && d.weapon.damage && !d.weapon.ranged && /Sword|Cleaver|Reaver/.test(type));
 }
-const SWORD_STYLES = ["overhead", "sweep", "thrust"];
+// Per request ("palitan mo ng animation yung atk ... kasing bilis at effect ng pag putol ng puno o
+// gamit ang axe pero gawin mo sa tatlong animation"): three CHOP-style swings, timed like the axe —
+// a short wind-up, then a snap through the strike with a solid white crescent (the axe's swoosh),
+// the hit landing mid-snap: an overhead chop, a side cleave and a rising backhand.
+const SWORD_STYLES = ["overhead", "sweep", "rising"];
+const SWORD_SWING_SPEED = 1.15;      // x the "hit" animation (4 frames @ ANIM_FPS.hit) — ~0.35 s a swing
+const SWORD_ATTACK_INTERVAL = 0.55;  // s between auto-attack swings at SPD 1 (was 1 s) — js/gear.js autoAttackTick()
+// Swing progress 0..1 -> blade position, shaped like the axe chop: pull back a little (wind-up),
+// SNAP through (most of the arc in ~a fifth of the swing), then hold the follow-through.
+const CHOP_WINDUP_END = 0.36, CHOP_STRIKE_END = 0.56, CHOP_PULLBACK = 0.12;
+function chopCurve(t) {
+  if (t < CHOP_WINDUP_END) return -CHOP_PULLBACK * Math.sin((t / CHOP_WINDUP_END) * Math.PI / 2);
+  if (t < CHOP_STRIKE_END) { const u = (t - CHOP_WINDUP_END) / (CHOP_STRIKE_END - CHOP_WINDUP_END); return -CHOP_PULLBACK + (1 + CHOP_PULLBACK) * (1 - Math.pow(1 - u, 3)); }
+  return 1;
+}
 // Per request ("gusto ko yung hawak niya is 2 handed kasi mabigat kapag 1 handed isahan lang short
 // sword"): the big 40px blades (iron, bronze, emerald, diamond, the Storm Greatsword) are LONG
 // swords — held in both hands, swung a little slower and wider; the 16px ones are SHORT swords,
@@ -97,7 +111,7 @@ function autoAimMob() {
       lastSwordStyle = style;
       player.mineSwing.style = style;
       player.mineSwing.sword = true;
-      if (isLongSword(player.equippedWeapon)) player.mineSwing.speed = (player.mineSwing.speed || 1) * 0.85; // heavy
+      player.mineSwing.speed = (player.mineSwing.speed || 1) * SWORD_SWING_SPEED * (isLongSword(player.equippedWeapon) ? 0.92 : 1); // long swords: a touch heavier
     }
     return r;
   };
@@ -109,6 +123,11 @@ function swordPose(style, facing, e) {
   const squash = (b, q, lift) => { const vx = Math.cos(b), vy = Math.sin(b) * q + (lift || 0); return [Math.atan2(vy, vx), Math.min(1, Math.hypot(vx, vy)), 0]; };
   if (style === "overhead") {
     const A = { right: [-2.2, 0.75], down: [-2.6, 0.4], up: [-0.9, -3.6] }[facing];
+    return [lerp(A[0], A[1]), 1, 0];
+  }
+  if (style === "rising") {
+    // low in front, up and over — the overhead chop run backwards
+    const A = { right: [1.0, -2.3], down: [0.6, -2.7], up: [-0.6, -3.7] }[facing];
     return [lerp(A[0], A[1]), 1, 0];
   }
   if (style === "sweep") {
@@ -151,7 +170,8 @@ drawSwordSwing = function (screenX, screenY, z) {
   const style = player.mineSwing.style || "overhead";
   const n = FRAME_COUNTS[player.action] || 4;
   const t = Math.min(1, (player.frame + Math.min(1, player.frameTimer * (ANIM_FPS[player.action] || 10) * (player.mineSwing.speed || 1))) / n);
-  const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; // ease in-out
+  const chop = style !== "plunge" && style !== "thrust";
+  const e = chop ? chopCurve(t) : (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2); // chop-style snap (skills' own moves keep the old ease)
   const k = (DRAW_SIZE / 64) * z, flip = player.facing === "left";
   const facing = flip ? "right" : (SWORD_PIVOT[player.facing] ? player.facing : "down");
   const S = strip.height, big = S >= 32, twoH = big || style === "plunge";
@@ -194,23 +214,33 @@ drawSwordSwing = function (screenX, screenY, z) {
       }
       ctx.globalCompositeOperation = "source-over";
     }
-  } else if (e > 0.05) {
-    const back = Math.max(0, e - 0.5), steps = 12;
-    const tips = [];
+  } else if (t >= CHOP_WINDUP_END && t < 0.85) {
+    // The axe's swoosh: a SOLID white crescent along the arc the blade just
+    // swept — full right as it snaps through, thinning and fading on the
+    // follow-through. Edged with the sword's aura colour (upgrades).
+    const fade = t < CHOP_STRIKE_END ? 1 : 1 - (t - CHOP_STRIKE_END) / (0.85 - CHOP_STRIKE_END);
+    const e0 = Math.max(-CHOP_PULLBACK, e - 0.95), steps = 14;
+    const outer = [], inner = [];
     for (let i = 0; i <= steps; i++) {
-      const ee = back + (e - back) * i / steps;
+      const q = i / steps, ee = e0 + (e - e0) * q;
       const [a2, l2] = swordPose(style, facing, ee);
-      tips.push([a2, l2]);
+      const thick = Math.sin(q * Math.PI) * 0.75 + 0.25 * q; // a crescent: thick in the middle, pointed at the tail
+      const ro = R * l2 * 1.08, ri = R * l2 * (1.08 - 0.5 * thick * (0.55 + 0.45 * fade));
+      outer.push([Math.cos(a2) * ro, Math.sin(a2) * ro]);
+      inner.push([Math.cos(a2) * ri, Math.sin(a2) * ri]);
     }
     ctx.beginPath();
-    tips.forEach(([a2, l2], i) => { const x = Math.cos(a2) * R * l2, y = Math.sin(a2) * R * l2; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    for (let i = tips.length - 1; i >= 0; i--) { const [a2, l2] = tips[i]; const rr = R * l2 * (0.5 + 0.38 * i / steps); ctx.lineTo(Math.cos(a2) * rr, Math.sin(a2) * rr); }
+    outer.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    for (let i = inner.length - 1; i >= 0; i--) ctx.lineTo(inner[i][0], inner[i][1]);
     ctx.closePath();
-    const gr = ctx.createRadialGradient(0, 0, R * 0.35, 0, 0, R);
-    gr.addColorStop(0, "rgba(" + cr + "," + cg + "," + cb + ",0)");
-    gr.addColorStop(0.7, "rgba(" + cr + "," + cg + "," + cb + "," + (0.5 * (1 - t * 0.6)) + ")");
-    gr.addColorStop(1, "rgba(255,255,255," + (0.8 * (1 - t * 0.5)) + ")");
-    ctx.fillStyle = gr; ctx.fill();
+    ctx.globalAlpha = 0.95 * fade;
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.globalAlpha = 0.7 * fade;
+    ctx.strokeStyle = "rgb(" + cr + "," + cg + "," + cb + ")";
+    ctx.lineWidth = Math.max(1, 0.9 * k);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
   // the sword itself
   const s = (R * lenF / artLen);
@@ -294,8 +324,16 @@ function shakeScreen(px, ms) {
     const now = performance.now() / 1000, zone = fxZone();
     if (missed) { combatFx.push({ kind: "miss", x: m.x, y: cy, t0: now, zone }); return r; }
     const color = player.mineSwing && player.mineSwing.ranged ? [255, 236, 190] : swordTrailColor();
+    const killed = m.state === "dead" || m.hp <= 0;
+    // Per request ("baguhin mo effects same sa pag putol ng puno"): a hit
+    // now reads like an axe biting a tree — the mob shakes, a quick white
+    // nick flashes where the blade landed, and bits fly out of it, fall
+    // and bounce on the ground; the killing blow throws a big shower, like
+    // a tree coming down.
+    m.chopShakeAt = now;
     combatFx.push({ kind: "hit", x: m.x, y: cy, t0: now, crit, color, zone, ang: Math.random() * Math.PI, sword: isSwordWeapon(player.equippedWeapon) });
-    if (m.state === "dead" || m.hp <= 0) combatFx.push({ kind: "kill", x: m.x, y: cy, t0: now, color, zone, big: !!m.def.boss });
+    spawnChopChips(m, cy, killed ? (m.def.boss ? 34 : 22) : crit ? 12 : 7, crit, zone);
+    if (killed) combatFx.push({ kind: "kill", x: m.x, y: cy, t0: now, color, zone, big: !!m.def.boss });
     if (crit) shakeScreen(3, 140);
     return r;
   };
@@ -321,34 +359,27 @@ function drawCombatFx() {
     ctx.save();
     if (f.kind === "hit") {
       const [r, g, b] = f.crit ? [255, 170, 60] : f.color, big = f.crit ? 1.5 : 1;
-      // impact ring
-      ctx.globalAlpha = (1 - k) * 0.9;
-      ctx.strokeStyle = "rgb(" + r + "," + g + "," + b + ")"; ctx.lineWidth = Math.max(1, (1 - k) * 1.6 * Z);
-      ctx.beginPath(); ctx.arc(x, y, (3 + 9 * k) * big * Z, 0, Math.PI * 2); ctx.stroke();
-      // a white flash in the first instant
-      if (k < 0.25) {
-        ctx.globalAlpha = (1 - k / 0.25) * 0.8;
-        const gr = ctx.createRadialGradient(x, y, 0, x, y, 6 * big * Z);
-        gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(1, "rgba(255,255,255,0)");
-        ctx.fillStyle = gr; ctx.fillRect(x - 6 * big * Z, y - 6 * big * Z, 12 * big * Z, 12 * big * Z);
-      }
-      // sparks
-      ctx.globalAlpha = 1 - k;
-      ctx.strokeStyle = f.crit ? "#ffd84a" : "#ffffff"; ctx.lineWidth = Math.max(1, 0.7 * Z);
-      const nS = f.crit ? 10 : 7;
-      for (let s = 0; s < nS; s++) {
-        const a = f.ang * 2 + s / nS * Math.PI * 2, r0 = (2 + 10 * k) * big * Z, r1 = r0 + (3 - 2 * k) * big * Z;
-        ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0); ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1); ctx.stroke();
-      }
-      // the slash mark across it (swords)
-      if (f.sword && k < 0.6) {
-        const kk = k / 0.6, L = 11 * big * Z;
+      // the nick: a short, sharp white crescent across the mob (the chop mark)
+      if (k < 0.55) {
+        const kk = k / 0.55, L = 8 * big * Z, a0 = f.ang - 0.9;
+        ctx.translate(x, y); ctx.rotate(a0);
         ctx.globalAlpha = 1 - kk;
-        ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = Math.max(1, (1 - kk) * 2.2 * Z);
-        const ca = Math.cos(f.ang - 0.8), sa = Math.sin(f.ang - 0.8);
-        ctx.beginPath(); ctx.moveTo(x - ca * L, y - sa * L); ctx.lineTo(x + ca * L * (0.3 + kk), y + sa * L * (0.3 + kk)); ctx.stroke();
-        ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + ",0.8)"; ctx.lineWidth = Math.max(1, (1 - kk) * 4 * Z); ctx.globalAlpha = (1 - kk) * 0.5;
-        ctx.beginPath(); ctx.moveTo(x - ca * L, y - sa * L); ctx.lineTo(x + ca * L * (0.3 + kk), y + sa * L * (0.3 + kk)); ctx.stroke();
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.moveTo(-L, 0);
+        ctx.quadraticCurveTo(0, -3.2 * big * Z * (1 - kk * 0.6), L, 0);
+        ctx.quadraticCurveTo(0, -1.0 * big * Z, -L, 0);
+        ctx.fill();
+        ctx.strokeStyle = "rgb(" + r + "," + g + "," + b + ")"; ctx.lineWidth = Math.max(1, 0.5 * Z); ctx.globalAlpha = (1 - kk) * 0.8;
+        ctx.stroke();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      // a tiny white pop in the first instant
+      if (k < 0.18) {
+        ctx.globalAlpha = 1 - k / 0.18;
+        ctx.fillStyle = "#ffffff";
+        const sz = 3 * big * Z * (1 - k / 0.18 * 0.5);
+        ctx.fillRect(Math.round(x - sz / 2), Math.round(y - sz / 2), Math.ceil(sz), Math.ceil(sz));
       }
     } else if (f.kind === "kill") {
       const [r, g, b] = f.color, big = f.big ? 2.2 : 1.2;
@@ -377,6 +408,97 @@ function drawCombatFx() {
     }
     ctx.restore();
   }
+  drawChopChips(zone);
+}
+
+/* --- chop chips: bits knocked out of a mob, like wood chips off a tree ---
+   Coloured from the mob's own sprite (its most common colours, read once
+   per sheet on a CPU-side canvas), plus a few white flecks. They pop out
+   away from you, fall, bounce once on the ground at the mob's feet and
+   fade. World px, so they stay put when the camera moves. */
+const chopChips = [];
+const CHOP_CHIP_MAX = 160;
+const mobChipColorCache = new Map();
+function mobChipColors(m) {
+  const sheet = assets["mobsheet_" + m.type + "_idle"] || assets["mobsheet_" + m.type + "_" + m.anim];
+  if (!sheet || !sheet.width) return ["#8a8a8a", "#5a5a5a"];
+  let c = mobChipColorCache.get(sheet);
+  if (c) return c;
+  c = ["#8a8a8a", "#5a5a5a"];
+  try {
+    const S = m.def.size || sheet.height, cv = document.createElement("canvas");
+    cv.width = S; cv.height = S;
+    const g = cv.getContext("2d", { willReadFrequently: true });
+    g.drawImage(sheet, 0, 0, S, S, 0, 0, S, S);
+    const d = g.getImageData(0, 0, S, S).data, count = new Map();
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 200) continue;
+      const lum = d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11;
+      if (lum < 35) continue; // skip the dark outline
+      const key = ((d[i] >> 4) << 8) | ((d[i + 1] >> 4) << 4) | (d[i + 2] >> 4);
+      count.set(key, (count.get(key) || 0) + 1);
+    }
+    const top = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([key]) => {
+      const r = ((key >> 8) & 15) * 17, gg = ((key >> 4) & 15) * 17, b = (key & 15) * 17;
+      return "rgb(" + r + "," + gg + "," + b + ")";
+    });
+    if (top.length) c = top;
+  } catch (e) { /* tainted (file://): grey chips */ }
+  mobChipColorCache.set(sheet, c);
+  return c;
+}
+function spawnChopChips(m, cy, n, crit, zone) {
+  const cols = mobChipColors(m);
+  const away = m.x >= player.x ? 1 : -1; // knocked away from you, like chips out of the cut
+  const now = performance.now() / 1000;
+  for (let i = 0; i < n; i++) {
+    const white = Math.random() < 0.25;
+    chopChips.push({
+      x: m.x + (Math.random() - 0.5) * 4, y: cy + (Math.random() - 0.5) * 4,
+      vx: away * (8 + Math.random() * 34) + (Math.random() - 0.5) * 18, vy: -18 - Math.random() * 26,
+      floorY: m.y + (Math.random() - 0.5) * 6, bounced: false,
+      t0: now, life: 0.55 + Math.random() * 0.4,
+      color: white ? "#ffffff" : crit && Math.random() < 0.3 ? "#ffb84a" : cols[Math.floor(Math.random() * cols.length)],
+      size: Math.random() < 0.3 ? 1.5 : 1, zone,
+    });
+  }
+  if (chopChips.length > CHOP_CHIP_MAX) chopChips.splice(0, chopChips.length - CHOP_CHIP_MAX);
+}
+let chopChipsLast = 0;
+function drawChopChips(zone) {
+  const now = performance.now() / 1000;
+  const dt = Math.min(0.05, chopChipsLast ? now - chopChipsLast : 0);
+  chopChipsLast = now;
+  if (!chopChips.length) return;
+  ctx.save();
+  for (let i = chopChips.length - 1; i >= 0; i--) {
+    const c = chopChips[i], age = now - c.t0;
+    if (age >= c.life || c.zone !== zone) { chopChips.splice(i, 1); continue; }
+    c.vy += 140 * dt; c.x += c.vx * dt; c.y += c.vy * dt;
+    if (c.y >= c.floorY && c.vy > 0) {
+      c.y = c.floorY;
+      if (!c.bounced) { c.vy *= -0.35; c.vx *= 0.5; c.bounced = true; } else { c.vy = 0; c.vx *= 0.8; }
+    }
+    const fade = age > c.life * 0.6 ? 1 - (age - c.life * 0.6) / (c.life * 0.4) : 1;
+    ctx.globalAlpha = Math.max(0, fade);
+    ctx.fillStyle = c.color;
+    const sz = Math.max(1, Math.round(c.size * zoom));
+    ctx.fillRect(Math.round((c.x - camX) * zoom), Math.round((c.y - camY) * zoom), sz, sz);
+  }
+  ctx.restore();
+}
+
+// The mob shakes under the hit, like a tree under the axe (js/plantfx.js TREE_SHAKE_*).
+const MOB_CHOP_SHAKE_SECONDS = 0.28, MOB_CHOP_SHAKE_PX = 1.4, MOB_CHOP_SHAKE_FREQ = 55;
+{
+  const base = drawMob;
+  drawMob = function (m) {
+    const age = m.chopShakeAt != null ? performance.now() / 1000 - m.chopShakeAt : 99;
+    if (age >= MOB_CHOP_SHAKE_SECONDS || m.state === "dead") return base.apply(this, arguments);
+    const off = MOB_CHOP_SHAKE_PX * Math.sin(age * MOB_CHOP_SHAKE_FREQ) * (1 - age / MOB_CHOP_SHAKE_SECONDS);
+    m.x += off;
+    try { return base.apply(this, arguments); } finally { m.x -= off; }
+  };
 }
 {
   const base = drawMineOverlay;

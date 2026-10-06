@@ -26,8 +26,17 @@ function updateClockHUD() {
 // message, so the console isn't flooded 60 times a second) while the
 // game keeps running.
 const loggedLoopErrors = new Set();
+let gameFrameCount = 0; // frames actually drawn (the phone FPS readout counts these, js/mobile.js)
+let lastDrawnAt = 0;
 function loop(now) {
   requestAnimationFrame(loop);
+  // Phones: at most MOBILE_MAX_FPS frames a second (js/config.js). The 2 ms
+  // slack keeps a 60 Hz screen from skipping frames on timer jitter.
+  if (typeof MOBILE_ON !== "undefined" && MOBILE_ON && typeof MOBILE_MAX_FPS !== "undefined" && MOBILE_MAX_FPS > 0) {
+    if (now - lastDrawnAt < 1000 / MOBILE_MAX_FPS - 2) return;
+    lastDrawnAt = now;
+  }
+  gameFrameCount++;
   try {
     loopFrame(now);
   } catch (err) {
@@ -95,6 +104,33 @@ function start() {
   updateStatsHUD(); // shows the starting/restored stat values right away too, same reasoning
   last = performance.now();
   requestAnimationFrame(loop);
+  revealGameWhenSettled();
+}
+
+// The loading screen (index.html, html.agn-booting) comes off only once the
+// window has stopped changing size — on Android the app goes full screen a
+// moment after it opens, which used to show the game big first and then
+// shrink it — and the HUD font is in. Then one resize at the final size and
+// a short fade in, so the first thing you see is already the right size.
+function revealGameWhenSettled() {
+  const root = document.documentElement;
+  if (!root.classList.contains("agn-booting")) return;
+  const t0 = performance.now();
+  let w = window.innerWidth, h = window.innerHeight, sameFor = 0;
+  let fontsIn = !(document.fonts && document.fonts.ready);
+  if (!fontsIn) document.fonts.ready.then(() => { fontsIn = true; }, () => { fontsIn = true; });
+  const tick = () => {
+    const nw = window.innerWidth, nh = window.innerHeight;
+    if (nw === w && nh === h && nw > 0 && nh > 0) sameFor++; else { sameFor = 0; w = nw; h = nh; }
+    const waited = performance.now() - t0;
+    const settled = sameFor >= 12 && waited >= 250 && (fontsIn || waited > 1500);
+    if (!settled && waited < 2500) { requestAnimationFrame(tick); return; }
+    resizeCanvas();
+    root.classList.add("agn-revealing");
+    root.classList.remove("agn-booting");
+    setTimeout(() => root.classList.remove("agn-revealing"), 450);
+  };
+  requestAnimationFrame(tick);
 }
 
 whenAssetsReady(start);

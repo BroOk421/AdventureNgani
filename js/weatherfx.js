@@ -57,14 +57,29 @@ function weatherRand(min, max) {
 // days get thinner clouds and stronger god-rays, rainy/snowy days get
 // thicker cloud cover and duller (sun-blocked) rays. Falls back to a
 // neutral 1.0 if calendar.js hasn't produced a reading yet.
-function weatherCloudMult() {
-  const w = typeof getCurrentWeather === "function" ? getCurrentWeather() : null;
-  return (w && WEATHER_CLOUD_OPACITY_MULT[w.name]) || 1;
+// Blended across a weather change (weatherWeight(), js/calendar.js), so
+// the clouds thicken / the sun rays dim gradually instead of in one frame.
+function blendedWeatherMult(table) {
+  if (typeof weatherWeight !== "function") {
+    const w = typeof getCurrentWeather === "function" ? getCurrentWeather() : null;
+    return (w && table[w.name]) || 1;
+  }
+  let sum = 0, total = 0;
+  for (const st of WEATHER_STATES) {
+    const k = weatherWeight(st.name);
+    if (k > 0) { sum += k * (table[st.name] || 1); total += k; }
+  }
+  return total > 0 ? sum / total : 1;
 }
-function weatherSunrayMult() {
-  const w = typeof getCurrentWeather === "function" ? getCurrentWeather() : null;
-  return (w && WEATHER_SUNRAY_MULT[w.name]) || 1;
+function weatherCloudMult() { return blendedWeatherMult(WEATHER_CLOUD_OPACITY_MULT); }
+function weatherSunrayMult() { return blendedWeatherMult(WEATHER_SUNRAY_MULT); }
+// 0..1 — how much rain / snow is falling right now (fades across a change)
+function fxWeight(name) {
+  if (typeof weatherWeight === "function") return weatherWeight(name);
+  return getCurrentWeather().name === name ? 1 : 0;
 }
+function rainAmount() { return Math.min(1, fxWeight("Rainy") + fxWeight("Thunderstorm")); }
+function snowAmount() { return fxWeight("Snow"); }
 
 // --- sun direction/colour, sampled from THIS project's own clock -------
 // Only what the cloud shadows + god rays actually need: which way the
@@ -138,10 +153,15 @@ function isRaining(name) {
 // Multipliers for the CURRENT weather: plain rain is 1x across the
 // board, a thunderstorm scales up.
 function rainIntensity() {
-  if (getCurrentWeather().name === "Thunderstorm") {
-    return { drops: STORM_DROP_MULT, speed: STORM_SPEED_MULT, length: STORM_LENGTH_MULT };
-  }
-  return { drops: 1, speed: 1, length: 1 };
+  // Blended: rain -> storm (or back) ramps the drop count/speed/length
+  // up or down gradually; rain starting / stopping thins in and out.
+  const wR = fxWeight("Rainy"), wS = fxWeight("Thunderstorm"), total = wR + wS;
+  const storm = total > 0 ? wS / total : 0;
+  return {
+    drops: wR + wS * STORM_DROP_MULT,
+    speed: lerpFX(1, STORM_SPEED_MULT, storm),
+    length: lerpFX(1, STORM_LENGTH_MULT, storm),
+  };
 }
 
 // How many of the pooled drops are live right now (the pool is sized for
@@ -212,12 +232,13 @@ function drawRain(onlyRow) {
   const stemW = Math.max(1, RAIN_STEM_WIDTH * k);
   const stemH = RAIN_STEM_LENGTH * k * lengthMult;
 
+  const fade = rainAmount();
   ctx.save();
   ctx.imageSmoothingEnabled = true; // a smooth gradient, not pixel art
   // Back row first (half opacity, like the pen's .back-row), then front.
   for (const row of [1, 0]) {
     if (onlyRow !== undefined && row !== onlyRow) continue;
-    ctx.globalAlpha = row === 1 ? 0.5 : 1;
+    ctx.globalAlpha = (row === 1 ? 0.5 : 1) * fade;
     for (let i = 0; i < active; i++) {
       const d = rainDrops[i];
       if (d.row !== row) continue;
@@ -238,7 +259,7 @@ function drawRain(onlyRow) {
     const scale = p < 0.5 ? p / 0.5 : 1 + (p - 0.5); // 0 -> 1, then 1 -> 1.5
     const alpha = p < 0.5 ? 1 - p : Math.max(0, 1 - p) * 1; // 1 -> 0.5 -> 0
     if (scale <= 0.02) continue;
-    ctx.globalAlpha = alpha * (s.row === 1 ? 0.5 : 1);
+    ctx.globalAlpha = alpha * (s.row === 1 ? 0.5 : 1) * fade;
     ctx.beginPath();
     ctx.ellipse(s.x * W, s.y * H + 5 * k * scale, 7.5 * k * scale, 5 * k * scale, 0, Math.PI, 2 * Math.PI);
     ctx.stroke();
@@ -255,7 +276,7 @@ let lightningCountdown = weatherRand(LIGHTNING_GAP_MIN, LIGHTNING_GAP_MAX);
 let lightningFlash = 0; // seconds of flicker left in the current strike
 
 function updateLightning(dt) {
-  if (getCurrentWeather().name !== "Thunderstorm") {
+  if (fxWeight("Thunderstorm") < 0.6) { // no strikes until the storm has mostly rolled in
     lightningFlash = 0;
     lightningBolt = null;
     return;
@@ -406,11 +427,15 @@ function updateSnow(dt) {
 
 function drawSnow(row) {
   const k = rainPxScale();
+  const amt = snowAmount();
+  // starting / stopping: fewer flakes and fainter, growing to the full snowfall
+  const n = Math.ceil(snowFlakes.length * Math.min(1, amt * 1.3));
   ctx.save();
   ctx.fillStyle = "#ffffff";
-  ctx.globalAlpha = row === 1 ? SNOW_BACK_ALPHA : SNOW_FRONT_ALPHA;
+  ctx.globalAlpha = (row === 1 ? SNOW_BACK_ALPHA : SNOW_FRONT_ALPHA) * Math.min(1, amt * 1.5);
   ctx.beginPath();
-  for (const f of snowFlakes) {
+  for (let i = 0; i < n; i++) {
+    const f = snowFlakes[i];
     if (f.row !== row) continue;
     const x = f.x * k, y = f.y * k, r = Math.max(0.6, f.r * k);
     ctx.moveTo(x + r, y);
@@ -1067,9 +1092,8 @@ function updateWeatherFX(dt) {
   // this particle count, but this also keeps drops/flakes from drifting
   // out of position while their weather isn't active, so they don't pop
   // in mid-fall the moment it switches back on.
-  const weatherName = getCurrentWeather().name;
-  if (isRaining(weatherName)) updateRain(dt); // "Rainy" and "Thunderstorm" both
-  if (weatherName === "Snow") updateSnow(dt);
+  if (rainAmount() > 0) updateRain(dt); // "Rainy" and "Thunderstorm" both (incl. while fading in/out)
+  if (snowAmount() > 0) updateSnow(dt);
   updateLeaves(dt); // sunny 09:00-15:00; finishes its fall afterwards
   // (All of these keep running whether the player is indoors or out —
   // they're screen-space — so walking out of a house you step straight
@@ -1084,18 +1108,16 @@ function updateWeatherFX(dt) {
 // of it; the FRONT row goes over everything. Per request: some snow /
 // rain / leaves pass in front of the character, some behind.
 function drawWeatherBackFX() {
-  const weatherName = getCurrentWeather().name;
-  if (isRaining(weatherName)) drawRain(1);
-  else if (weatherName === "Snow") drawSnow(1);
+  if (rainAmount() > 0) drawRain(1);
+  if (snowAmount() > 0) drawSnow(1);
   drawLeaves(1);
 }
 
 // The FRONT row (called late in render()), then the thunderstorm's
 // lightning flash over everything.
 function drawWeatherOverlayFX() {
-  const weatherName = getCurrentWeather().name;
-  if (isRaining(weatherName)) drawRain(0);
-  else if (weatherName === "Snow") drawSnow(0);
+  if (rainAmount() > 0) drawRain(0);
+  if (snowAmount() > 0) drawSnow(0);
   drawLeaves(0);
   drawLightning();
 }

@@ -156,7 +156,7 @@ function cropMapIcon(key, sheet, fw, fh, y0, y1, x0 = 0, x1 = fw) {
   if (!sheet || !sheet.width) return null;
   const c = document.createElement("canvas");
   c.width = fw; c.height = fh;
-  const g = c.getContext("2d");
+  const g = c.getContext("2d", { willReadFrequently: true });
   g.drawImage(sheet, 0, 0, fw, fh, 0, 0, fw, fh);
   let d;
   try { d = g.getImageData(0, 0, fw, fh).data; } catch (e) { mapIconCache.set(key, null); return null; }
