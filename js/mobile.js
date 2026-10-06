@@ -80,6 +80,9 @@ if (MOBILE_ON) {
   body.mobile #skill-bar .skill-more { display: none; } /* the skills window: in the top row now */
   /* the round day/night monitor sits under the minimap, centred on it */
   body.mobile #daycycle-hud { position: fixed; right: 30px; top: 112px; width: 64px !important; height: 69px !important; z-index: 48; pointer-events: auto; touch-action: none; }
+  /* Equipment (G) button, right under the day/night circle, centred on it */
+  #mb-equip { right: 44px; top: 186px; width: 36px; height: 36px; z-index: 48; }
+  #mb-equip .mb-key { position: absolute; right: -5px; bottom: -5px; min-width: 14px; height: 14px; line-height: 14px; font-size: 9px; font-weight: 700; background: #a8743e; color: #2a1d14; border-radius: 7px; text-align: center; pointer-events: none; }
   /* top left: just the bars now, a bit smaller */
   body.mobile #left-hud { top: 8px; left: 8px; gap: 4px; }
   body.mobile #stat-section { width: 128px; box-sizing: border-box; padding: 4px 6px; gap: 3px; }
@@ -190,6 +193,9 @@ if (MOBILE_ON) {
   tapBtn("mb-grab", "mb-round", ICON.hand, "e", "Hold");
   tapBtn("mb-throw", "mb-round", ICON.throw, "t", "Throw");
   tapBtn("mb-keep", "mb-round", ICON.keep, "r", "Keep");
+  // Equipment (G) — under the day/night circle; presses G, same as the keyboard
+  const ICON_EQUIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M8 3l-5 3 2 5 2-1v11h10V10l2 1 2-5-5-3a4 4 0 0 1-8 0z"/></svg>';
+  tapBtn("mb-equip", "mb-round", ICON_EQUIP + '<b class="mb-key">G</b>', "g", "Equipment");
   // Throw / Keep only while something is held (grabbed with E, or picked up to place)
   setInterval(() => { document.body.classList.toggle("holding", !!(player.grabbedType || player.mode === "carrying" || (typeof heldItem !== "undefined" && heldItem))); }, 150);
   // the attack button follows what's equipped

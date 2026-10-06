@@ -28,6 +28,11 @@
 ================================================================= */
 
 const CHUNK_TILES = 16, CHUNK_PX = CHUNK_TILES * TILE;
+// Each chunk canvas carries a CHUNK_PAD px border of its neighbours' pixels and is blitted from the
+// inner square only. At a fractional zoom (MOBILE_ZOOM 2.7) a phone GPU samples a hair past a
+// canvas's edge; without the border that sample was transparent and a 1px line of the dirt under
+// the grass showed along the chunk edges ("may guhit yung grass"). Now it lands on real neighbour art.
+const CHUNK_PAD = 2;
 const CHUNK_BUILDS_PER_FRAME = 4;
 const CHUNK_CACHE_MAX = 160;
 const chunkStore = { A: new Map(), B: new Map() }; // "cx,cy" -> { canvas, ver, sig, empty }
@@ -46,6 +51,8 @@ function markChunkKey(key) {
   const col = +key.slice(0, comma), row = +key.slice(comma + 1);
   // a neighbour's changes can matter (mountain backing beside stairs): mark the touching chunks too
   markChunkAt(col, row); markChunkAt(col - 1, row); markChunkAt(col + 1, row); markChunkAt(col, row - 1); markChunkAt(col, row + 1);
+  // (the padded border reaches the diagonal neighbours' corners too)
+  markChunkAt(col - 1, row - 1); markChunkAt(col + 1, row - 1); markChunkAt(col - 1, row + 1); markChunkAt(col + 1, row + 1);
 }
 for (const L of new Set([...ALL_LAYERS, dirtLayer, groundLayer, groundOverlayLayer])) {
   const set = L.set, del = L.delete, clr = L.clear;
@@ -79,8 +86,9 @@ function drawChunkTiles(stack, cx, cy, liveOnly) {
   let complete = true;
   const c0 = cx * CHUNK_TILES, r0 = cy * CHUNK_TILES;
   const snow = stack === "A" && isSnowGroundActive();
-  for (let r = r0; r < r0 + CHUNK_TILES; r++) {
-    for (let c = c0; c < c0 + CHUNK_TILES; c++) {
+  const ring = liveOnly ? 0 : 1; // a baked chunk also paints the neighbouring tiles into its padded border
+  for (let r = r0 - ring; r < r0 + CHUNK_TILES + ring; r++) {
+    for (let c = c0 - ring; c < c0 + CHUNK_TILES + ring; c++) {
       const k = c + "," + r;
       if (stack === "A") {
         if (snow && c >= 0 && r >= 0 && c < COLS && r < ROWS && groundFill[r * COLS + c]) {
@@ -107,13 +115,14 @@ function drawChunkTiles(stack, cx, cy, liveOnly) {
   return complete;
 }
 function buildChunk(stack, cx, cy, entry) {
-  if (!entry.canvas) { entry.canvas = document.createElement("canvas"); entry.canvas.width = CHUNK_PX; entry.canvas.height = CHUNK_PX; }
+  const size = CHUNK_PX + CHUNK_PAD * 2;
+  if (!entry.canvas) { entry.canvas = document.createElement("canvas"); entry.canvas.width = size; entry.canvas.height = size; }
   const g = entry.canvas.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0);
-  g.clearRect(0, 0, CHUNK_PX, CHUNK_PX);
+  g.clearRect(0, 0, size, size);
   g.imageSmoothingEnabled = false;
   const saved = { ctx, camX, camY, zoom };
-  ctx = g; camX = cx * CHUNK_PX; camY = cy * CHUNK_PX; zoom = 1;
+  ctx = g; camX = cx * CHUNK_PX - CHUNK_PAD; camY = cy * CHUNK_PX - CHUNK_PAD; zoom = 1;
   let complete;
   try { complete = drawChunkTiles(stack, cx, cy, false); }
   finally { ctx = saved.ctx; camX = saved.camX; camY = saved.camY; zoom = saved.zoom; }
@@ -160,7 +169,7 @@ function drawStackChunks(stack) {
       if (e.empty) continue;
       const x = Math.round((cx * CHUNK_PX - camX) * zoom), y = Math.round((cy * CHUNK_PX - camY) * zoom);
       const x2 = Math.round(((cx + 1) * CHUNK_PX - camX) * zoom), y2 = Math.round(((cy + 1) * CHUNK_PX - camY) * zoom);
-      ctx.drawImage(e.canvas, x, y, x2 - x, y2 - y);
+      ctx.drawImage(e.canvas, CHUNK_PAD, CHUNK_PAD, CHUNK_PX, CHUNK_PX, x, y, x2 - x, y2 - y); // inner square only
     }
   }
   ctx.restore();

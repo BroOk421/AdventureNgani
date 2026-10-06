@@ -1683,7 +1683,10 @@ function drawGroundItemAt(type, col, row) {
   // alongside sunrise/sunset instead of popping.
   const fade = itemDefs[type].fadeWithDaylight;
   if (fade) ctx.globalAlpha = getDayFactor();
-  ctx.drawImage(icon, screenX, screenY, w, h);
+  // Each edge rounded to a whole canvas px on its own: at a fractional zoom (2.7 on phones)
+  // neighbouring tiles then always share the same edge pixel — no hairline gap between them.
+  const x0 = Math.round(screenX), y0 = Math.round(screenY);
+  ctx.drawImage(icon, x0, y0, Math.round(screenX + w) - x0, Math.round(screenY + h) - y0);
   if (fade) ctx.globalAlpha = 1;
 }
 

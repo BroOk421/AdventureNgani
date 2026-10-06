@@ -6472,3 +6472,15 @@ browser can't show a stale cave texture.
 - style.css hides #equipped-weapon-hud (display: none !important); the element
   stays in index.html because js/inventory.js still fills it. Equipping /
   changing weapons is in the Equipment list (G). index.html -> ?v=20261052a.
+
+## Phone: no grass seams (padded chunks), G button under the day/night circle
+
+- js/chunks.js: each ground chunk canvas has a CHUNK_PAD (2 px) border holding
+  its neighbours' tiles and is blitted from the inner square only (source rect).
+  At MOBILE_ZOOM 2.7 the phone GPU sampled just past a chunk's edge (transparent)
+  and a 1px line of the dirt under the grass showed along chunk edges. Tile
+  changes also mark the diagonal chunks now (the border reaches their corners).
+- js/camera.js drawGroundItemAt(): each edge rounded to whole canvas px on its own
+  (the live fallback / desktop path) so neighbouring tiles share an edge pixel.
+- js/mobile.js: #mb-equip (shirt icon + "G" badge) under #daycycle-hud, presses G
+  (toggleEquipment). index.html -> ?v=20261053a.
