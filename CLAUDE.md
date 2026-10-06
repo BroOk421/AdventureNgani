@@ -6372,3 +6372,103 @@ browser can't show a stale cave texture.
   frame (px 16..48 x 14..50) at 3x, filling its box; no shadow; the
   attributes' "+" buttons appear only while there are points to spend.
   index.html -> ?v=20261043a.
+
+## The Greenwood (forest, west of the wild world) and hunting
+
+- tools/build_east_worlds.py forest(): 188 x 103 (the town's size) — the
+  mountain ring with one pass (E, rows 48-51), five mesas, a sea in the
+  south-west (portBR + PORT_SHORE pieces, 40 rocks in it, no trees), a mesa
+  with a lake whose waterfall (cols 101-103) feeds a stream to the sea,
+  420 trees, 260 bushes, 220 flowers / grass. EAST_WORLDS.forest ->
+  WORLD_DEFS.forest (js/worlds.js), the atlas (js/worldmap.js).
+- js/forest.js (new, after storage.js): the Forest Gate (forestGate,
+  tools/forest_art.py) kept at the wild world's (6,23) against its west
+  cliff — walk left into it -> the Greenwood (FOREST_ARRIVE); walk out of
+  the east pass -> back by the gate. Wild animals (the farm animals'
+  sheets / ANIMAL_TYPES): 10 at first, then one every 40-120 s (random)
+  up to 22, never within 10 tiles of you; they wander, flee when hit.
+  Hunt with the Axe equipped: findHarvestableTarget / resolveHarvestHit
+  wrappers (a "__huntTarget" pseudo-resource, slice swing); chicken 3
+  hits, sheep / pig 4, cow 5. Drops (spawnFloatingPickups): rawMeat (food)
+  + feather / wool / leather (new materials, sold with the mob drops,
+  js/shops.js SELL_DROPS). Drawn through the mineIndoorDrawables hook.
+  index.html -> ?v=20261044a.
+
+## A real pass to the Greenwood; land stones; 99 stacks
+
+- No more Forest Gate: the wild world's west cliff has a pass cut through
+  it (WILD_WEST_PASS in js/forest.js — cliff walls rows 16-19 and the rim
+  rows 25-26 at cols 0-4, the dirt road rows 21-24 carried from col 13 to
+  the edge, the plateau path at cols 1-2 capped at row 15). Baked into
+  js/defaultMap.data.js; a saved wild world gets it once
+  (player.wildPassV1, saved), and any old gate is removed. Walk out west
+  (rows 20-24) -> the Greenwood; back -> (4,22).
+- forest(): 70 breakable stones on the land (layoutVersion "v2-149b", so
+  a saved Greenwood is rebuilt).
+- STACK_99 (rawMeat, feather, wool, leather): grantItem caps them at 99;
+  past that the rest is left ("... is full (99)"). Raw Meat is food (click
+  to eat, like the fish). index.html -> ?v=20261045a.
+
+## West pass fixed: the cliff wall shows, the road has grass edges
+
+- carveWildWestPass() (player.wildPassV2 now, so it runs again on saves
+  that got v1): the old plateau is removed from BOTH groundLayer and
+  groundOverlayLayer (the mountain sits in the overlay too — v1 left it
+  there over the walls), mountain pieces go to the mountain's own layer;
+  no lawn under rows 21-24, so TopGrass2 / BottomGrass4 show their curved
+  grass line (also in js/defaultMap.data.js). index.html -> ?v=20261046a.
+
+## Top wall corners; save (6) as the default map; drop names; meat cleanup
+
+- js/defaultMap.data.js rebuilt from rpg-save (6).json (map only).
+- WILD_TOP_WALL_ENDS (js/forest.js): the wild world's top wall (rows 5-8,
+  cols 5-74) ends in its own end pieces (variant 1 at col 5, 6 at col 74)
+  where it meets the ridges — in the default map, and once on saves
+  (player.wildCornersV1; whichever layer holds the mountain there).
+- "__huntTarget" (the axe swing's stand-in) is never shown in the bag
+  (its count is zeroed on load); once, the Grilled Meat stack goes to 0
+  (player.meatResetV1).
+- The animals' drops (STACK_99 types) show their name over them while they
+  bounce and rest (drawFloatingPickups wrapper). index.html -> ?v=20261047a.
+
+## The top cliff runs on to both edges
+
+- Wild world (WILD_TOP_WALL_RUN, js/forest.js; player.wildCornersV2): the
+  top wall's face (rows 5-8) carries on through the ridges at cols 0-4 and
+  75-79 to the map's edges (no rounded end any more), and those ridges start
+  one step lower with their rim (row 9). Baked into js/defaultMap.data.js.
+- tools/build_east_worlds.py: the same for every generated land — the
+  north ring's wall runs through the west / east rings to the edges, and a
+  wall reaching the map's edge doesn't get an end piece there. All their
+  layoutVersions are "v3-..." now, so saved east worlds / the Greenwood are
+  rebuilt. index.html -> ?v=20261048a.
+
+## Hunting loot reaches the bag; Raw Meat restores more
+
+- hitWildAnimal (js/forest.js): the drops are granted (grantItem) — the
+  tossed icons (spawnFloatingPickups) were only the look, so nothing landed
+  in the bag before. Raw Meat: +20% health, +30 food (js/inventory.js);
+  descriptions for the four drops. index.html -> ?v=20261049a.
+
+## Room tools named in English
+
+- js/townBuildings.js: "Room Pickaxe (expand)" / "Room Hammer (shrink)". They
+  are weapons (equipSlot "weapon"), so after buying them from Lita (400
+  gold each) they're in the Equipment list (G), not the bag. index.html ->
+  ?v=20261050a.
+
+## Room Pickaxe / Hammer: free tools, paid expansion, refunds
+
+- js/roomCustomizer.js: both tools are given once to every save
+  (player.roomToolsGivenV1) and are in the fresh-start STARTER_PACK; Lita
+  no longer sells them (js/shops.js FURN_INDOOR_RE). digRoom wrapper: each
+  dug tile costs ROOM_TILE_PRICE (15) + ROOM_TILE_STEP (3) x tiles already
+  bought in that room — not enough gold, no dig; fillRoom wrapper: the
+  filled tiles refund the most recent prices. Paid prices per room in
+  player.roomPaid[roomId] (a stack), saved. index.html -> ?v=20261051a.
+
+## No "Equipped: ... [Unequip]" box
+
+- style.css hides #equipped-weapon-hud (display: none !important); the element
+  stays in index.html because js/inventory.js still fills it. Equipping /
+  changing weapons is in the Equipment list (G). index.html -> ?v=20261052a.

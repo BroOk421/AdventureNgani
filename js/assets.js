@@ -1266,10 +1266,11 @@ for (const t of ["leather", "iron", "gold", "mythril", "dragon"]) for (const k o
   assets["mob_" + t + k] = new Image(); assets["mob_" + t + k].src = "assets/mobs/icons/" + t + k + ".png"; // gear (js/gear.js)
 }
 assets.warpPortal = new Image(); assets.warpPortal.src = "assets/buildings/exterior/warpPortal.png"; // the far worlds' portals (js/gear.js)
-for (const id of ["slimeGel", "batWing", "glowCap", "crystalShard", "golemCore", "ironIngot", "goldIngot", "oreLuck", "oreFortune", "oreDivine", "caveSword", "ironSword", "goldSword", "crystalSword", "mythrilSword", "dragonSword", "celestialSword", "goldCoin"]) {
+for (const id of ["slimeGel", "batWing", "glowCap", "crystalShard", "golemCore", "ironIngot", "goldIngot", "oreLuck", "oreFortune", "oreDivine", "rawMeat", "feather", "wool", "leather", "caveSword", "ironSword", "goldSword", "crystalSword", "mythrilSword", "dragonSword", "celestialSword", "goldCoin"]) {
   assets["mob_" + id] = new Image();
   assets["mob_" + id].src = "assets/mobs/icons/" + id + ".png";
 }
+assets.forestGate = new Image(); assets.forestGate.src = "assets/outdoor/forestGate.png"; // the Greenwood gate (js/forest.js)
 for (const id of ["lava1", "lava2", "lava3", "waterfall"]) { assets[id] = new Image(); assets[id].src = "assets/items/tile/" + id + ".png"; } // the Volcano / the Coast (js/farWorlds.js)
 for (const id of ["woodAxe", "woodPickaxe"]) { assets[id] = new Image(); assets[id].src = "assets/items/tools/" + id + ".png"; } // the starter axe / pickaxe (js/freshStart.js)
 for (const id of ["fishingRod", "fishTilapia", "fishBangus", "fishLapu", "fishKoi"]) { assets[id] = new Image(); assets[id].src = "assets/items/fish/" + id + ".png"; } // fishing (js/fishing.js)

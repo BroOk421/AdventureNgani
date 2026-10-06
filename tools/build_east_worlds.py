@@ -43,6 +43,11 @@ def build(seed, mesas, east_pass, trails, n_trees, n_bushes, west_pass=True, por
     for (c0, r0, c1, r1) in mesas:
         for c in range(c0, c1 + 1):
             for r in range(r0, r1 + 1): plateau.add((c, r))
+    # per request: the north ring's wall face runs on through the west / east rings to the map's edges
+    # (rows 5-8 there are wall, those rings start one step lower)
+    for c in list(range(0, 5)) + list(range(W - 5, W)):
+        if (c, 4) in plateau and all((c, r) in plateau for r in range(5, 9)):
+            for r in range(5, 9): plateau.discard((c, r))
     walls = {}
     for (c, r) in plateau:
         if (c, r + 1) in plateau or r + 1 >= H: continue
@@ -51,8 +56,8 @@ def build(seed, mesas, east_pass, trails, n_trees, n_bushes, west_pass=True, por
             if (c, r + 1 + i) in plateau: break
             walls[(c, r + 1 + i)] = t
     for (c, r), t in walls.items():
-        left = (c - 1, r) not in walls and (c - 1, r) not in plateau
-        right = (c + 1, r) not in walls and (c + 1, r) not in plateau
+        left = c > 0 and (c - 1, r) not in walls and (c - 1, r) not in plateau      # (the map's edge: it carries on)
+        right = c < W - 1 and (c + 1, r) not in walls and (c + 1, r) not in plateau
         if left: t = t[:-1] + "1"
         elif right: t = t[:-1] + "6"
         put(c, r, "terrainMountain" + t, "g")
@@ -167,7 +172,7 @@ def build(seed, mesas, east_pass, trails, n_trees, n_bushes, west_pass=True, por
     return {"cols": W, "rows": H, "pass": list(PASS), "spawnWest": [4, (PASS[0] + PASS[1]) // 2], "spawnEast": [W - 5, (PASS[0] + PASS[1]) // 2],
             "eastPass": east_pass, "westPass": west_pass, "portals": portal_out,
             "passes": [{"side": sd, "from": a, "to": b, "name": nm} for (sd, a, b, nm) in passes],
-            "layoutVersion": "v2-" + str(seed) + version, "placedItems": placed, "groundFill": {"cols": COLS, "rows": ROWS, "bits": base64.b64encode(bytes(b)).decode()}}
+            "layoutVersion": "v3-" + str(seed) + version, "placedItems": placed, "groundFill": {"cols": COLS, "rows": ROWS, "bits": base64.b64encode(bytes(b)).decode()}}
 
 worlds = {
     "east1": build(31, [(22, 9, 33, 13), (50, 30, 61, 34)], True,
@@ -332,8 +337,123 @@ def coast():
     pack_fill(w, fill)
     w["theme"] = "coast"
     return w
+
+def forest():
+    """Per request ("mag lagay ka pa nga ng isang map sa left side ng new map tabi ng town forest ... ka
+    size ng town ... puro trees, grass, bushes flowers, may falls ... ocean ... bato lang ... sa paligid is
+    mountain ... konting mountain sa gitna"): the Greenwood, west of the wild world, as big as the town.
+    A mountain ring with one pass (east, back to the wild world), a few mesas in the middle, a big sea
+    in the south-west with a port-piece shore and rocks in the water (no trees), a cliff with a lake and
+    a waterfall feeding a stream down to the sea, and trees, bushes, flowers and grass everywhere."""
+    global W, H
+    keepW, keepH = W, H
+    W, H = 188, 103
+    try:
+        w = build(149, [(40, 16, 54, 21), (120, 60, 134, 65), (70, 40, 80, 44), (146, 22, 158, 27), (92, 12, 112, 19)], False,
+                  [(150, 50, W - 1, 51), (110, 51, 151, 52), (60, 34, 61, 60), (100, 30, 140, 31)], 420, 260, west_pass=False,
+                  passes=[("E", 48, 51, "back")], version="b")
+    finally:
+        pass
+    rng = random.Random(149)
+    sea = set()
+    for c in range(W):
+        for r in range(H):
+            edge = 66 + 6 * math.sin(c * 0.08) + 3 * math.sin(c * 0.21 + 1)
+            right = 78 + 8 * math.sin(r * 0.09 + 2)
+            if r >= edge and c <= right: sea.add((c, r))
+    for _ in range(4):
+        add = set()
+        for c in range(W):
+            for r in range(H):
+                if (c, r) in sea: continue
+                if ((c - 1, r) in sea and (c + 1, r) in sea) or ((c, r - 1) in sea and (c, r + 1) in sea): add.add((c, r))
+        if not add: break
+        sea |= add
+    def sh(c, r):
+        n, s_, e, w_ = (c, r - 1) in sea, (c, r + 1) in sea, (c + 1, r) in sea, (c - 1, r) in sea
+        for cond, key in ((n and w_, "nw"), (n and e, "ne"), (s_ and w_, "sw"), (s_ and e, "se"), (n, "n"), (s_, "s"), (w_, "w"), (e, "e"),
+                          ((c - 1, r - 1) in sea, "dnw"), ((c + 1, r - 1) in sea, "dne"), ((c - 1, r + 1) in sea, "dsw"), ((c + 1, r + 1) in sea, "dse")):
+            if cond: return PORT_SHORE[key]
+        return None
+    shore = {}
+    for c in range(W):
+        for r in range(H):
+            if (c, r) not in sea:
+                t = sh(c, r)
+                if t: shore[(c, r)] = t
+    # the falls: the mesa at cols 92-112, a lake on top, the water down its face, a stream to the sea
+    falls_cols = (101, 102, 103)
+    lake = {(c, r) for c in range(96, 109) for r in range(13, 18) if math.hypot((c - 102) / 5.5, (r - 15.2) / 2.2) <= 1.0}
+    stream = set(); cx = 102
+    for r in range(20, 72):
+        if r > 24: cx += rng.choice((0, 0, 0, -1, -1, 1))
+        cx = max(70, min(110, cx))
+        for d in (-1, 0, 1): stream.add((cx + d, r))
+        if (cx, r) in sea: break
+    out = []
+    for k, t in w["placedItems"]:
+        c, r = map(int, k.split(","))
+        if (c, r) in sea or (c, r) in shore: continue
+        if (c, r) in lake and (not t.startswith("terrainMountain") or t.startswith("terrainMountainCenter")): continue
+        if (c, r) in stream and not (t.startswith("terrainMountain") and c not in falls_cols): continue
+        if c in falls_cols and 18 <= r <= 23 and t.startswith("terrainMountain") and "Wall" in t: continue
+        out.append([k, t])
+    for (c, r) in sorted(sea): out.append([f"{c},{r}", "portBR"])
+    for (c, r), t in sorted(shore.items()): out.append([f"{c},{r}", t])
+    for (c, r) in sorted(lake): out.append([f"{c},{r}", "water" + str(1 + (c + r) % 3)])
+    fall_keys = {f"{c},{r}" for c in falls_cols for r in range(18, 24)}
+    out = [[k, t] for k, t in out if k not in fall_keys]
+    for k in sorted(fall_keys): out.append([k, "waterfall"])
+    sk = set()
+    for (c, r) in sorted(stream):
+        if (c, r) in sea or (c, r) in shore or r < 24: continue
+        sk.add(f"{c},{r}")
+    out = [[k, t] for k, t in out if k not in sk or not t.startswith(("terrainGrass", "tree", "bush", "stone", "wildGrass", "decoFlower", "pcRocks"))]
+    for k in sorted(sk): out.append([k, "water" + str(1 + sum(map(int, k.split(","))) % 3)])
+    # rocks out in the sea (no trees there)
+    n = 0
+    seal = sorted(sea)
+    while n < 40:
+        c, r = seal[rng.randrange(len(seal))]
+        if any((c + a, r + b) not in sea for a in (-1, 0, 1) for b in (-1, 0, 1)): continue
+        out.append([f"{c},{r}", rng.choice(["pcRocks01", "pcRocks02", "pcRocks05", "stoneMedium", "stoneBig"])]); n += 1
+    # per request ("lagay mo sa mismong land ... ilagay yung bato para makakuha rin ng bato"): stones to
+    # mine with the pickaxe all over the land too
+    taken0 = {tuple(map(int, k.split(","))) for k, t in out if not t.startswith("terrain")}
+    blocked0 = sea | set(shore) | lake | stream | {tuple(map(int, k.split(","))) for k, t in out if t.startswith("terrainMountain")}
+    n = 0
+    while n < 110:
+        c, r = rng.randint(6, W - 7), rng.randint(6, H - 7)
+        if (c, r) in taken0 or (c, r) in blocked0 or any((c + a, r + b) in taken0 for a in (-1, 0, 1) for b in (-1, 0, 1)): continue
+        t = rng.choice(["stoneSmall", "stoneSmall", "stoneMedium", "stoneMedium", "stoneXS", "stoneBig"])
+        out.append([f"{c},{r}", t]); taken0.add((c, r)); n += 1
+    # flowers and more grass
+    taken = {tuple(map(int, k.split(","))) for k, t in out if not t.startswith("terrain")}
+    blocked = sea | set(shore) | lake | stream
+    hardg = {tuple(map(int, k.split(","))) for k, t in out if t.startswith("terrainMountain")}
+    # per request: stones on the land too (to break with the pickaxe), not just the rocks in the sea
+    n = 0
+    while n < 70:
+        c, r = rng.randint(7, W - 8), rng.randint(7, H - 8)
+        if any((c + a, r + b) in taken or (c + a, r + b) in blocked or (c + a, r + b) in hardg for a in (-1, 0, 1) for b in (-1, 0, 1)): continue
+        out.append([f"{c},{r}", rng.choice(["stoneSmall", "stoneSmall", "stoneMedium", "stoneMedium", "stoneBig", "stoneXS"])]); taken.add((c, r)); n += 1
+    n = 0
+    while n < 220:
+        c, r = rng.randint(6, W - 7), rng.randint(6, H - 7)
+        if (c, r) in taken or (c, r) in blocked: continue
+        t = rng.choice(["decoFlower1", "decoFlower2", "bushFlowerA", "bushFlowerB", "bushFlowerC", "bushFlowerD", "wildGrass2", "wildGrass3", "wildGrass5"])
+        out.append([f"{c},{r}", t]); taken.add((c, r)); n += 1
+    w["placedItems"] = out
+    fill = unpack_fill(w)
+    for (c, r) in blocked | {(c, r) for c in falls_cols for r in range(18, 24)}: fill[r * COLS + c] = 0
+    pack_fill(w, fill)
+    w["theme"] = "forest"
+    w["layoutVersion"] = "v3-149b"
+    W, H = keepW, keepH
+    return w
 worlds["east7"] = volcano()
 worlds["east8"] = coast()
+worlds["forest"] = forest()
 with open(os.path.join(ROOT, "js", "eastWorlds.data.js"), "w", newline="\n") as f:
     f.write('"use strict";\n// Generated by tools/build_east_worlds.py — the worlds east of the town.\n')
     f.write("const EAST_WORLDS = " + json.dumps(worlds, separators=(",", ":")) + ";\n")

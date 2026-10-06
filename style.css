@@ -1743,3 +1743,8 @@ body.mobile #dlg { bottom: 18px; width: min(560px, 70vw); }
 .storage-slot img { width: 70%; height: 70%; object-fit: contain; image-rendering: pixelated; }
 .storage-slot .n { position: absolute; right: 3px; bottom: 1px; font-size: 10px; font-weight: 700; color: #fff; text-shadow: 0 0 2px #000, 1px 1px 0 #000; }
 .storage-empty { grid-column: 1 / -1; color: #b8a893; font-size: 12px; padding: 4px; }
+
+/* Per request: the "Equipped: ... [Unequip]" box is gone from the screen — the weapon just stays equipped
+   (change it from the Equipment list, G). The element stays in index.html so the code that fills it
+   keeps working. */
+#equipped-weapon-hud { display: none !important; }

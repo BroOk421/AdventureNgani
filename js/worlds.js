@@ -43,6 +43,7 @@ const WORLD_DEFS = {
   east6: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east6 : null,
   east7: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east7 || null : null, // the Volcano (tools/build_east_worlds.py)
   east8: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east8 || null : null, // the Azure Coast
+  forest: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.forest || null : null, // the Greenwood, west of the wild world (js/forest.js)
 };
 const EXTRA_WORLDS = Object.keys(WORLD_DEFS).filter((w) => WORLD_DEFS[w]);
 const WILD_COLS = WILD_WORLD_DEFAULT.cols, WILD_ROWS = WILD_WORLD_DEFAULT.rows;
@@ -104,10 +105,19 @@ function startInDefaultWorld() {
   if (!placePlayerAtHomeDoor()) placePlayerOnTile(WILD_SPAWN[0], WILD_SPAWN[1], "left"); // no House there -> by the pass
 }
 
-// The minimap shows the outdoor map — hide it while inside a room.
+// The minimap shows the outdoor map — inside a room it stays on screen but goes black (per request,
+// "kapag nasa room siguro gawin mo maging black na lang"), the dial's frame still there.
 setInterval(() => {
   const mm = document.getElementById("minimap");
-  if (mm) mm.style.visibility = player.scene === "inside" ? "hidden" : "";
+  if (!mm) return;
+  mm.style.visibility = "";
+  if (player.scene === "inside") {
+    const g = mm.getContext("2d");
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, mm.width, mm.height);
+    g.fillStyle = "#000"; g.beginPath(); g.arc(mm.width / 2, mm.height / 2, Math.min(mm.width, mm.height) / 2, 0, Math.PI * 2); g.fill();
+    g.restore();
+  }
 }, 200);
 
 let worldPortalCooldown = 0;

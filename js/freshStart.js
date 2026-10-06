@@ -27,7 +27,7 @@
 ================================================================= */
 
 const FRESH_START_VERSION = 1;
-const STARTER_PACK = ["farmHoe", "woodAxe", "woodPickaxe", "fishingRod", "farmCan"];
+const STARTER_PACK = ["farmHoe", "woodAxe", "woodPickaxe", "fishingRod", "farmCan", "roomPickaxe", "roomHammer"]; // (+ the room tools, js/roomCustomizer.js)
 
 /* ---------------- furniture is bought, not free ---------------- */
 function applyShopItemRules() {
@@ -101,11 +101,14 @@ function applyFreshStart() {
 }
 {
   const saveBase = buildSaveData;
-  buildSaveData = function () { const d = saveBase.apply(this, arguments); d.freshStartV = player.freshStartV || 0; d.gearTrialGiven = !!player.gearTrialGiven; d.gearTrial = !!player.gearTrial; return d; };
+  buildSaveData = function () { const d = saveBase.apply(this, arguments); d.freshStartV = player.freshStartV || 0; d.goldResetV1 = !!player.goldResetV1; d.gearTrialGiven = !!player.gearTrialGiven; d.gearTrial = !!player.gearTrial; return d; };
   const loadBase = applySaveData;
   applySaveData = function (data) {
     const r = loadBase.apply(this, arguments);
     player.freshStartV = data && data.freshStartV || 0;
+    // per request ("i 0 mo yung gold ko"): once, everyone's gold goes to 0
+    player.goldResetV1 = !!(data && data.goldResetV1);
+    if (!player.goldResetV1 && !isDevMode()) { player.gold = 0; player.goldResetV1 = true; if (typeof renderGoldDisplays === "function") renderGoldDisplays(); }
     if (player.freshStartV < FRESH_START_VERSION && !isDevMode()) {
       applyFreshStart();
       setTimeout(() => { if (typeof showToast === "function") showToast("A fresh start! Starter pack: Hoe, Axe, Pickaxe, Fishing Rod, Watering Can"); }, 1500);

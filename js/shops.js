@@ -26,6 +26,7 @@ const SELL_DROPS = [
   { type: "slimeGel", price: 4, sell: true }, { type: "batWing", price: 5, sell: true },
   { type: "crystalShard", price: 14, sell: true }, { type: "golemCore", price: 30, sell: true },
   { type: "ironIngot", price: 22, sell: true }, { type: "goldIngot", price: 60, sell: true }, // from the hidden cave chests (js/treasure.js)
+  { type: "rawMeat", price: 6, sell: true }, { type: "feather", price: 3, sell: true }, { type: "wool", price: 9, sell: true }, { type: "leather", price: 12, sell: true }, // hunting in the Greenwood (js/forest.js)
 ];
 // Armour, rings, boots (the Demon set is never sold — bosses only).
 const EQUIP_STOCK = [
@@ -312,7 +313,7 @@ setInterval(() => {
    inside...) or OUTDOOR (bushes, trees, flowers, fences, benches, lamp posts, planters, rocks...),
    and priced by the size of its picture (bigger = dearer), lights a little more. The rest of the
    building-mode tiles (ground, terrain, buildings, collision blocks) are not for sale. */
-const FURN_INDOOR_RE = /^(bld(?!Planter|BenchWood|BenchStone|LampPost)|pcFurniture|pcEsoteric|pcDungeon|bed|tableBig|tableCircle|tableKitchen|tableSmall|tableLong$|chairFront|chairRight|chairLeft|cabinet|basket|cooker|couch|drawer|broom|barrelInterior|crateInterior|crateOpenInterior|wallPoster|pictureFrame|board[AB]|wallFurniture|windowPlain|windowLight|tableFurniture|mug|plate|floorMat|floor(Brown|DarkGreen|Green)Tile|bartender|roomPickaxe|roomHammer)/;
+const FURN_INDOOR_RE = /^(bld(?!Planter|BenchWood|BenchStone|LampPost)|pcFurniture|pcEsoteric|pcDungeon|bed|tableBig|tableCircle|tableKitchen|tableSmall|tableLong$|chairFront|chairRight|chairLeft|cabinet|basket|cooker|couch|drawer|broom|barrelInterior|crateInterior|crateOpenInterior|wallPoster|pictureFrame|board[AB]|wallFurniture|windowPlain|windowLight|tableFurniture|mug|plate|floorMat|floor(Brown|DarkGreen|Green)Tile|bartender)/; // (the Room Pickaxe / Hammer aren't sold any more — everyone has them, js/roomCustomizer.js)
 const FURN_OUTDOOR_RE = /^(bush|tree(Medium|Thin|Tiny|Big)(?!.*Stump)|stone(Big|Medium|Small|XS|XXS|Decor)|pcRocks|pcVegetation|pcTree|pcFarm|pcResources|decoFlower|wildGrass|leavesFloor|fenceTile|bench(Horizontal|Vertical)|chairOutdoor|tableOutdoor|longTable|post(Plain|HandleLight|Light)|portBridge(Decor|Front|Wall)|bldPlanter|bldBenchWood|bldBenchStone|bldLampPost|woodCrate|woodPlaque|woodShield|veg|waterCrate)/;
 function furniturePrice(type) {
   const d = itemDefs[type], ic = d && d.icon;

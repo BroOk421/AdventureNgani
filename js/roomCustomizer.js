@@ -722,3 +722,70 @@ window.addEventListener("keydown", (e) => {
   if (k === "h") toggleRoomPanel();
   else if (k === "p" && isInGrocery()) openGroceryShop();
 });
+
+/* ---- the Room Pickaxe / Hammer: everyone has them; expanding costs gold, shrinking gives it back ----
+   Per request ("yung pang expand pala ng inner room at yung pang balik? gawin mo sana rin na default
+   pero kada gamit o expand ng bahay is lumalaki rin yung gastos kada hit may bayad pero kapag ibabalik
+   is babalik yung pera"):
+   - both tools are given once to every save (player.roomToolsGivenV1) — in the Equipment list (G);
+   - every floor tile dug costs gold, and each one costs a bit more than the last in that room
+     (ROOM_TILE_PRICE + ROOM_TILE_STEP x tiles already bought there); not enough gold, no dig;
+   - filling tiles back in with the hammer refunds what the most recent ones cost.
+   What was paid is kept per room as a stack (player.roomPaid[roomId]), saved. */
+const ROOM_TILE_PRICE = 15, ROOM_TILE_STEP = 3;
+function roomPaidStack(id) {
+  if (!player.roomPaid || typeof player.roomPaid !== "object") player.roomPaid = {};
+  return player.roomPaid[id] || (player.roomPaid[id] = []);
+}
+function roomDigCost(id, n) {
+  const k = roomPaidStack(id).length;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += ROOM_TILE_PRICE + ROOM_TILE_STEP * (k + i);
+  return sum;
+}
+{
+  const digBase = digRoom;
+  digRoom = function (room, plan) {
+    if (!plan || !plan.ok) return digBase.apply(this, arguments);
+    const id = player.activeRoomId, n = plan.tiles.filter((t) => t.ok).length;
+    const cost = roomDigCost(id, n);
+    if ((player.gold || 0) < cost) { roomToast("Not enough gold — expanding " + n + " tile" + (n === 1 ? "" : "s") + " costs " + cost + " gold"); return false; }
+    const done = digBase.apply(this, arguments);
+    if (!done) return done;
+    const stack = roomPaidStack(id);
+    for (let i = 0; i < n; i++) stack.push(ROOM_TILE_PRICE + ROOM_TILE_STEP * stack.length);
+    player.gold -= cost;
+    if (typeof renderGoldDisplays === "function") renderGoldDisplays();
+    roomToast("Expanded " + n + " tile" + (n === 1 ? "" : "s") + ": -" + cost + " gold (next tile " + (ROOM_TILE_PRICE + ROOM_TILE_STEP * stack.length) + ")");
+    return done;
+  };
+  const fillBase = fillRoom;
+  fillRoom = function (room, plan) {
+    if (!plan || !plan.ok) return fillBase.apply(this, arguments);
+    const id = player.activeRoomId, n = plan.tiles.filter((t) => t.ok).length;
+    const done = fillBase.apply(this, arguments);
+    if (!done) return done;
+    const stack = roomPaidStack(id);
+    let back = 0;
+    for (let i = 0; i < n && stack.length; i++) back += stack.pop();
+    if (back) {
+      player.gold = (player.gold || 0) + back;
+      if (typeof renderGoldDisplays === "function") renderGoldDisplays();
+      roomToast("Shrunk " + n + " tile" + (n === 1 ? "" : "s") + ": +" + back + " gold back");
+    }
+    return done;
+  };
+  const saveBase = buildSaveData;
+  buildSaveData = function () { const d = saveBase.apply(this, arguments); d.roomPaid = player.roomPaid || {}; d.roomToolsGivenV1 = !!player.roomToolsGivenV1; return d; };
+  const loadBase = applySaveData;
+  applySaveData = function (data) {
+    const r = loadBase.apply(this, arguments);
+    player.roomPaid = data && data.roomPaid && typeof data.roomPaid === "object" ? data.roomPaid : {};
+    player.roomToolsGivenV1 = !!(data && data.roomToolsGivenV1);
+    if (!player.roomToolsGivenV1) {
+      for (const t of [ROOM_TOOL_PICKAXE, ROOM_TOOL_HAMMER]) if (ownedCount(t) < 1) grantItem(t, 1 - ownedCount(t));
+      player.roomToolsGivenV1 = true;
+    }
+    return r;
+  };
+}

@@ -3702,9 +3702,12 @@ itemDefs.warpPortal = { id: "warpPortal", name: "Warp Portal", icon: assets.warp
 itemDefs.potionHealth = { id: "potionHealth", name: "Health Potion", icon: assets.bldPotionRed, startCount: 0, consumable: { healthPercent: 40 } };
 itemDefs.potionStamina = { id: "potionStamina", name: "Stamina Potion", icon: assets.bldPotionGreen, startCount: 0, consumable: { staminaPercent: 60 } };
 itemDefs.potionElixir = { id: "potionElixir", name: "Elixir", icon: assets.bldPotionPurple, startCount: 0, consumable: { healthPercent: 100, staminaPercent: 100, food: 30 } };
-for (const [id, name] of [["slimeGel", "Slime Gel"], ["batWing", "Bat Wing"], ["glowCap", "Glow Cap"], ["crystalShard", "Crystal Shard"], ["golemCore", "Golem Core"], ["ironIngot", "Iron Ingot"], ["goldIngot", "Gold Ingot"], ["oreLuck", "Luck Ore (+20%)"], ["oreFortune", "Fortune Ore (+50%)"], ["oreDivine", "Divine Ore (100%)"]]) {
+for (const [id, name] of [["slimeGel", "Slime Gel"], ["batWing", "Bat Wing"], ["glowCap", "Glow Cap"], ["crystalShard", "Crystal Shard"], ["golemCore", "Golem Core"], ["ironIngot", "Iron Ingot"], ["goldIngot", "Gold Ingot"], ["oreLuck", "Luck Ore (+20%)"], ["oreFortune", "Fortune Ore (+50%)"], ["oreDivine", "Divine Ore (100%)"], ["feather", "Feather"], ["wool", "Wool"], ["leather", "Leather"]]) {
   itemDefs[id] = { id, name, icon: assets["mob_" + id], startCount: 0, mobDrop: true };
 }
+// Hunting in the Greenwood (js/forest.js): raw meat to eat, the gate to get there.
+itemDefs.rawMeat = { id: "rawMeat", name: "Raw Meat", icon: assets.mob_rawMeat, startCount: 0, mobDrop: true, consumable: { food: 30, healthPercent: 20 } }; // per request: eat it for health and food
+itemDefs.forestGate = { id: "forestGate", name: "Forest Gate", icon: assets.forestGate, unlimited: true };
 // The Volcano's lava and the Coast's waterfall (js/farWorlds.js): flat, can't be walked on, animated live.
 for (const [id, name] of [["lava1", "Lava 1"], ["lava2", "Lava 2"], ["lava3", "Lava 3"], ["waterfall", "Waterfall"]]) {
   itemDefs[id] = { id, name, icon: assets[id], unlimited: true, flat: true, collides: true, layer: "terrain" }; // on the ground layer, like the water
