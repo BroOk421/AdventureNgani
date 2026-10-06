@@ -360,7 +360,7 @@ function drawTreasureOverlay() {
     ctx.save();
     ctx.font = "bold " + fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
     ctx.lineWidth = Math.max(2, fs / 4); ctx.strokeStyle = "rgba(0,0,0,0.85)";
-    ctx.strokeText("[E] Buksan", sx, sy); ctx.fillStyle = "#ffe6a8"; ctx.fillText("[E] Buksan", sx, sy);
+    ctx.strokeText("[E] Open", sx, sy); ctx.fillStyle = "#ffe6a8"; ctx.fillText("[E] Open", sx, sy);
     ctx.restore();
   }
   // opening burst
@@ -423,6 +423,7 @@ function openTreasureChest(T, h) {
   if (!T.st.loot) T.st.loot = {};
   if (!T.st.opened[h.i]) {
     T.st.opened[h.i] = Date.now();
+    player.treasure.openedTotal = (player.treasure.openedTotal || 0) + 1; // every chest ever opened (the quests count them, js/quests.js)
     const loot = rollTreasureLoot(T.zone.level);
     T.st.loot[h.i] = [{ type: "goldCoin", amount: loot.gold }].concat(loot.items.map(([type, amount]) => ({ type, amount })));
     treasureBursts.push({ x: h.x, y: h.y, t: performance.now() / 1000 });
@@ -437,7 +438,7 @@ function buildChestWindow() {
   chestWin.id = "chest-overlay";
   chestWin.className = "hidden";
   chestWin.innerHTML = '<div id="chest-panel"><div class="chest-title">📦 Treasure Chest <span class="hint">(click outside to close)</span></div>' +
-    '<div id="chest-grid"></div><div class="chest-foot"><span class="hint">I-click ang item para kunin</span><button id="chest-all">Kunin lahat</button></div></div>';
+    '<div id="chest-grid"></div><div class="chest-foot"><span class="hint">Click an item to take it</span><button id="chest-all">Take all</button></div></div>';
   document.body.appendChild(chestWin);
   chestWin.addEventListener("click", (e) => { if (e.target === chestWin) closeChestWindow(); });
   window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeChestWindow(); });
@@ -547,7 +548,7 @@ view.addEventListener("mousedown", (e) => {
   if (!h) return;
   e.stopImmediatePropagation(); e.preventDefault();
   const p = treasurePlayerFeet();
-  if (Math.hypot(h.x - p.x, h.y - p.y) > CHEST_OPEN_RANGE) { if (typeof showToast === "function") showToast("Masyadong malayo — lumapit ka muna"); return; }
+  if (Math.hypot(h.x - p.x, h.y - p.y) > CHEST_OPEN_RANGE) { if (typeof showToast === "function") showToast("Too far — get closer first"); return; }
   openTreasureChest(T, h);
 }, true);
 

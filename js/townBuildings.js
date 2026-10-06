@@ -56,6 +56,8 @@ const TOWN_HOUSE_INFO = {
   equipShop:      { name: "Equipment Shop",    room: "equip_room",   home: null,    capacity: 0 },
   potionShop:     { name: "Potion Shop",       room: "potion_room",  home: null,    capacity: 0 },
   blacksmithShop: { name: "Blacksmith",        room: "smith_room",   home: null,    capacity: 0 },
+  // Per request: a shop selling furniture — one keeper for indoor pieces, one for outdoor (js/shops.js).
+  furnitureShop:  { name: "Furniture Shop",    room: "furniture_room", home: null,  capacity: 0 },
 };
 
 // Display names; anything not listed falls back to its id.
@@ -317,6 +319,14 @@ TOWN_ROOM_BLUEPRINTS.smith_room = townRoomBlueprint("smith_room", [
   [3, 6, "bartenderLeft"], [4, 6, "bartenderCenter"], [5, 6, "bartenderCenter"], [6, 6, "bartenderCenter"], [7, 6, "bartenderCenter"], [8, 6, "bartenderRight"],
   [1, 9, "bldBarrel"], [10, 9, "bldCrateDark"], [10, 8, "bldBarrel"], [1, 8, "bldCrateDark"], [5, 9, "floorMatBldDark"],
 ], Object.assign({ wall: "stone", floor: "stone" }, shopRoomLayout()));
+// The Furniture Shop: one long counter, the indoor keeper on the left, the outdoor keeper on the right,
+// a few samples of each side on show.
+TOWN_ROOM_BLUEPRINTS.furniture_room = townRoomBlueprint("furniture_room", [
+  [2, 1, "bldWallFrame"], [9, 1, "bldWallShutters"], [4, 2, "bldWallCandle"], [7, 2, "bldWallCandle"],
+  [2, 4, "bldWardrobe"], [4, 4, "bldShelfLong"], [9, 4, "bldPlanterBush"], [7, 4, "bldBenchStone"],
+  [2, 6, "bartenderLeft"], [3, 6, "bartenderCenter"], [4, 6, "bartenderCenter"], [5, 6, "bartenderCenter"], [6, 6, "bartenderCenter"], [7, 6, "bartenderCenter"], [8, 6, "bartenderCenter"], [9, 6, "bartenderRight"],
+  [1, 9, "bldPlantFlower"], [10, 9, "bldPlanterBox"], [1, 8, "bldChair"], [10, 8, "bldLampPost"], [5, 9, "floorMatBldGreen"],
+], Object.assign({ wall: "wood", floor: "planks" }, shopRoomLayout()));
 // Mine levels (tools/build_mine_levels.py -> js/mineLevels.data.js): same cave format.
 if (typeof MINE_LEVELS !== "undefined") for (const name of Object.keys(MINE_LEVELS)) TOWN_ROOM_BLUEPRINTS[name] = caveBlueprint(name);
 

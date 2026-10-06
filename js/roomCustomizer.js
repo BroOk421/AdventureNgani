@@ -383,10 +383,10 @@ function roomToolTarget(room, tool, aim) {
   }
   const fail = (why) => ({ anchor, tiles: [{ col: anchor.col, row: anchor.row, ok: false }], ok: false, why });
   const isFloor = floor.has(tk(anchor.col, anchor.row));
-  if (tool === ROOM_TOOL_PICKAXE && isFloor) return fail("Pumili ng pader na katabi ng sahig");
-  if (tool === ROOM_TOOL_HAMMER && !isFloor) return fail("Pumili ng sahig na katabi ng pader");
+  if (tool === ROOM_TOOL_PICKAXE && isFloor) return fail("Pick a wall next to the floor");
+  if (tool === ROOM_TOOL_HAMMER && !isFloor) return fail("Pick a floor tile next to a wall");
   const dirName = stripDirection(floor, tool, anchor.col, anchor.row);
-  if (!dirName) return fail(tool === ROOM_TOOL_PICKAXE ? "Walang sahig na katabi — hindi ma-expand" : "Walang pader na katabi");
+  if (!dirName) return fail(tool === ROOM_TOOL_PICKAXE ? "No floor next to it — can't expand" : "No wall next to it");
   const [dx, dy] = ROOM_DIRS[dirName];
   const along = dx ? [0, 1] : [1, 0]; // the strip runs along the wall face
   const half = Math.floor(ROOM_STRIP_LEN / 2);
@@ -400,7 +400,7 @@ function roomToolTarget(room, tool, aim) {
     tiles.push({ col, row, ok });
   }
   const chosen = tiles.filter((t) => t.ok);
-  if (!chosen.length) return { anchor, tiles, ok: false, why: tool === ROOM_TOOL_PICKAXE ? "Wala nang mahuhukay dito" : "Walang matatakpan dito" };
+  if (!chosen.length) return { anchor, tiles, ok: false, why: tool === ROOM_TOOL_PICKAXE ? "Nothing left to dig here" : "Nothing to fill in here" };
   const chk = tool === ROOM_TOOL_PICKAXE ? checkDig(room, chosen) : checkFill(room, chosen);
   if (!chk.ok) for (const t of tiles) t.ok = false;
   return { anchor, tiles, ok: chk.ok, why: chk.why };
@@ -443,12 +443,12 @@ function checkDig(room, list) {
   const c = room.custom;
   const floor = new Set(c.tiles);
   const [dc, dr] = c.door;
-  if (floor.size + list.length > ROOM_MAX_TILES) return { ok: false, why: "Pinakamalaki na ang bahay" };
+  if (floor.size + list.length > ROOM_MAX_TILES) return { ok: false, why: "The house is as big as it gets" };
   const all = [...floor].map(tp).concat(list.map((t) => [t.col, t.row]));
   const minC = Math.min(...all.map((p) => p[0]), dc), maxC = Math.max(...all.map((p) => p[0]), dc + 1);
   const minR = Math.min(...all.map((p) => p[1]));
   if (maxC - minC + 3 > ROOM_MAX_COLS || dr - minR + ROOM_TOP_MARGIN + 2 > ROOM_MAX_ROWS) {
-    return { ok: false, why: "Pinakamalaki na ang bahay" };
+    return { ok: false, why: "The house is as big as it gets" };
   }
   return { ok: true };
 }
@@ -479,7 +479,7 @@ function checkFill(room, list) {
   const floor = new Set(c.tiles);
   const [dc, dr] = c.door;
   for (const t of list) floor.delete(tk(t.col, t.row));
-  if (floor.size < 4) return { ok: false, why: "Masyado nang maliit ang bahay" };
+  if (floor.size < 4) return { ok: false, why: "The house is too small already" };
   // everything must still connect to the door
   const start = [tk(dc, dr - 1), tk(dc + 1, dr - 1)].filter((t) => floor.has(t));
   const seen = new Set(start), queue = [...start];
@@ -487,7 +487,7 @@ function checkFill(room, list) {
     const [x, y] = tp(queue.pop());
     for (const n of [tk(x + 1, y), tk(x - 1, y), tk(x, y + 1), tk(x, y - 1)]) if (floor.has(n) && !seen.has(n)) { seen.add(n); queue.push(n); }
   }
-  if (seen.size !== floor.size) return { ok: false, why: "Mahahati ang bahay — hindi pwede" };
+  if (seen.size !== floor.size) return { ok: false, why: "That would split the house in two — not allowed" };
   return { ok: true };
 }
 
@@ -515,8 +515,8 @@ function roomRectPlan(room, tool, a, b) {
   const fail = (why) => ({ anchor: a, tiles: [{ col: a.col, row: a.row, ok: false }], ok: false, why });
   const aFloor = floor.has(tk(a.col, a.row));
   const touches = (col, row, want) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([x, y]) => floor.has(tk(col + x, row + y)) === want);
-  if (tool === ROOM_TOOL_PICKAXE && (aFloor || !touches(a.col, a.row, true))) return fail("Walang sahig na katabi — hindi ma-expand");
-  if (tool === ROOM_TOOL_HAMMER && (!aFloor || !touches(a.col, a.row, false))) return fail("Pumili ng sahig na katabi ng pader");
+  if (tool === ROOM_TOOL_PICKAXE && (aFloor || !touches(a.col, a.row, true))) return fail("No floor next to it — can't expand");
+  if (tool === ROOM_TOOL_HAMMER && (!aFloor || !touches(a.col, a.row, false))) return fail("Pick a floor tile next to a wall");
   const bx = Math.max(a.col - ROOM_DRAG_MAX + 1, Math.min(a.col + ROOM_DRAG_MAX - 1, b.col));
   const by = Math.max(a.row - ROOM_DRAG_MAX + 1, Math.min(a.row + ROOM_DRAG_MAX - 1, b.row));
   const tiles = [];
@@ -528,7 +528,7 @@ function roomRectPlan(room, tool, a, b) {
     }
   }
   const chosen = tiles.filter((t) => t.ok);
-  if (!chosen.length) return { anchor: a, tiles, ok: false, why: "Walang mababago dito" };
+  if (!chosen.length) return { anchor: a, tiles, ok: false, why: "Nothing to change here" };
   const chk = tool === ROOM_TOOL_PICKAXE ? checkDig(room, chosen) : checkFill(room, chosen);
   if (!chk.ok) for (const t of tiles) t.ok = false;
   return { anchor: a, tiles, ok: chk.ok, why: chk.why };
@@ -543,7 +543,7 @@ function currentRoomToolPlan(room, tool, spec) {
 // Start the Crush swing: spec = { from, to } (click / drag) or null (F, what's in front).
 function startRoomToolSwing(tool, spec) {
   const room = player.scene === "inside" ? INTERIOR_ROOMS[player.activeRoomId] : null;
-  if (!isRoomCustomizable(room)) { roomToast("Hindi pwedeng baguhin ang room na ito"); return; }
+  if (!isRoomCustomizable(room)) { roomToast("This room can't be changed"); return; }
   if (!room.custom) applyRoomCustom(room, { wall: "wood", floor: "planks" });
   const plan = currentRoomToolPlan(room, tool, spec);
   if (!plan.ok) { roomToast(plan.why); return; }
@@ -585,7 +585,7 @@ document.addEventListener("DOMContentLoaded", () => {
 // Called from player.js (indoor branch) when an F swing with a room tool finishes.
 function resolveRoomTool(tool) {
   const room = player.scene === "inside" ? INTERIOR_ROOMS[player.activeRoomId] : null;
-  if (!isRoomCustomizable(room)) { roomToast("Hindi pwedeng baguhin ang room na ito"); return; }
+  if (!isRoomCustomizable(room)) { roomToast("This room can't be changed"); return; }
   if (!room.custom) applyRoomCustom(room, { wall: "wood", floor: "planks" });
   const plan = currentRoomToolPlan(room, tool, player.indoorToolSpec || null); // re-checked now the swing has landed
   player.indoorToolSpec = null;
@@ -639,7 +639,7 @@ function renderRoomPanel() {
   const c = room.custom || { wall: "—", floor: "—" };
   roomPanelEl.innerHTML = "";
   const title = document.createElement("div");
-  title.textContent = "Ayusin ang bahay";
+  title.textContent = "Customize the house";
   title.style.cssText = "font-weight:bold;margin-bottom:4px";
   roomPanelEl.appendChild(title);
   const row = (label, value, minus, plus) => {
@@ -650,10 +650,10 @@ function renderRoomPanel() {
     d.append(l, roomPanelButton("◀", minus), v, roomPanelButton("▶", plus));
     roomPanelEl.appendChild(d);
   };
-  row("Pader", ROOM_STYLE_NAMES[c.wall] || c.wall, () => changeCurrentRoom((n) => { n.wall = cycle(ROOM_WALL_STYLES, n.wall, -1); }), () => changeCurrentRoom((n) => { n.wall = cycle(ROOM_WALL_STYLES, n.wall, 1); }));
-  row("Sahig", ROOM_STYLE_NAMES[c.floor] || c.floor, () => changeCurrentRoom((n) => { n.floor = cycle(ROOM_FLOOR_STYLES, n.floor, -1); }), () => changeCurrentRoom((n) => { n.floor = cycle(ROOM_FLOOR_STYLES, n.floor, 1); }));
+  row("Wall", ROOM_STYLE_NAMES[c.wall] || c.wall, () => changeCurrentRoom((n) => { n.wall = cycle(ROOM_WALL_STYLES, n.wall, -1); }), () => changeCurrentRoom((n) => { n.wall = cycle(ROOM_WALL_STYLES, n.wall, 1); }));
+  row("Floor", ROOM_STYLE_NAMES[c.floor] || c.floor, () => changeCurrentRoom((n) => { n.floor = cycle(ROOM_FLOOR_STYLES, n.floor, -1); }), () => changeCurrentRoom((n) => { n.floor = cycle(ROOM_FLOOR_STYLES, n.floor, 1); }));
   const hint = document.createElement("div");
-  hint.innerHTML = "Palakihin: Room Pickaxe + F<br>Paliitin: Room Hammer + F<br>H para isara";
+  hint.innerHTML = "Expand: Room Pickaxe + F<br>Shrink: Room Hammer + F<br>H to close";
   hint.style.cssText = "opacity:.75;font-size:11px;margin-top:4px;line-height:1.4";
   roomPanelEl.appendChild(hint);
   roomPanelEl.style.display = "block";
@@ -668,7 +668,7 @@ function toggleRoomPanel() {
   }
   if (roomPanelEl.style.display === "block") { roomPanelEl.style.display = "none"; return; }
   if (!currentCustomRoom()) {
-    if (player.scene === "inside") roomToast("Hindi pwedeng ayusin ang room na ito");
+    if (player.scene === "inside") roomToast("This room can't be customized");
     return;
   }
   renderRoomPanel();
@@ -689,8 +689,8 @@ function groceryKeeperHere() {
   return citizens.find((c) => isShopkeeperOnDuty(c) && c.roomId === player.activeRoomId) || null;
 }
 function openGroceryShop() {
-  if (!groceryKeeperHere()) { roomToast("Sarado — bukas ang grocery 8:00 hanggang 18:00 (kapag nandito na ang tindero)"); return; }
-  openNpcShop(GROCERY_STOCK, "Grocery — Binhi");
+  if (!groceryKeeperHere()) { roomToast("Closed — the grocery opens 8:00 to 18:00 (when the shopkeeper is in)"); return; }
+  openNpcShop(GROCERY_STOCK, "Grocery — Seeds");
 }
 // (clicking the keeper to shop: js/farm.js, since `view` only exists once camera.js has loaded)
 function isInGrocery() {
@@ -706,10 +706,10 @@ function updateRoomHint() {
   }
   const parts = [];
   if (currentCustomRoom()) {
-    parts.push("[H] Pader/Sahig");
+    parts.push("[H] Wall/Floor");
     if (isRoomTool(player.equippedWeapon)) parts.push(player.equippedWeapon === ROOM_TOOL_PICKAXE ? "[F] Hukayin (palakihin)" : "[F] Takpan (paliitin)");
   }
-  if (isInGrocery()) parts.push(groceryKeeperHere() ? "[P] Bumili ng binhi" : "Sarado ang grocery (8:00-18:00)");
+  if (isInGrocery()) parts.push(groceryKeeperHere() ? "[P] Buy seeds" : "The grocery is closed (8:00-18:00)");
   roomHintEl.textContent = parts.join("   ");
   roomHintEl.style.display = parts.length ? "block" : "none";
   if (roomPanelEl && roomPanelEl.style.display === "block" && !currentCustomRoom()) roomPanelEl.style.display = "none";

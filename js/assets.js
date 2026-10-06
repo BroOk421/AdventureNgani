@@ -1270,6 +1270,8 @@ for (const id of ["slimeGel", "batWing", "glowCap", "crystalShard", "golemCore",
   assets["mob_" + id] = new Image();
   assets["mob_" + id].src = "assets/mobs/icons/" + id + ".png";
 }
+for (const id of ["lava1", "lava2", "lava3", "waterfall"]) { assets[id] = new Image(); assets[id].src = "assets/items/tile/" + id + ".png"; } // the Volcano / the Coast (js/farWorlds.js)
+for (const id of ["woodAxe", "woodPickaxe"]) { assets[id] = new Image(); assets[id].src = "assets/items/tools/" + id + ".png"; } // the starter axe / pickaxe (js/freshStart.js)
 for (const id of ["fishingRod", "fishTilapia", "fishBangus", "fishLapu", "fishKoi"]) { assets[id] = new Image(); assets[id].src = "assets/items/fish/" + id + ".png"; } // fishing (js/fishing.js)
 assets.dirtRakeAuto = new Image();
 assets.dirtRakeAuto.src = "assets/items/vegetables/dirtrake_auto.png";

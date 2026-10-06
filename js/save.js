@@ -639,7 +639,12 @@ function loadGame() {
     console.error("Failed to read save data:", e);
     return;
   }
-  if (!raw) return; // nothing saved yet — keep the defaults as-is
+  if (!raw) { // nothing saved yet: a new game starts on the default map (js/defaultMap.data.js)
+    if (typeof DEFAULT_MAP_SAVE !== "undefined") {
+      try { applySaveData(JSON.parse(JSON.stringify(DEFAULT_MAP_SAVE))); saveGame(); } catch (e) { console.error("Default map failed to load:", e); }
+    }
+    return;
+  }
 
   let data;
   try {

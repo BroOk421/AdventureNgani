@@ -28,11 +28,11 @@ if (typeof GROCERY_STOCK !== "undefined") {
   if (!GROCERY_STOCK.some((e) => e.type === "fishingRod")) GROCERY_STOCK.push({ type: "fishingRod", price: 30 });
 }
 if (typeof ITEM_DESC !== "undefined") {
-  ITEM_DESC.fishingRod = "Pamingwit. I-equip, humarap sa tubig at pindutin ang F. Kapag lumubog ang boya at may \"!\", pindutin ulit ang F.";
+  ITEM_DESC.fishingRod = "Equip it, face the water and press F. When the float dips and a \"!\" shows, press F again.";
   ITEM_DESC.fishTilapia = "Karaniwang isda. Pwedeng kainin o ibenta.";
   ITEM_DESC.fishBangus = "Bangus — masarap at mabenta.";
-  ITEM_DESC.fishLapu = "Lapu-Lapu — mas bihira at mas mahal.";
-  ITEM_DESC.fishKoi = "Golden Koi — napakabihira! Mataas ang presyo.";
+  ITEM_DESC.fishLapu = "Grouper — rarer and pricier.";
+  ITEM_DESC.fishKoi = "Golden Koi — very rare! Sells high.";
 }
 
 /* ---------------- water ---------------- */
@@ -100,14 +100,14 @@ function tickSpecial(dt) {
       if (pressed) { endSpecial(); return true; }
     } else if (S.phase === "wait") {
       setPlayerFrame("fishing", 4);
-      if (pressed) { endSpecial(); if (typeof showToast === "function") showToast("Hinila mo agad — wala pang kumakagat"); return true; }
+      if (pressed) { endSpecial(); if (typeof showToast === "function") showToast("You pulled too early — nothing was biting"); return true; }
       if (S.t >= S.wait) { S.phase = "bite"; S.t = 0; S.catch = fishBite(); S.splash = performance.now() / 1000; }
     } else if (S.phase === "bite") {
       setPlayerFrame("fishing", 4);
       const window_ = S.catch === "fishKoi" ? 0.75 : 1.1;
       if (pressed) { S.phase = "reel"; S.t = 0; S.got = true; }
       else if (S.t > window_) {
-        if (typeof showToast === "function") showToast("Nakawala ang isda...");
+        if (typeof showToast === "function") showToast("The fish got away...");
         S.phase = "wait"; S.t = 0; S.wait = 2 + Math.random() * 4; // it may bite again
         if (Math.random() < 0.35) { endSpecial(); return true; }
       }
@@ -140,7 +140,7 @@ function tickSpecial(dt) {
       harvestRequested = false;
       const target = fishingTarget();
       if (target) startFishing(target);
-      else if (typeof showToast === "function") showToast("Walang tubig sa harap mo — humarap sa dagat o sa ilog");
+      else if (typeof showToast === "function") showToast("No water in front of you — face the sea or a river");
       return;
     }
     return base.apply(this, arguments);
@@ -241,7 +241,7 @@ function drawFishOverlay() {
       grantItem(f.type, 1);
       const def = itemDefs[f.type];
       fishPopups.push({ x: player.x, y: player.y - DRAW_SIZE * 0.35, text: "+1 " + (def ? def.name : f.type), color: f.type === "fishKoi" ? "#ffd84a" : "#9cf5ff", t: now / 1000 });
-      if (f.type === "fishKoi" && typeof showToast === "function") showToast("Wow! Nakahuli ka ng Golden Koi!");
+      if (f.type === "fishKoi" && typeof showToast === "function") showToast("Wow! You caught a Golden Koi!");
       if (typeof saveGame === "function") saveGame();
     }
   }
@@ -314,20 +314,61 @@ function buildWaterArt() {
   }
 }
 function waterHash(c, r) { let h = (c * 374761393 + r * 668265263) >>> 0; h = (h ^ (h >>> 13)) * 1274126177 >>> 0; return (h ^ (h >>> 16)) >>> 0; }
+// Per request ("yung port tiles na corner is i connect mo jan sa water ... tyaka yung stone at yung tree
+// lagyan mo sa ilalim na color white ... sa trunk tree is yung trunk lang"):
+//  - the port pieces' own water (the blue part of their art) moves with the rest of the water, and no
+//    foam is drawn against a port piece (its art has its own shore), so the two join up;
+//  - a water tile with a stone / tree / anything on it is still water (it moves), and the thing gets a
+//    white foam ring round its base — round the trunk only, for a tree.
+const portWaterSpans = new Map(); // port type -> [[y, x0, x1], ...] (art px) of its blue pixels
+function portSpans(type) {
+  let sp = portWaterSpans.get(type);
+  if (sp) return sp;
+  const icon = itemDefs[type] && itemDefs[type].icon;
+  if (!icon || !icon.width) return null;
+  sp = [];
+  try {
+    const c = document.createElement("canvas"); c.width = icon.width; c.height = icon.height;
+    const g = c.getContext("2d"); g.drawImage(icon, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    for (let y = 0; y < c.height; y++) {
+      let x0 = -1;
+      for (let x = 0; x <= c.width; x++) {
+        const i = (y * c.width + x) * 4;
+        const blue = x < c.width && d[i + 3] > 0 && d[i + 2] > d[i] + 20 && d[i + 2] > d[i + 1];
+        if (blue && x0 < 0) x0 = x;
+        if (!blue && x0 >= 0) { sp.push([y, x0, x]); x0 = -1; }
+      }
+    }
+  } catch (e) { sp = []; } // file:// can't read pixels: the port pieces just don't move
+  portWaterSpans.set(type, sp);
+  return sp;
+}
+function isWaterGround(c, r) { const t = groundLayer.get(c + "," + r); return !!t && /^water/.test(t); }
+function isPortGround(c, r) { const t = groundLayer.get(c + "," + r); return !!t && /^port(?!Bridge)/.test(t); }
 function drawWaterAnim() {
   if (player.scene !== "outside") return;
   if (!waterCaustics) buildWaterArt();
   const vw = view.width / zoom, vh = view.height / zoom;
   const c0 = Math.floor(camX / TILE) - 1, c1 = Math.ceil((camX + vw) / TILE) + 1;
   const r0 = Math.floor(camY / TILE) - 1, r1 = Math.ceil((camY + vh) / TILE) + 1;
-  const tiles = [];
-  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (isWaterTile(c, r)) tiles.push([c, r]);
-  if (!tiles.length) return;
+  const tiles = [], ports = [], based = [];
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    if (isWaterGround(c, r)) { tiles.push([c, r]); const o = objectLayer.get(c + "," + r); if (o) based.push([c, r, o]); }
+    else if (isPortGround(c, r)) ports.push([c, r]);
+  }
+  if (!tiles.length && !ports.length) return;
   const t = performance.now() / 1000, T = TILE * zoom;
   ctx.save();
   ctx.imageSmoothingEnabled = false;
   ctx.beginPath();
   for (const [c, r] of tiles) ctx.rect(Math.round((c * TILE - camX) * zoom), Math.round((r * TILE - camY) * zoom), Math.ceil(T) + 1, Math.ceil(T) + 1);
+  for (const [c, r] of ports) { // just the blue part of a port piece
+    const sp = portSpans(groundLayer.get(c + "," + r));
+    if (!sp) continue;
+    const ox = (c * TILE - camX) * zoom, oy = (r * TILE - camY) * zoom;
+    for (const [y, x0, x1] of sp) ctx.rect(Math.floor(ox + x0 * zoom), Math.floor(oy + y * zoom), Math.ceil((x1 - x0) * zoom) + 1, Math.ceil(zoom) + 1);
+  }
   ctx.clip();
   // broad swell: soft bands of light and shade rolling across
   const sx0 = (c0 * TILE - camX) * zoom, sy0 = (r0 * TILE - camY) * zoom, sw = (c1 - c0 + 1) * T, sh = (r1 - r0 + 1) * T;
@@ -352,7 +393,7 @@ function drawWaterAnim() {
     const x = Math.round((c * TILE - camX) * zoom), y = Math.round((r * TILE - camY) * zoom);
     const h = waterHash(c, r);
     for (const [dc, dr, rot] of [[0, -1, 0], [1, 0, 0.5], [0, 1, 1], [-1, 0, 1.5]]) {
-      if (isWaterTile(c + dc, r + dr)) continue;
+      if (isWaterGround(c + dc, r + dr) || isPortGround(c + dc, r + dr)) continue; // water or a port piece (it has its own shore) beside: no foam
       const fr = (Math.floor(t * 6) + (h >>> (rot * 4)) ) % 16;
       ctx.save();
       ctx.translate(x + T / 2, y + T / 2); ctx.rotate(rot * Math.PI);
@@ -376,6 +417,23 @@ function drawWaterAnim() {
     }
   }
   ctx.restore();
+  // a white foam ring round anything standing in the water — just the trunk, for a tree
+  for (const [c, r, o] of based) {
+    const d = itemDefs[o];
+    if (!d || !d.icon || !d.icon.width) continue;
+    const tree = /^(tree|pcTree)/.test(o) || (d.resource && d.resource.breakAnim === "slice");
+    const halfW = tree ? 3.2 : Math.min(d.icon.width * 0.42, 22);
+    const cx = ((c + 0.5) * TILE - camX) * zoom, cy = ((r + 1) * TILE - 2.5 - camY) * zoom;
+    const h = waterHash(c, r), pulse = 0.75 + 0.25 * Math.sin(t * 2.2 + (h % 7));
+    ctx.save();
+    ctx.globalAlpha = 0.85 * pulse;
+    ctx.strokeStyle = "rgba(240,250,255,0.95)"; ctx.lineWidth = Math.max(1.5, zoom * 1.1);
+    ctx.beginPath(); ctx.ellipse(cx, cy, (halfW + 1.5) * zoom, (tree ? 1.6 : 2.6) * zoom, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 0.35 * pulse; ctx.lineWidth = Math.max(1, zoom * 0.7);
+    const g2 = 1 + 0.5 * ((t * 0.6 + (h % 5) / 5) % 1); // a fainter ripple spreading out
+    ctx.beginPath(); ctx.ellipse(cx, cy, (halfW + 1.5) * zoom * g2, (tree ? 1.6 : 2.6) * zoom * g2, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
 }
 {
   const base = drawFlatGroundItems;

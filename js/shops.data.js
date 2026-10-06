@@ -4,3 +4,4 @@
 TOWN_ART.houses.equipShop = { w: 128, h: 144 };
 TOWN_ART.houses.potionShop = { w: 128, h: 144 };
 TOWN_ART.houses.blacksmithShop = { w: 128, h: 144 };
+TOWN_ART.houses.furnitureShop = { w: 128, h: 144 }; // the Furniture Shop (tools/furniture_shop_art.py, js/shops.js)

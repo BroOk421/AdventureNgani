@@ -1677,3 +1677,69 @@ body.skill-aim #view { cursor: crosshair !important; }
 @keyframes upgFail { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); box-shadow: 0 0 30px rgba(255, 70, 70, 0.9); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
 #upgrade-panel.flash-ok { animation: upgOk 0.7s ease-out; }
 #upgrade-panel.flash-fail { animation: upgFail 0.5s ease-out; }
+
+/* the G weapon list: the same gold scrollbar as the inventory / shop lists */
+#equipment-weapon-picker { scrollbar-width: thin; scrollbar-color: #d4af37 rgba(0, 0, 0, 0.35); }
+#equipment-weapon-picker::-webkit-scrollbar { width: 10px; }
+#equipment-weapon-picker::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.35); border-radius: 6px; }
+#equipment-weapon-picker::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #f5d67c, #d4af37 45%, #a97e1f); border: 1px solid rgba(80, 58, 10, 0.6); border-radius: 6px; }
+
+/* ---------------- story: the talk box, the quest log, the tracker (js/quests.js) ---------------- */
+#dlg { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); width: min(720px, 92vw); z-index: 70; display: flex; gap: 12px; align-items: stretch;
+  background: linear-gradient(180deg, rgba(48, 32, 20, 0.97), rgba(30, 20, 12, 0.97)); border: 3px solid #d4af37; border-radius: 12px; padding: 10px 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6); color: #f3e9dc; font-family: 'Pixelify Sans', -apple-system, sans-serif; cursor: pointer; touch-action: none; }
+#dlg-face { width: 72px; height: 72px; flex-shrink: 0; image-rendering: pixelated; background: rgba(0, 0, 0, 0.35); border: 2px solid rgba(212, 175, 55, 0.6); border-radius: 8px; }
+#dlg-body { flex: 1; position: relative; min-height: 72px; }
+#dlg-name { color: #ffd88a; font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+#dlg-text { font-size: 15px; line-height: 1.4; }
+#dlg-next { position: absolute; right: 0; bottom: -2px; color: #d4af37; font-size: 12px; animation: dlgBob 0.8s ease-in-out infinite; }
+@keyframes dlgBob { 50% { transform: translateY(3px); } }
+#quest-overlay { position: fixed; inset: 0; z-index: 65; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.45); }
+#quest-panel { width: min(760px, 94vw); height: min(520px, 86vh); display: flex; flex-direction: column; background: linear-gradient(180deg, #3b2a1e, #2a1d14);
+  border: 3px solid #d4af37; border-radius: 12px; color: #f3e9dc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); }
+#quest-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-size: 17px; color: #ffd88a; }
+#quest-head button { background: #6b2a22; color: #fff; border: 1px solid #c0584a; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; }
+#quest-tabs { display: flex; gap: 6px; padding: 0 14px 8px; }
+#quest-tabs button { flex: 1; padding: 6px; background: rgba(0, 0, 0, 0.3); color: #f3e9dc; border: 1px solid rgba(212, 175, 55, 0.4); border-radius: 6px; cursor: pointer; font-size: 13px; }
+#quest-tabs button.on { background: #7a5a2e; border-color: #f0c860; }
+#quest-cols { flex: 1; display: flex; gap: 10px; padding: 0 14px 14px; min-height: 0; }
+#quest-list { width: 40%; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+#quest-detail { flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.25); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.45; }
+#quest-list, #quest-detail { scrollbar-width: thin; scrollbar-color: #d4af37 rgba(0, 0, 0, 0.35); }
+.q-item { display: flex; gap: 8px; align-items: center; text-align: left; padding: 7px 8px; background: rgba(255, 255, 255, 0.05); color: #f3e9dc; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; cursor: pointer; font-size: 13px; }
+.q-item small { display: block; color: #b8a893; font-size: 10.5px; }
+.q-item.on { border-color: #f0c860; background: rgba(122, 90, 46, 0.6); }
+.q-item.tracked .q-tag { color: #ffd84a; }
+.q-tag { width: 16px; text-align: center; font-weight: 900; color: #9cf59a; }
+.q-empty { color: #b8a893; font-size: 12.5px; padding: 8px; }
+.q-chap { color: #d4af37; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.q-title { font-size: 16px; font-weight: 700; color: #ffe6a8; margin: 2px 0 6px; }
+.q-desc { color: #e6d8c3; font-style: italic; margin-bottom: 8px; }
+.q-sec { color: #d4af37; font-weight: 700; margin: 8px 0 3px; }
+.q-obj { margin: 2px 0; } .q-obj.ok { color: #9cf59a; } .q-n { color: #ffd88a; } .q-ready { color: #ffd84a; font-weight: 700; }
+.q-rew { color: #ffe6a8; }
+#q-track { margin-top: 12px; padding: 6px 12px; background: #4a6b2e; color: #fff; border: 1px solid #7fae4e; border-radius: 6px; cursor: pointer; }
+#quest-tracker { position: fixed; right: 12px; top: 230px; z-index: 31; display: none; max-width: 240px; padding: 7px 10px; background: rgba(26, 17, 10, 0.72);
+  border: 1px solid rgba(212, 175, 55, 0.6); border-radius: 8px; color: #f3e9dc; font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; cursor: pointer; }
+.qt-title { color: #ffd88a; font-weight: 700; margin-bottom: 3px; }
+.qt-obj { margin: 1px 0; } .qt-obj.ok { color: #9cf59a; }
+#btn-quests { margin-right: 4px; }
+body.mobile #quest-tracker { top: auto; bottom: auto; right: auto; left: 8px; top: 150px; max-width: 170px; font-size: 10.5px; }
+body.mobile #dlg { bottom: 18px; width: min(560px, 70vw); }
+
+/* ---------------- storage chests (js/storage.js) ---------------- */
+#storage-overlay { position: fixed; inset: 0; z-index: 64; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.4); }
+#storage-panel { width: min(470px, 94vw); max-height: 90vh; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: linear-gradient(180deg, #3b2a1e, #2a1d14);
+  border: 3px solid #d4af37; border-radius: 12px; color: #f3e9dc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); }
+#storage-head { display: flex; align-items: center; gap: 10px; font-size: 16px; color: #ffd88a; }
+#storage-head .hint { flex: 1; font-size: 11px; color: #b8a893; }
+#storage-head button { background: #6b2a22; color: #fff; border: 1px solid #c0584a; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; }
+.storage-sec { color: #d4af37; font-weight: 700; font-size: 13px; margin-top: 4px; }
+.storage-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+#storage-bag { max-height: 150px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #d4af37 rgba(0, 0, 0, 0.35); }
+.storage-slot { position: relative; aspect-ratio: 1; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(212, 175, 55, 0.35); border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.storage-slot.empty { cursor: default; opacity: 0.7; }
+.storage-slot:not(.empty):hover { border-color: #f0c860; background: rgba(122, 90, 46, 0.5); }
+.storage-slot img { width: 70%; height: 70%; object-fit: contain; image-rendering: pixelated; }
+.storage-slot .n { position: absolute; right: 3px; bottom: 1px; font-size: 10px; font-weight: 700; color: #fff; text-shadow: 0 0 2px #000, 1px 1px 0 #000; }
+.storage-empty { grid-column: 1 / -1; color: #b8a893; font-size: 12px; padding: 4px; }

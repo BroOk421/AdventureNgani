@@ -15,12 +15,12 @@
 ================================================================= */
 let mapEl = null, mapCanvas = null, mapTab = "map", mapBase = null, mapBaseKey = "";
 const ATLAS = [ // [world, col, row] on the world map grid
-  ["wild", 0, 1], ["main", 1, 1], ["east1", 2, 1], ["east2", 3, 1], ["east3", 3, 2], ["east4", 4, 2], ["east5", 4, 3], ["east6", 3, 3],
+  ["wild", 0, 1], ["main", 1, 1], ["east1", 2, 1], ["east2", 3, 1], ["east3", 3, 2], ["east4", 4, 2], ["east5", 4, 3], ["east6", 3, 3], ["east7", 3, 4], ["east8", 2, 4],
 ];
-const ATLAS_LINKS = [["wild", "main"], ["main", "east1"], ["east1", "east2"], ["east2", "east3"], ["east3", "east4"], ["east4", "east5"], ["east5", "east6"]];
+const ATLAS_LINKS = [["wild", "main"], ["main", "east1"], ["east1", "east2"], ["east2", "east3"], ["east3", "east4"], ["east4", "east5"], ["east5", "east6"], ["east6", "east7"], ["east7", "east8"]];
 function worldLabel(w) {
-  if (w === "main") return ["Town", "bayan, mga tindahan"];
-  if (w === "wild") return ["Wild", "bahay mo, ang tunnel"];
+  if (w === "main") return ["Town", "the town, the shops"];
+  if (w === "wild") return ["Wild", "your house, the caves"];
   const Z = typeof MOB_WORLDS !== "undefined" && MOB_WORLDS[w];
   return Z ? [Z.name, "mobs Lv " + Z.level[0] + "-" + Z.level[1]] : [w, ""];
 }
@@ -152,14 +152,14 @@ function drawAtlas(g, maxW, maxH, title) {
     g.font = "10px monospace"; g.fillStyle = "#c8b8a0"; g.fillText(sub, x + bw / 2, y + bh / 2 + 12);
     if (cur) { g.fillStyle = "#ffe24a"; g.fillText("● ikaw", x + bw / 2, y + bh - 4); }
   }
-  title.textContent = "World — nasaan ka";
+  title.textContent = "World — where you are";
 }
 setInterval(() => { try { drawMap(); } catch (e) { /* not ready */ } }, 300);
 // open it: the minimap, a top-bar button, or M
 {
   // (the minimap's own click already opens the full picture map of the outdoors, js/hud.js openFullMap())
   const mm = document.getElementById("minimap");
-  if (mm) { mm.style.cursor = "pointer"; mm.title = "I-click para makita ang buong map"; }
+  if (mm) { mm.style.cursor = "pointer"; mm.title = "Click to see the whole map"; }
   const bar = document.getElementById("top-toolbar");
   if (bar) {
     const b = document.createElement("button");

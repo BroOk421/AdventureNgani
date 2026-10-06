@@ -199,77 +199,88 @@ setInterval(() => {
   if (room && repairShopRoom(room) && typeof saveGame === "function") saveGame();
 }, 1000);
 
-/* ---------------- the keepers ---------------- */
+/* ---------------- the keepers ----------------
+   A shop room has one keeper (SHOP_KEEPERS[room]) or several ({ list: [...] } — the Furniture Shop's
+   two). Each stands behind the counter at its own col and opens its own stock when clicked. */
+let lastShopKeeper = null; // the keeper whose shop was opened last (js/upgrades.js shows the Upgrade button for the Blacksmith)
+function shopKeepersHere() {
+  if (player.scene !== "inside" || typeof player.activeRoomId !== "string") return [];
+  const k = SHOP_KEEPERS[player.activeRoomId.split("@")[0]];
+  return !k ? [] : k.list ? k.list : [k];
+}
 function shopKeeperHere() {
-  if (player.scene !== "inside" || typeof player.activeRoomId !== "string") return null;
-  return SHOP_KEEPERS[player.activeRoomId.split("@")[0]] || null;
+  const ks = shopKeepersHere();
+  return ks.includes(lastShopKeeper) ? lastShopKeeper : ks[0] || null;
 }
 function keeperFeet(k) { return { x: k.col * TILE, y: (k.row + 1) * TILE - 2 }; }
 function shopKeeperDrawables() {
-  const k = shopKeeperHere();
-  if (!k) return [];
-  const sheet = assets["keeper_" + k.look];
-  if (!sheet || !sheet.width) return [];
-  const f = keeperFeet(k);
-  return [{
-    sortY: f.y, character: true,
-    draw: () => {
-      const frames = Math.max(1, Math.round(sheet.width / sheet.height));
-      const fr = Math.floor(performance.now() / 250) % frames;
-      const s = (DRAW_SIZE / 64) * zoom, size = 64 * s;
-      const x = (f.x - camX) * zoom - size / 2;
-      const y = (f.y - camY) * zoom - SPRITE_FEET_FRACTION * size; // same feet line as every character
-      // Their own candle circle, like the player's and Maria's — per request ("yung mga
-      // npc ... dapat may circle light din parang character"). Centred where a
-      // character's light is: the middle of the sprite (drawCharacterGlow(), js/camera.js).
-      if (typeof drawCharacterGlow === "function") {
-        const cy = f.y - (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
-        drawCharacterGlow(x + size / 2, (cy - camY) * zoom, size, f.x, cy);
-      }
-      ctx.save(); ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(sheet, fr * 64, 0, 64, 64, Math.round(x), Math.round(y), size, size);
-      // a little name tag
-      const fs = Math.max(8, Math.round(4.5 * zoom));
-      ctx.font = "bold " + fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-      ctx.lineWidth = Math.max(2, fs / 4); ctx.strokeStyle = "rgba(0,0,0,0.85)";
-      const ty = y + size * 0.22;
-      ctx.strokeText(k.name, x + size / 2, ty); ctx.fillStyle = "#ffe6a8"; ctx.fillText(k.name, x + size / 2, ty);
-      ctx.restore();
-    },
-  }];
+  const out = [];
+  for (const k of shopKeepersHere()) {
+    const sheet = assets["keeper_" + k.look];
+    if (!sheet || !sheet.width) continue;
+    const f = keeperFeet(k);
+    out.push({
+      sortY: f.y, character: true,
+      draw: () => {
+        const frames = Math.max(1, Math.round(sheet.width / sheet.height));
+        const fr = Math.floor(performance.now() / 250) % frames;
+        const s = (DRAW_SIZE / 64) * zoom, size = 64 * s;
+        const x = (f.x - camX) * zoom - size / 2;
+        const y = (f.y - camY) * zoom - SPRITE_FEET_FRACTION * size; // same feet line as every character
+        // Their own candle circle, like the player's and Maria's — per request ("yung mga
+        // npc ... dapat may circle light din parang character").
+        if (typeof drawCharacterGlow === "function") {
+          const cy = f.y - (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+          drawCharacterGlow(x + size / 2, (cy - camY) * zoom, size, f.x, cy);
+        }
+        ctx.save(); ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(sheet, fr * 64, 0, 64, 64, Math.round(x), Math.round(y), size, size);
+        // a little name tag
+        const fs = Math.max(8, Math.round(4.5 * zoom));
+        ctx.font = "bold " + fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+        ctx.lineWidth = Math.max(2, fs / 4); ctx.strokeStyle = "rgba(0,0,0,0.85)";
+        const ty = y + size * 0.22;
+        ctx.strokeText(k.name, x + size / 2, ty); ctx.fillStyle = "#ffe6a8"; ctx.fillText(k.name, x + size / 2, ty);
+        ctx.restore();
+      },
+    });
+  }
+  return out;
 }
-// At night the keeper gets his own colours back after the washes, like the player
-// (drawCharacterNightRelights(), js/camera.js) — the counter in front of him is cut
-// out of the relit copy (drawMaskedRelight() -> relightOccluders()).
+// At night the keepers get their own colours back after the washes, like the player.
 function shopKeeperRelightList() {
-  const k = shopKeeperHere();
-  if (!k || typeof drawMaskedRelight !== "function") return [];
-  const sheet = assets["keeper_" + k.look];
-  if (!sheet || !sheet.width) return [];
+  if (typeof drawMaskedRelight !== "function") return [];
   const night = getRelightStrength();
   if (night <= 0.01) return [];
-  const f = keeperFeet(k);
-  return [{
-    sortY: f.y,
-    draw: () => {
-      const frames = Math.max(1, Math.round(sheet.width / sheet.height));
-      const fr = Math.floor(performance.now() / 250) % frames;
-      const s = (DRAW_SIZE / 64) * zoom, size = 64 * s;
-      const x = Math.round((f.x - camX) * zoom - size / 2), y = Math.round((f.y - camY) * zoom - SPRITE_FEET_FRACTION * size);
-      drawMaskedRelight((g) => g.drawImage(sheet, fr * 64, 0, 64, 64, x, y, size, size), x + size / 2, y + size / 2, size, f.y, night, false);
-    },
-  }];
+  const out = [];
+  for (const k of shopKeepersHere()) {
+    const sheet = assets["keeper_" + k.look];
+    if (!sheet || !sheet.width) continue;
+    const f = keeperFeet(k);
+    out.push({
+      sortY: f.y,
+      draw: () => {
+        const frames = Math.max(1, Math.round(sheet.width / sheet.height));
+        const fr = Math.floor(performance.now() / 250) % frames;
+        const s = (DRAW_SIZE / 64) * zoom, size = 64 * s;
+        const x = Math.round((f.x - camX) * zoom - size / 2), y = Math.round((f.y - camY) * zoom - SPRITE_FEET_FRACTION * size);
+        drawMaskedRelight((g) => g.drawImage(sheet, fr * 64, 0, 64, 64, x, y, size, size), x + size / 2, y + size / 2, size, f.y, night, false);
+      },
+    });
+  }
+  return out;
 }
-// Click the keeper to shop (any time of day). The popup opens on the CLICK
+// Click a keeper to shop (any time of day). The popup opens on the CLICK
 // (after the button is released) — opened on mousedown, the click that
 // follows lands on the popup's own backdrop and closes it straight away.
 let shopClickPending = null;
 function keeperUnderPointer(e) {
-  const k = shopKeeperHere();
-  if (!k) return null;
   const { x, y } = screenToWorld(e.clientX, e.clientY);
-  const f = keeperFeet(k);
-  return Math.abs(x - f.x) < 11 && y > f.y - 34 && y < f.y + 6 ? k : null;
+  for (const k of shopKeepersHere()) {
+    const f = keeperFeet(k);
+    if (Math.abs(x - f.x) < 11 && y > f.y - 34 && y < f.y + 6) return k;
+  }
+  return null;
 }
 view.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
@@ -282,10 +293,55 @@ view.addEventListener("click", (e) => {
   shopClickPending = null;
   if (!k || keeperUnderPointer(e) !== k) return;
   e.stopImmediatePropagation();
-  openNpcShop(k.stock, k.title);
+  lastShopKeeper = k;
+  openNpcShop(typeof k.stock === "function" ? k.stock() : k.stock, k.title);
 }, true);
 // a hint while you're in the shop
 setInterval(() => {
-  const k = shopKeeperHere();
-  if (k && typeof roomToast === "function" && !k.hinted) { k.hinted = true; roomToast("I-click si " + k.name + " para bumili / magbenta"); }
+  const ks = shopKeepersHere();
+  if (ks.length && typeof roomToast === "function" && !ks[0].hinted) {
+    ks[0].hinted = true;
+    roomToast(ks.length > 1 ? "Click " + ks.map((k) => k.name).join(" or ") + " to shop" : "Click " + ks[0].name + " to buy / sell");
+  }
 }, 1000);
+
+/* ---------------- the Furniture Shop ----------------
+   Per request ("gawa ka rin ng bahay pa para sa mga furnitures pang loob at pang labas ng bahay na pwede
+   bilhin ... 2 tao nasa loob ... ikaw na bahala sa prices"): every decoration in the item list is
+   sorted into INDOOR (furniture, beds, tables, shelves, rugs, floor tiles, wall pieces, lamps for
+   inside...) or OUTDOOR (bushes, trees, flowers, fences, benches, lamp posts, planters, rocks...),
+   and priced by the size of its picture (bigger = dearer), lights a little more. The rest of the
+   building-mode tiles (ground, terrain, buildings, collision blocks) are not for sale. */
+const FURN_INDOOR_RE = /^(bld(?!Planter|BenchWood|BenchStone|LampPost)|pcFurniture|pcEsoteric|pcDungeon|bed|tableBig|tableCircle|tableKitchen|tableSmall|tableLong$|chairFront|chairRight|chairLeft|cabinet|basket|cooker|couch|drawer|broom|barrelInterior|crateInterior|crateOpenInterior|wallPoster|pictureFrame|board[AB]|wallFurniture|windowPlain|windowLight|tableFurniture|mug|plate|floorMat|floor(Brown|DarkGreen|Green)Tile|bartender|roomPickaxe|roomHammer)/;
+const FURN_OUTDOOR_RE = /^(bush|tree(Medium|Thin|Tiny|Big)(?!.*Stump)|stone(Big|Medium|Small|XS|XXS|Decor)|pcRocks|pcVegetation|pcTree|pcFarm|pcResources|decoFlower|wildGrass|leavesFloor|fenceTile|bench(Horizontal|Vertical)|chairOutdoor|tableOutdoor|longTable|post(Plain|HandleLight|Light)|portBridge(Decor|Front|Wall)|bldPlanter|bldBenchWood|bldBenchStone|bldLampPost|woodCrate|woodPlaque|woodShield|veg|waterCrate)/;
+function furniturePrice(type) {
+  const d = itemDefs[type], ic = d && d.icon;
+  if (type === "roomPickaxe" || type === "roomHammer") return 400;
+  const area = ic && ic.width ? ic.width * ic.height : 256;
+  let p = 10 + area / 14;
+  if (d.lightGlow) p += 60;
+  if (/^tree/.test(type) || /^pcTree/.test(type)) p = Math.max(p, 120);
+  return Math.max(5, Math.min(900, Math.round(p / 5) * 5));
+}
+let furnitureStocks = null;
+function buildFurnitureStocks() {
+  const indoor = [], outdoor = [];
+  for (const t of Object.keys(itemDefs)) {
+    const d = itemDefs[t];
+    if (!d || d.interior || d.equipSlot && t !== "roomPickaxe" && t !== "roomHammer" || d.consumable || d.mobDrop || d.seedOf || d.cropOf || d.fish) continue;
+    if (FURN_INDOOR_RE.test(t)) indoor.push({ type: t, price: furniturePrice(t) });
+    else if (FURN_OUTDOOR_RE.test(t)) outdoor.push({ type: t, price: furniturePrice(t) });
+  }
+  indoor.sort((a, b) => a.price - b.price); outdoor.sort((a, b) => a.price - b.price);
+  return furnitureStocks = { indoor, outdoor };
+}
+function furnitureStock(which) { return (furnitureStocks || buildFurnitureStocks())[which]; }
+SHOP_KEEPERS.furniture_room = { list: [
+  { name: "Lita", title: "Furniture Shop — Indoor (Lita)", stock: () => furnitureStock("indoor"), look: "Shop_FurnitureIn", col: 3.5, row: 5 },
+  { name: "Berto", title: "Furniture Shop — Outdoor (Berto)", stock: () => furnitureStock("outdoor"), look: "Shop_FurnitureOut", col: 7.5, row: 5 },
+] };
+for (const k of SHOP_KEEPERS.furniture_room.list) {
+  assets["keeper_" + k.look] = new Image();
+  assets["keeper_" + k.look].src = "assets/npc/" + k.look + "/Idle_Down.png";
+}
+SHOP_SITES.push({ type: "furnitureShop", col: 44, row: 38 });

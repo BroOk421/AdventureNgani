@@ -516,12 +516,14 @@ function updatePlayer(dt) {
           player.farmAction = null;
           farmResolveAction(fa);
         } else if (player.action === "collect") {
+          // (per request the grab / put-down now happens the moment E is pressed — below)
           // animation finished — grab whatever's on the tile directly in
           // front of the player, or if already holding something from a
           // previous grab, place it back down there instead
           // (tryGrabOrPlaceInFront(), js/inventory.js — it also updates
           // player.mode to match).
-          tryGrabOrPlaceInFront();
+          if (!player.collectDone) tryGrabOrPlaceInFront();
+          player.collectDone = false;
         } else {
           // an attack swing (bare-handed "hit", or whatever the equipped
           // weapon's attackAnim is) — resolve it against whatever was in
@@ -552,6 +554,10 @@ function updatePlayer(dt) {
     player.action = "collect";
     player.frame = 0;
     player.frameTimer = 0;
+    // Per request ("medyo delay yung pagka palit ng corner ng grass dapat ontime"): the tile is
+    // picked up / put down right now, the animation just plays over it.
+    tryGrabOrPlaceInFront();
+    player.collectDone = true;
     return;
   }
 

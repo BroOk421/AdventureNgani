@@ -89,9 +89,9 @@ if (typeof MINE_TYPES !== "undefined") for (const m of Object.values(MINE_TYPES)
   if (!m.drops.some((d) => d[0] === "oreDivine")) m.drops.push(["oreDivine", 1, 1, 0.12]);
 }
 if (typeof ITEM_DESC !== "undefined") {
-  ITEM_DESC.oreLuck = "+20% success sa isang upgrade (+6 pataas) sa Blacksmith.";
-  ITEM_DESC.oreFortune = "+50% success sa isang upgrade (+6 pataas) sa Blacksmith.";
-  ITEM_DESC.oreDivine = "Siguradong 100% success sa isang upgrade. Napakabihira — galing sa boss.";
+  ITEM_DESC.oreLuck = "+20% success on one upgrade (+6 and up) at the Blacksmith.";
+  ITEM_DESC.oreFortune = "+50% success on one upgrade (+6 and up) at the Blacksmith.";
+  ITEM_DESC.oreDivine = "A guaranteed 100% success on one upgrade. Very rare — from bosses.";
 }
 }, 0);
 
@@ -166,7 +166,7 @@ function grantWornPlus10() {
   if (player.equippedWeapon && isUpgradable(player.equippedWeapon)) give.add(player.equippedWeapon);
   for (const t of Object.keys(itemDefs)) if (/Bow$/.test(t) && isUpgradable(t) && ownedCount(t) > 0) give.add(t);
   for (const t of give) player.upgrades[t] = { lvl: 10, el: (player.upgrades[t] && player.upgrades[t].el) || "lightning" };
-  if (give.size && typeof showToast === "function") setTimeout(() => showToast("+10 na ang suot mong gear, weapon at mga bow!"), 1500);
+  if (give.size && typeof showToast === "function") setTimeout(() => showToast("Your worn gear, weapon and bows are now +10!"), 1500);
 }
 
 /* ---------------- the upgrade window ---------------- */
@@ -229,7 +229,7 @@ function renderUpgradeWindow() {
   const statLine = (b) => [b.atk && "ATK +" + b.atk, b.def && "DEF +" + b.def, b.mres && "MRES +" + b.mres].filter(Boolean).join(", ") || "—";
   let html = '<div class="upg-head"><img src="' + iconSrc(t) + '"><div><b>' + d.name + " +" + lvl + "</b>" +
     (lvl < UPGRADE_MAX ? ' → <b class="up">+' + (lvl + 1) + "</b>" : ' <b class="up">(MAX)</b>') +
-    '<div class="sub">Bonus ngayon: ' + statLine(now) + (lvl < UPGRADE_MAX ? "<br>Sa +" + (lvl + 1) + ": " + statLine(next) : "") + "</div></div></div>";
+    '<div class="sub">Bonus now: ' + statLine(now) + (lvl < UPGRADE_MAX ? "<br>At +" + (lvl + 1) + ": " + statLine(next) : "") + "</div></div></div>";
   let can = lvl < UPGRADE_MAX;
   if (lvl < UPGRADE_MAX) {
     const c = upgradeCost(t, lvl + 1);
@@ -248,18 +248,18 @@ function renderUpgradeWindow() {
     const ch = upgradeChance(lvl + 1, upgradeOre);
     html += '<div class="upg-rate">Success rate: <b class="' + (ch >= 100 ? "ok" : ch >= 50 ? "mid" : "low") + '">' + ch + "%</b>" + (upgradeOre ? ' <span class="hint">(base ' + base + "% + " + UPGRADE_ORES[upgradeOre].name + ")</span>" : "") + "</div>";
     if (base < 100) {
-      html += '<div class="upg-ores"><button data-ore="" class="' + (!upgradeOre ? "on" : "") + '">Walang ore</button>';
+      html += '<div class="upg-ores"><button data-ore="" class="' + (!upgradeOre ? "on" : "") + '">No ore</button>';
       for (const [id, O] of Object.entries(UPGRADE_ORES)) {
         const have = ownedCount(id);
         html += '<button data-ore="' + id + '" data-item-type="' + id + '" class="' + (upgradeOre === id ? "on" : "") + '"' + (have ? "" : " disabled") + '><img src="' + iconSrc(id) + '"> ' + (O.sure ? "100%" : "+" + O.add + "%") + ' <span class="have">x' + have + "</span></button>";
       }
       html += "</div>";
-    } else html += '<div class="upg-rate hint">+1 hanggang +5: laging successful.</div>';
+    } else html += '<div class="upg-rate hint">+1 to +5: always succeeds.</div>';
   }
-  html += '<div class="upg-el-label">Aura — mahina sa +1, lumalakas bawat level, pinakamalakas sa +10:</div><div class="upg-els">';
+  html += '<div class="upg-el-label">Aura — faint at +1, stronger every level, strongest at +10:</div><div class="upg-els">';
   for (const [id, e] of Object.entries(UPGRADE_ELEMENTS)) html += '<button data-el="' + id + '" class="' + (u.el === id ? "on" : "") + '">' + e.icon + " " + e.name + "</button>";
   html += "</div>";
-  html += '<button id="upg-go"' + (can ? "" : " disabled") + ">" + (lvl >= UPGRADE_MAX ? "MAX na" : "⚒ Upgrade to +" + (lvl + 1)) + "</button>";
+  html += '<button id="upg-go"' + (can ? "" : " disabled") + ">" + (lvl >= UPGRADE_MAX ? "MAX" : "⚒ Upgrade to +" + (lvl + 1)) + "</button>";
   det.innerHTML = html;
   det.querySelectorAll(".upg-els button").forEach((b) => b.addEventListener("click", () => {
     player.upgrades = player.upgrades || {};
@@ -287,7 +287,7 @@ function doUpgrade(t) {
   const u = upgradeOf(t), lvl = u.lvl || 0;
   if (lvl >= UPGRADE_MAX) return;
   const c = upgradeCost(t, lvl + 1);
-  if ((player.gold || 0) < c.gold || c.mats.some(([m, n]) => ownedCount(m) < n)) { if (typeof showToast === "function") showToast("Kulang ang gold o materials"); return; }
+  if ((player.gold || 0) < c.gold || c.mats.some(([m, n]) => ownedCount(m) < n)) { if (typeof showToast === "function") showToast("Not enough gold or materials"); return; }
   const ore = (UPGRADE_RATE[lvl + 1] || 100) < 100 && upgradeOre && ownedCount(upgradeOre) > 0 ? upgradeOre : null;
   const chance = upgradeChance(lvl + 1, ore);
   player.gold -= c.gold;
@@ -298,7 +298,7 @@ function doUpgrade(t) {
     if (typeof renderGoldDisplays === "function") renderGoldDisplays();
     if (typeof renderHotbar === "function") renderHotbar();
     if (typeof renderInventory === "function") renderInventory();
-    if (typeof showToast === "function") showToast("Nabigo ang upgrade (" + chance + "%)... nanatili sa +" + lvl + " ang " + itemDefs[t].name);
+    if (typeof showToast === "function") showToast("The upgrade failed (" + chance + "%)... " + itemDefs[t].name + " stays at +" + lvl);
     upgradeFlash("fail");
     if (typeof saveGame === "function") saveGame();
     renderUpgradeWindow();
@@ -309,7 +309,7 @@ function doUpgrade(t) {
   if (typeof renderGoldDisplays === "function") renderGoldDisplays();
   if (typeof renderHotbar === "function") renderHotbar();
   if (typeof renderInventory === "function") renderInventory();
-  if (typeof showToast === "function") showToast(itemDefs[t].name + " ay +" + (lvl + 1) + " na!" + (lvl + 1 === 1 ? " May mahinang aura na siya." : lvl + 1 === 10 ? " MAX — pinakamalakas na aura!" : ""));
+  if (typeof showToast === "function") showToast(itemDefs[t].name + " is now +" + (lvl + 1) + "!" + (lvl + 1 === 1 ? " It has a faint aura now." : lvl + 1 === 10 ? " MAX — the strongest aura!" : ""));
   if (typeof saveGame === "function") saveGame();
   renderUpgradeWindow();
 }

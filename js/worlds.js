@@ -41,6 +41,8 @@ const WORLD_DEFS = {
   east4: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east4 : null,
   east5: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east5 : null,
   east6: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east6 : null,
+  east7: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east7 || null : null, // the Volcano (tools/build_east_worlds.py)
+  east8: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east8 || null : null, // the Azure Coast
 };
 const EXTRA_WORLDS = Object.keys(WORLD_DEFS).filter((w) => WORLD_DEFS[w]);
 const WILD_COLS = WILD_WORLD_DEFAULT.cols, WILD_ROWS = WILD_WORLD_DEFAULT.rows;
@@ -154,6 +156,8 @@ const SIDE_LINKS = {
   "east3:next": ["east4", "back"], "east4:back": ["east3", "next"],
   "east4:next": ["east5", "back"], "east5:back": ["east4", "next"],
   "east5:next": ["east6", "back"], "east6:back": ["east5", "next"],
+  "east6:next": ["east7", "back"], "east7:back": ["east6", "next"],
+  "east7:next": ["east8", "back"], "east8:back": ["east7", "next"],
 };
 function passSpawn(D, p) {
   const m = Math.floor((p.from + p.to) / 2);
@@ -253,7 +257,18 @@ function checkCaveLinks() {
 
 function travelCaveLink(dest) {
   const b = findBuildingAnywhere(dest.type);
-  if (!b) { if (typeof showToast === "function") showToast("Gumuho ang daan — walang kweba sa kabila"); return; }
+  if (!b) {
+    // Its entrance isn't on any map any more (the wild world keeps only the west cave): the caves
+    // underground still join — go through, and leaving puts you back outside the cave you came in by.
+    if (!getOrCreateInteriorRoom(dest.room + "@underground")) return;
+    player.activeRoomId = dest.room + "@underground";
+    const at0 = TOWN_ART.caveLayouts[dest.room].links[dest.link];
+    player.x = (at0.col + 0.5) * TILE;
+    player.y = (at0.row + 1.5) * TILE - (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+    player.facing = "down";
+    saveGame();
+    return;
+  }
   const [col, row] = b.key.split(",").map(Number);
   const roomId = interiorRoomId(dest.room, col, row);
   if (!getOrCreateInteriorRoom(roomId)) return;
@@ -279,7 +294,6 @@ function travelCaveLink(dest) {
    somewhere to come out. Nothing else in the saved world is touched. */
 const WILD_PLACES = [
   { type: "caveEntranceB", box: [8, 0, 20, 24] },
-  { type: "tunnelEntrance", box: [60, 0, 72, 22] },
 ];
 function addMissingWildPlaces(store) {
   for (const place of WILD_PLACES) {

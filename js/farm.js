@@ -157,14 +157,14 @@ function farmTryToolAction(tile) {
   const t = tile || getTileInFrontOfPlayer();
   if (tool === "farmHoe") {
     if (!isTillable(t.col, t.row)) {
-      if (tile) farmToast(plotAt(t.col, t.row) ? "Naararo na ito" : "Hindi ma-araro ang lupa dito");
+      if (tile) farmToast(plotAt(t.col, t.row) ? "Already tilled" : "The ground here can't be tilled");
       return !!tile;
     }
     startFarmAction("till", "crush", t.col, t.row);
     return true;
   }
   if (!plotAt(t.col, t.row)) {
-    if (tile) farmToast("Diligan ang naararong lupa (Dirt Rake)");
+    if (tile) farmToast("Water tilled soil (Dirt Rake)");
     else { startFarmAction("water", "watering", t.col, t.row); } // just a splash at nothing
     return true;
   }
@@ -209,7 +209,7 @@ function farmResolveAction(fa) {
       grantItem(info.seed, seeds);
       spawnFloatingPickups((col + 0.5) * TILE, (row + 0.5) * TILE - 4, info.seed, seeds);
     } else {
-      farmToast(st === "dead" ? "Natuyo na ang tanim — walang naani" : "Bulok na — walang naani");
+      farmToast(st === "dead" ? "The crop dried up — nothing to harvest" : "It rotted — nothing to harvest");
     }
     saveGame();
   }
@@ -221,7 +221,7 @@ function farmHandleHeldPlacement(col, row) {
   const def = itemDefs[heldItem.type];
   if (def.seedOf) {
     if (!inFarmRange(col, row)) return true;
-    if (!isPlantable(col, row)) { if (!plotAt(col, row)) farmToast("Itanim sa naararong lupa (Dirt Rake)"); return true; }
+    if (!isPlantable(col, row)) { if (!plotAt(col, row)) farmToast("Plant in tilled soil (Dirt Rake)"); return true; }
     const slot = inventory[heldItem.fromSlot];
     if (!slot || slot.count <= 0) return true;
     const plot = plotAt(col, row);
@@ -246,7 +246,7 @@ function socketItems(key) {
 }
 function socketDeposit(col, row, onlyType) {
   const key = fkey(col, row);
-  if (upperLayer.get(key) !== "plotSocketOpen") { farmToast("Sarado ang sako — buksan muna"); return 0; }
+  if (upperLayer.get(key) !== "plotSocketOpen") { farmToast("The sack is closed — open it first"); return 0; }
   const items = socketItems(key);
   let room = SOCKET_CAPACITY - socketTotal(items), moved = 0;
   const movedTypes = [];
@@ -262,7 +262,7 @@ function socketDeposit(col, row, onlyType) {
     socketDepositFx(col, row, movedTypes, moved);
     if (heldItem && inventory[heldItem.fromSlot] && inventory[heldItem.fromSlot].count <= 0) cancelHeldItem();
     renderHotbar(); renderInventory();
-    farmToast("+" + moved + " sa sako (" + socketTotal(items) + "/" + SOCKET_CAPACITY + ")");
+    farmToast("+" + moved + " into the sack (" + socketTotal(items) + "/" + SOCKET_CAPACITY + ")");
     saveGame();
   }
   return moved;
@@ -377,7 +377,7 @@ function showSocketPopup(clientX, clientY, col, row) {
   if (open) btn("Close", () => { upperLayer.set(key, "plotSocketClosed"); saveGame(); });
   else btn("Open", () => { upperLayer.set(key, "plotSocketOpen"); saveGame(); });
   btn("Hold", () => {
-    if (heldItem || player.grabbedType) { farmToast("Puno ang kamay mo"); return; }
+    if (heldItem || player.grabbedType) { farmToast("Your hands are full"); return; }
     farmPendingSocket = socketItems(key);
     farmWorld().sockets.delete(key);
     upperLayer.delete(key);
@@ -460,7 +460,7 @@ function emptySockets(world, keys) {
   return { gold, count };
 }
 function payToast(r) {
-  if (r.count) showToast(COLLECTOR_NAME + " kinuha ang " + r.count + " na ani: +" + r.gold + " gold");
+  if (r.count) showToast(COLLECTOR_NAME + " collected " + r.count + " crops: +" + r.gold + " gold");
 }
 
 function startCollection() {
@@ -842,7 +842,7 @@ function farmOnMouseDown(e) {
   const reach = Math.max(Math.abs(col - getPlayerTile().col), Math.abs(row - getPlayerTile().row));
   if (/^plotSocket/.test(upperLayer.get(fkey(col, row)) || "")) {
     handled();
-    if (reach <= PLACEMENT_RANGE) socketClick(e, col, row); else farmToast("Lumapit pa sa sako");
+    if (reach <= PLACEMENT_RANGE) socketClick(e, col, row); else farmToast("Get closer to the sack");
     return;
   }
   if (reach <= FARM_RANGE && isHarvestable(col, row)) {

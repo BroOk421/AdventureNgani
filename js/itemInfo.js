@@ -14,36 +14,36 @@
 ================================================================= */
 
 const ITEM_DESC = {
-  goldCoin: "Pera ng bayan. Pambili sa mga shop at pambayad sa Blacksmith.",
-  woodSword: "Magaan na espada na gawa sa kahoy. Pang-umpisa, pero mabilis tumama.",
+  goldCoin: "The town's money. Spend it in the shops and at the Blacksmith.",
+  woodSword: "A light wooden sword. A beginner's blade, but quick to strike.",
   bronzeSword: "Espadang bronze — mas matalas kaysa kahoy.",
-  ironSword: "Matibay na espadang bakal. Paborito ng mga bagong adventurer.",
+  ironSword: "A sturdy iron sword. A favourite of new adventurers.",
   goldSword: "Espadang ginto — kumikinang at malakas tumama.",
-  crystalSword: "Talim na gawa sa crystal ng kweba. Malamig at matalas.",
-  emeraldSword: "Espadang may talim na emerald.",
-  diamondSword: "Diamond na talim — halos walang nakakaharang dito.",
+  crystalSword: "A blade cut from cave crystal. Cold and sharp.",
+  emeraldSword: "A sword with an emerald edge.",
+  diamondSword: "A diamond edge — almost nothing can stop it.",
   mythrilSword: "Mythril — magaan pero napakatibay.",
-  dragonSword: "Hinasa sa apoy ng dragon.",
-  celestialSword: "Espada mula sa langit. Para sa pinakamalalakas lang.",
-  stormSword: "Ang Storm Greatsword — drop lang ng Demon Lord. I-upgrade para lumabas ang aura.",
-  woodBow: "Pana na gawa sa kahoy. Tumatama mula sa malayo.",
-  ironBow: "Panang may bakal — mas malakas ang tira.",
+  dragonSword: "Tempered in dragon fire.",
+  celestialSword: "A sword from the heavens. Only for the strongest.",
+  stormSword: "The Storm Greatsword (retired).",
+  woodBow: "A wooden bow. Strikes from a distance.",
+  ironBow: "An iron-reinforced bow — hits harder.",
   goldBow: "Gintong pana — malayo at malakas.",
-  potionHealth: "Pulang potion. Nagbabalik ng buhay.",
-  potionStamina: "Berdeng potion. Nagbabalik ng stamina.",
-  potionElixir: "Bihirang elixir — buo ang buhay at stamina, may kasama pang busog.",
-  slimeGel: "Malagkit na gel mula sa slime. Binibili ng mga shop.",
-  batWing: "Pakpak ng paniki.",
-  glowCap: "Kabuteng umiilaw. Sangkap sa mga potion.",
-  crystalShard: "Piraso ng crystal. Kailangan sa upgrade (+6 pataas).",
-  golemCore: "Puso ng Rock Golem. Kailangan sa upgrade (+9 pataas).",
-  ironIngot: "Bakal na ingot. Pangunahing materyales sa upgrade ng Blacksmith.",
-  goldIngot: "Gintong ingot. Kailangan sa upgrade (+4 pataas).",
-  woodLog: "Kahoy mula sa pinutol na puno. Binibili ng grocery.",
-  stoneChunk: "Bato mula sa binasag na bato. Binibili ng grocery.",
-  farmHoe: "Pang-araro ng lupa para makapagtanim.",
-  farmCan: "Pandilig ng mga tanim.",
-  warpPortal: "Portal papunta sa malalayong mundo.",
+  potionHealth: "A red potion. Restores health.",
+  potionStamina: "A green potion. Restores stamina.",
+  potionElixir: "A rare elixir — full health and stamina, and it fills you up too.",
+  slimeGel: "Sticky gel from a slime. Shops buy it.",
+  batWing: "A bat's wing.",
+  glowCap: "A glowing mushroom. A potion ingredient.",
+  crystalShard: "A shard of crystal. Needed for upgrades (+6 and up).",
+  golemCore: "A Rock Golem's heart. Needed for upgrades (+9 and up).",
+  ironIngot: "An iron ingot. The Blacksmith's main upgrade material.",
+  goldIngot: "A gold ingot. Needed for upgrades (+4 and up).",
+  woodLog: "Wood from a felled tree. The grocery buys it.",
+  stoneChunk: "Stone from a broken rock. The grocery buys it.",
+  farmHoe: "Tills the soil so you can plant.",
+  farmCan: "Waters your crops.",
+  warpPortal: "A portal to faraway lands.",
 };
 const ITEM_KIND_NAMES = { helmet: "Helmet", armor: "Armor", gauntlet: "Gauntlet", boots: "Boots", ring: "Ring", shield: "Shield" };
 
@@ -64,34 +64,34 @@ function itemSellPrice(type) {
 function itemCategory(type, d) {
   if (type === "goldCoin") return "Pera";
   if (d.weapon) {
-    if (d.weapon.ranged) return "Pana (Bow)";
+    if (d.weapon.ranged) return "Bow";
     if (/Sword|Cleaver|Reaver/.test(type)) return typeof isLongSword === "function" && isLongSword(type) ? "Long Sword — 2 kamay, mabigat" : "Short Sword — 1 kamay, mabilis";
-    return "Gamit (Tool)";
+    return "Tool";
   }
   if (d.gear) return ITEM_KIND_NAMES[d.gear.kind] || "Gear";
-  if (d.consumable) return /potion|elixir/i.test(type) ? "Potion" : "Pagkain";
-  if (d.seedOf) return "Binhi (Seed)";
-  if (d.cropOf) return "Ani (Crop)";
-  if (d.mobDrop) return "Materyales";
-  if (d.interior) return "Gusali";
-  if (d.lightGlow) return "Ilaw";
-  return "Bagay / Dekorasyon";
+  if (d.consumable) return /potion|elixir/i.test(type) ? "Potion" : "Food";
+  if (d.seedOf) return "Seed";
+  if (d.cropOf) return "Crop";
+  if (d.mobDrop) return "Material";
+  if (d.interior) return "Building";
+  if (d.lightGlow) return "Light";
+  return "Decoration";
 }
 function itemDescription(type, d) {
   if (ITEM_DESC[type]) return ITEM_DESC[type];
-  if (d.bossDrop) return "Bihirang gamit mula sa isang boss. I-upgrade sa Blacksmith para magka-aura.";
-  if (d.gear) return "Isuot sa Profile (P) para lumakas ang depensa o atake.";
-  if (d.weapon && d.weapon.ranged) return "Pana — tumatama mula sa malayo.";
-  if (d.weapon && d.weapon.damage) return "Pang-laban sa mga mob.";
-  if (d.weapon) return "Gamit — i-equip at pindutin ang F.";
-  if (d.seedOf) return "Itanim sa naararong lupa, diligan, at hintaying tumubo.";
-  if (d.cropOf) return "Inani mula sa bukid. Pwedeng ibenta.";
-  if (d.consumable) return "I-click para kainin / inumin.";
-  if (d.interior) return "Ilagay sa mapa — pwedeng pasukan.";
-  if (d.lightGlow) return "Umiilaw sa gabi.";
-  if (d.mobDrop) return "Nakuha sa mga mob. Binibili ng mga shop.";
-  if (d.unlimited) return "Pangbuo ng mapa — ilagay kung saan mo gusto.";
-  return "Ilagay sa bahay o sa labas bilang dekorasyon.";
+  if (d.bossDrop) return "A rare boss drop. Upgrade it at the Blacksmith to give it an aura.";
+  if (d.gear) return "Wear it from the Profile (P) for more defence or attack.";
+  if (d.weapon && d.weapon.ranged) return "A bow — strikes from a distance.";
+  if (d.weapon && d.weapon.damage) return "For fighting mobs.";
+  if (d.weapon) return "A tool — equip it and press F.";
+  if (d.seedOf) return "Plant it in tilled soil, water it, and wait for it to grow.";
+  if (d.cropOf) return "Harvested from the field. It can be sold.";
+  if (d.consumable) return "Click to eat / drink.";
+  if (d.interior) return "Place it on the map — you can go inside.";
+  if (d.lightGlow) return "Lights up at night.";
+  if (d.mobDrop) return "Dropped by mobs. Shops buy it.";
+  if (d.unlimited) return "A map-building piece — place it anywhere.";
+  return "Place it in your house or outside as decoration.";
 }
 function itemStatLines(type, d) {
   const out = [];
@@ -114,7 +114,7 @@ function itemStatLines(type, d) {
     if (c.food) out.push("Busog: +" + c.food);
   }
   const req = (d.weapon && d.weapon.reqLevel) || d.reqLevel;
-  if (req && req > 1) out.push('<span class="' + ((player.level || 1) >= req ? "ok" : "no") + '">Kailangan: Level ' + req + "</span>");
+  if (req && req > 1) out.push('<span class="' + ((player.level || 1) >= req ? "ok" : "no") + '">Requires: Level ' + req + "</span>");
   return out;
 }
 function itemTipHtml(type) {

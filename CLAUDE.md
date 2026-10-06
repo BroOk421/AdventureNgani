@@ -6149,3 +6149,201 @@ browser can't show a stale cave texture.
   BOW_RANGE is `let` (js/gear.js): 5 tiles, set to 3 by js/mobile.js on a
   phone. Already phone-only: render scale, MOBILE_* speeds/zoom, weather
   rebuild rate, the vignette blur. index.html -> ?v=20261028a.
+
+## Phone controls cleanup, hold-to-run, map button; the default map; G list scrollbar
+
+- js/mobile.js (phone only): icons only (ATTACK, Hold); Kuha/Hagis/Itago
+  became ONE Hold button (E) — Throw (T) and Keep (R) appear beside it only
+  while something is held (body.holding); the three skills (js/skills.js
+  #skill-bar, display: contents) are round buttons in the action cluster
+  where Throw / Keep were; no Menu drop-down — Profile, Bag, Skills (★, with
+  the unspent-points badge), Settings side by side, smaller (26px), left of
+  the minimap; a map button on the minimap opens the full map (worldmap.js
+  toggleMap(true, "map"): your map with you on it + the World tab).
+- No run button: keep the stick pushed 3 s and you run; MOBILE_RUN_BLEND
+  (js/config.js mobileSpeedMult()) eases walking -> running in ~0.7 s and
+  back when you let go.
+- js/defaultMap.data.js (new, before save.js): DEFAULT_MAP_SAVE — the map
+  parts of the user's rpg-save (3).json (placed items, ground fill, worlds,
+  rooms, autotile owners, farm plots, trays, start spot; none of the
+  progress). js/save.js loadGame(): with no save yet a new game applies it
+  (then saves). The saved far worlds in it predate layoutVersion, so (as
+  for any old save) those are rebuilt; town + wild come from it.
+- style.css: the G weapon list (#equipment-weapon-picker) has the gold
+  scrollbar like the other lists. index.html -> ?v=20261030a.
+
+## Fresh start, Furniture Shop, starter tools, level cap 100, wild world reset
+
+- js/freshStart.js (new, before main.js): once per save (player.freshStartV,
+  saved) and for every new game: inventory emptied except the STARTER_PACK
+  (farmHoe, woodAxe, woodPickaxe, fishingRod, farmCan — 1 each, on the
+  hotbar), nothing worn, 0 gold, level 1, no upgrades / skills / passives /
+  treasure state, no free boss set (gearTrialGiven true). The wild world is
+  cleaned to ground + trees + House + caveEntranceB (top left). Skipped in
+  dev mode.
+- Furniture is bought: every piece the Furniture Shop sells loses
+  `unlimited` (counted, used up when placed — js/inventory.js
+  commitPlacementUse() now keeps the emptied slot; grantItem() recreates a
+  missing slot). The inventory grid shows only items you have
+  (inventorySlotShown()); building-mode pieces only in dev mode
+  (js/config.js isDevMode(): ?dev=1 or localStorage agn-dev=1, everything
+  unlimited and listed as before). The G weapon list shows only owned.
+- Trees need the Axe equipped, stones the Pickaxe (findHarvestableTarget()
+  wrapper, toast). itemDefs.woodAxe / woodPickaxe (tools/furniture_shop_art.py,
+  assets/items/tools/).
+- js/mines.js LEVEL_MAX = 100; EXP still only from mob kills (quests later).
+- Furniture Shop (js/shops.js): building furnitureShop (shops.data.js art
+  128x144, tools/furniture_shop_art.py: the log cottage, green roof, chair
+  sign) at SHOP_SITES 44,38; room furniture_room (js/townBuildings.js);
+  SHOP_KEEPERS entries may be { list: [...] } — Lita (indoor, col 3.5) and
+  Berto (outdoor, col 7.5), keepers recoloured townsfolk
+  (assets/npc/Shop_FurnitureIn|Out). Stocks built from itemDefs by
+  FURN_INDOOR_RE / FURN_OUTDOOR_RE, furniturePrice() by picture area
+  (+60 for lights, trees >= 120, 5..900); Room Pickaxe / Hammer 400 each
+  (indoor). lastShopKeeper decides which keeper's shop is open.
+- js/worlds.js: the tunnel isn't re-added to saved wild worlds any more;
+  travelCaveLink() with no entrance on any map goes into
+  "<room>@underground" and leaving returns outside the cave you came in by,
+  so the mines are still reached (west cave -> tunnel -> mine 1).
+  index.html -> ?v=20261031a (+ js/freshStart.js).
+
+## Grass edges on the spot
+
+- js/player.js: E (outdoors) picks up / puts down at the moment it's pressed
+  (player.collectDone); the collect animation just plays over it. The
+  re-tile of the grass round it happens in the same call, so the corners
+  change on time (before: only after the ~0.9 s animation).
+- js/autotile.js formGrassEdgesAround(): picking up a tile of the painted
+  lawn (ground fill) turns the lawn round the hole into player-laid grass
+  tiles, which the flush re-tiles into proper edges at once (before: a plain
+  square hole). An old-style grass tile (Ground (Inner)) laid by the player
+  becomes the grass_tile centre straight away (no wait for
+  migrateOldGrass()'s 1.5 s timer). index.html -> ?v=20261032a.
+
+## Story mode + legendary Inferno set (the Demon set / Storm Greatsword retired)
+
+- js/quests.js (new, after freshStart.js): QUESTS — Prologue (p1, p2),
+  Kabanata 1-5 (c1a..c5b), Epilogue (ep), side quests (s_koi, s_farm,
+  s_potion, s_armor, s_chest, s_perfect, s_home). A quest: giver (null =
+  starts on its own when the previous main one ends), turnIn (null =
+  completes itself when met), start / end dialogue lines [speaker, text],
+  objectives (talk / kill {mob|"any"} / collect / deliver (handed over) /
+  equip / upgrade (any piece to +N) / chests (player.treasure.openedTotal,
+  js/treasure.js) / level / reach {world} / wearAll / bought (furniture)),
+  rewards {gold, exp, items}, next. player.quests { active: {id: {kills,
+  chestBase, boughtBase}}, done, tracked, bought } saved; reset with the
+  fresh start. The story starts (p1) ~2 s after a save with no quests loads.
+  Talking: openNpcShop / openNpcTalk wrappers — Maria (no-arg shop / her
+  talk menu) and the keepers (lastShopKeeper, by name) give / take quests
+  before their shop. Kills from a gainExp wrapper. "!" / "?" drawn over
+  Maria (drawNPC wrapper) and the keepers (shopKeeperDrawables wrapper).
+  The talk box #dlg (typed lines, tap / click / Space / E / Enter; all
+  other keys swallowed while it's open), the log #quest-overlay (J,
+  📜 Quests in the toolbar, the phone's scroll button next to the Bag),
+  the tracker #quest-tracker (click = the log).
+- js/legendary.js (new, after culling.js): RETIRED_ITEMS (the Demon set +
+  stormSword) — out of every drop list, hidden, taken off if worn. The
+  Inferno set (Lv 55, tools/inferno_art.py: icons + infernoSword_anim.png
+  6-frame burning strip): helmet / armor / gauntlet / boots / ring / shield
+  + Inferno Blade (two-handed, dmg 130). Drops: Venom Queen (helmet,
+  shield, boots, ring), Demon Lord (armor, gauntlet, the Blade). Worn
+  legendary pieces burn: an upgradeAuras() wrapper gives each a fire aura
+  of at least LEGENDARY_AURA_LVL (5). index.html -> ?v=20261033a.
+
+## Water joins the port pieces; foam rings round things in the water
+
+- js/fishing.js drawWaterAnim(): the moving water also covers the blue part
+  of every port piece (portSpans(): per-type row spans of its blue pixels,
+  added to the clip), and no shore foam is drawn against a port piece (its
+  art has its own shore) — the inner "boxes" of foam are gone. A water
+  tile with something on it still moves; the thing gets a pulsing white
+  foam ring + a spreading ripple round its base (round the trunk only for a
+  tree). index.html -> ?v=20261034a.
+
+## Two new lands: the Volcano (east7) and the Azure Coast (east8); the save (4) as the default map
+
+- tools/build_east_worlds.py: east6 gets a south pass "next" (layoutVersion
+  "v2-97b"); volcano() — ash ground (no grass fill, no grass pieces), burnt
+  trees, rocks, the big mesa's lava crater, lava pools and a lava river
+  (lava1..3); coast() — the sea along the east and south (portBR) with a
+  port-piece shore (PORT_SHORE: n/s/e/w edges, outer corners, inner
+  corners from the diagonals), many trees, and a cliff (mesa) with a lake
+  on top whose waterfall (waterfall tiles in the face, cols 15-17) feeds a
+  stream (water tiles) to the sea. Passes: east6 S <-> east7 N, east7 S <->
+  east8 N (js/worlds.js SIDE_LINKS, WORLD_DEFS; js/worldmap.js atlas).
+- js/mines.js: new mobs (tools/far_worlds_art.py recolours) — Volcano Lv
+  80-92: lavaSlime, magmaGolem, fireBat (+ imps), boss Volcano Titan
+  (bossTitan, Lv 95); Azure Coast Lv 88-100: seaCrab, jellySlime, seaWisp
+  (Sea Spirit), boss Leviathan (bossLeviathan, Lv 100). MOB_EXP / MOB_TOP.
+- js/inventory.js: lava1..3 + waterfall (flat, collide, layer 2 via the
+  /^(grass|water|port|lava\d)/ rule). js/farWorlds.js (new, after
+  critters.js): molten caustics (lavaFrames from the water ones) + bubbles,
+  night glow (lights + a relight pass), the Volcano's red haze and embers,
+  no snow ground there, the waterfall's streaks / landing foam, fishing in
+  the open sea (portBR/TL/TR).
+- js/quests.js: side quests s_titan, s_leviathan (Maria, after the story).
+- js/defaultMap.data.js rebuilt from rpg-save (4).json. index.html ->
+  ?v=20261035a (+ js/farWorlds.js).
+
+## English text; the Ember Dragon and the Siren
+
+- All the Tagalog the player reads is English now: every quest line, title,
+  chapter and the quest log's labels (js/quests.js — "The Last Light of
+  the Crystal"), item names (Hoe, Axe, Pickaxe, Fishing Rod, Watering Can,
+  "<veg> (Crop)"), item descriptions / categories (js/itemInfo.js), and the
+  toasts / hints / panels in js/skills.js, upgrades.js, gear.js, farm.js,
+  fishing.js, mines.js, treasure.js, roomCustomizer.js, shops.js,
+  worldmap.js, legendary.js, freshStart.js, resources.js, interior.js,
+  npc.js, mobile.js. (Code comments keep the original requests.)
+- tools/mobs/dragon_siren.py: hand-built pixel art (parts with 3-tone
+  shading + outline): bossDragon "Ember Dragon" (64px: wing flaps, walk,
+  rear-back fire breath, fall) — the Volcano's boss now (Lv 96; the
+  Titan's def stays, unused); siren "Siren" (48px mermaid: tail sway,
+  flowing hair, water-orb ranged magic, dissolves into foam) on the Azure
+  Coast. s_titan is now the Ember Dragon. index.html -> ?v=20261036a.
+
+## Back to the Titan; no Siren for now
+
+- Per request ("ang pangit ... ibalik muna ang dati"): the Volcano's boss is
+  the Volcano Titan again and the Azure Coast's spawns are back (no Siren);
+  s_titan is the Titan again. The bossDragon / siren defs and
+  tools/mobs/dragon_siren.py stay but nothing spawns them — the user is
+  bringing generated art for a dragon to replace them. index.html ->
+  ?v=20261037a.
+
+## The user's sprite sheet: Ember Dragon, Siren, Snake
+
+- tools/mobs/extract_sheet.py <sheet.png>: cuts the user's generated sheet
+  (transparent PNG; rows idle / walk / attack / hurt / die; three columns)
+  into assets/mobs/{bossDragon, snake, siren}/{idle,move,attack,death}.png
+  — alpha > 170 kept, halved (BOX) and cut hard, each frame centred with
+  its feet on the bottom line. The dragon's attack uses frames 1, 2, 4, 4
+  (the 3rd hides under the 2nd's flames); its death = hurt 1, hurt 3,
+  die 3, die 4. (tools/mobs/dragon_siren.py — the code-drawn ones — is
+  gone.)
+- js/mines.js: bossDragon (80px frames, scale 1.6, Lv 96) is the Volcano's
+  boss again; siren (ranged magic) on the Azure Coast; snake (new) in
+  Wolfpine Woods and Spirit Glade. s_titan = the Ember Dragon.
+  index.html -> ?v=20261038a.
+
+## Storage chests; weapons/tools out of the bag
+
+- js/storage.js (new, after quests.js): weapons and tools (equipSlot
+  "weapon") aren't listed in the inventory grid any more (the G list and the
+  hotbar have them; dev mode lists everything). A placed bldChest (Lita
+  sells it; the houses have some) opens a storage window on click (within 3
+  tiles): 8x7 slots like the inventory, your bag below — click a bag item
+  to put the stack in (Shift = one), a chest slot to take it out. Each
+  chest has its own contents: player.chests["in|<room>|<key>" or
+  "out|<world>|<key>"]. Picking a chest up carries its contents
+  (player.carriedChests, LIFO) to the next chest put down (objectLayer and
+  every room.decor map are watched). Both saved. index.html ->
+  ?v=20261039a.
+
+## Weapons / tools off the hotbar too
+
+- js/storage.js purgeWeaponsFromHotbar() (on load + every 0.7 s, not in dev
+  mode): a weapon / tool on a hotbar slot is taken off it — they live in the
+  Equipment list (G). The fresh start no longer puts the starter tools on
+  the hotbar; the chest window's bag doesn't list them. index.html ->
+  ?v=20261040a.

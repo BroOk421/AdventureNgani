@@ -93,6 +93,28 @@ const MINE_TYPES = {
                fps: { idle: 4, move: 7, attack: 8, death: 6 },
                drops: [["golemCore", 3, 5, 1], ["crystalShard", 3, 6, 1], ["goldCoin", 25, 45, 1]] },
 };
+// Per request ("lagyan mo pa ng iba pang map na volcano ... ocean ... may mga bagong mobs din"): the
+// Volcano's and the Azure Coast's mobs (tools/far_worlds_art.py — recoloured from the older sheets).
+Object.assign(MINE_TYPES, {
+  lavaSlime: Object.assign({}, MINE_TYPES.slime, { name: "Lava Slime", hp: 70, dmg: 6, magic: true, drops: [["golemCore", 1, 1, 0.2], ["oreLuck", 1, 1, 0.04], ["goldCoin", 30, 60, 0.7]] }),
+  magmaGolem: Object.assign({}, MINE_TYPES.golem, { name: "Magma Golem", hp: 320, dmg: 15, drops: [["golemCore", 1, 2, 0.5], ["goldIngot", 1, 1, 0.25], ["oreFortune", 1, 1, 0.02], ["goldCoin", 50, 90, 0.8]] }),
+  fireBat: Object.assign({}, MINE_TYPES.bat, { name: "Fire Bat", hp: 45, dmg: 5, magic: true, drops: [["batWing", 1, 2, 0.5], ["goldCoin", 25, 50, 0.6]] }),
+  bossTitan: Object.assign({}, MINE_TYPES.bossGolem, { name: "Volcano Titan", hp: 80000, dmg: 220, bossLevel: 95, respawn: 1500, magic: true,
+    drops: [["oreDivine", 1, 1, 0.2], ["oreFortune", 1, 3, 0.8], ["goldIngot", 3, 6, 1], ["goldCoin", 3000, 4500, 1]] }),
+  seaCrab: Object.assign({}, MINE_TYPES.scorpion, { name: "Sea Crab", hp: 110, dmg: 11, drops: [["crystalShard", 1, 2, 0.3], ["oreLuck", 1, 1, 0.04], ["goldCoin", 40, 70, 0.7]] }),
+  jellySlime: Object.assign({}, MINE_TYPES.slime, { name: "Jelly Slime", hp: 65, dmg: 5, magic: true, drops: [["slimeGel", 1, 3, 0.6], ["goldCoin", 30, 60, 0.7]] }),
+  seaWisp: Object.assign({}, MINE_TYPES.wisp, { name: "Sea Spirit", hp: 60, dmg: 9, drops: [["glowCap", 1, 2, 0.4], ["oreFortune", 1, 1, 0.02], ["goldCoin", 40, 80, 0.7]] }),
+  // from the user's sprite sheet (tools/mobs/extract_sheet.py): the Ember Dragon (the Volcano's boss),
+  // the Siren (the Azure Coast) and the Snake (Wolfpine Woods / Spirit Glade)
+  bossDragon: { name: "Ember Dragon", size: 80, foot: 79, scale: 1.6, hp: 90000, dmg: 230, speed: 30, aggro: 200, reach: 44, cd: 1.6, hitFrame: 2, r: 28, boss: true, bossLevel: 96, respawn: 1500, magic: true,
+    fps: { idle: 5, move: 7, attack: 6, death: 5 }, drops: [["oreDivine", 1, 2, 0.25], ["oreFortune", 1, 3, 0.8], ["goldIngot", 3, 6, 1], ["goldCoin", 3500, 5000, 1]] },
+  siren: { name: "Siren", size: 64, foot: 63, scale: 1, hp: 95, dmg: 12, speed: 30, aggro: 170, reach: 90, cd: 2.0, hitFrame: 2, r: 11, magic: true, ranged: true,
+    fps: { idle: 5, move: 7, attack: 6, death: 6 }, drops: [["glowCap", 1, 2, 0.4], ["crystalShard", 1, 2, 0.3], ["oreFortune", 1, 1, 0.03], ["goldCoin", 50, 90, 0.8]] },
+  snake: { name: "Snake", size: 64, foot: 63, scale: 0.9, hp: 75, dmg: 9, speed: 30, aggro: 120, reach: 18, cd: 1.4, hitFrame: 1, r: 10,
+    fps: { idle: 5, move: 7, attack: 7, death: 6 }, drops: [["slimeGel", 1, 1, 0.3], ["glowCap", 1, 1, 0.2], ["goldCoin", 8, 18, 0.6]] },
+  bossLeviathan: Object.assign({}, MINE_TYPES.bossScorpion, { name: "Leviathan", hp: 120000, dmg: 260, bossLevel: 100, respawn: 1800, magic: true,
+    drops: [["oreDivine", 1, 2, 0.3], ["oreFortune", 2, 4, 1], ["crystalShard", 5, 10, 1], ["goldCoin", 4000, 6000, 1]] }),
+});
 // what lives on each level: [type, count]
 const MINE_SPAWNS = {
   1: [["slime", 7], ["bat", 2]],
@@ -151,10 +173,12 @@ const MOB_WORLDS = {
   east1: { name: "Highlands", level: [3, 6], spawns: [["slime", 7], ["bat", 6], ["shroom", 6], ["beetle", 2], ["bossSlime", 1]] },
   east2: { name: "Crystal Ridge", level: [7, 11], spawns: [["beetle", 7], ["golem", 4], ["bat", 6], ["shroom", 4], ["bossGolem", 1]] },
   // the far worlds (warp portals, js/gear.js) — climbing to level 80
-  east3: { name: "Wolfpine Woods", level: [12, 22], spawns: [["wolf", 9], ["soldier", 5], ["beetle", 3], ["bat", 4], ["bossWolf", 1]] },
-  east4: { name: "Spirit Glade", level: [23, 38], spawns: [["wisp", 8], ["wizard", 6], ["wolf", 4], ["shroom", 3], ["bossWisp", 1]] },
+  east3: { name: "Wolfpine Woods", level: [12, 22], spawns: [["wolf", 8], ["snake", 5], ["soldier", 4], ["beetle", 2], ["bat", 3], ["bossWolf", 1]] },
+  east4: { name: "Spirit Glade", level: [23, 38], spawns: [["wisp", 7], ["wizard", 5], ["snake", 4], ["wolf", 3], ["shroom", 2], ["bossWisp", 1]] },
   east5: { name: "Sunscar Barrens", level: [39, 58], spawns: [["scorpion", 8], ["soldier", 5], ["wizard", 4], ["golem", 3], ["bossScorpion", 1]] },
   east6: { name: "Ember Peaks", level: [59, 80], spawns: [["imp", 9], ["wizard", 5], ["soldier", 4], ["golem", 3], ["bossImp", 1]] },
+  east7: { name: "Volcano", level: [80, 92], spawns: [["lavaSlime", 8], ["magmaGolem", 5], ["fireBat", 6], ["imp", 3], ["bossDragon", 1]] },
+  east8: { name: "Azure Coast", level: [88, 100], spawns: [["seaCrab", 7], ["jellySlime", 5], ["siren", 6], ["seaWisp", 3], ["bossLeviathan", 1]] },
 };
 let mineZoneCache = null;
 function currentMineRoom() {
@@ -184,7 +208,7 @@ function mineFeetBlocked(zone, fx, fy) {
   return isBodyBlockedAt(fx, fy - MINE_FEET_OFF);
 }
 
-const MOB_EXP = { wizard: 20, soldier: 18, bossSlime: 300, bossGolem: 700, bossWolf: 1500, bossWisp: 3500, bossScorpion: 8000, bossImp: 18000, slime: 6, bat: 5, shroom: 9, beetle: 14, golem: 30, golemBoss: 400, wolf: 16, wisp: 18, scorpion: 22, imp: 26 };
+const MOB_EXP = { bossDragon: 32000, siren: 36, snake: 15, lavaSlime: 30, magmaGolem: 40, fireBat: 28, bossTitan: 30000, seaCrab: 34, jellySlime: 30, seaWisp: 32, bossLeviathan: 40000, wizard: 20, soldier: 18, bossSlime: 300, bossGolem: 700, bossWolf: 1500, bossWisp: 3500, bossScorpion: 8000, bossImp: 18000, slime: 6, bat: 5, shroom: 9, beetle: 14, golem: 30, golemBoss: 400, wolf: 16, wisp: 18, scorpion: 22, imp: 26 };
 function makeMob(type, level, fx, fy) {
   const def = MINE_TYPES[type];
   // tougher at a higher level; the boss has its own fixed numbers
@@ -377,7 +401,7 @@ function damagePlayer(n, magic) {
 function playerBlackout() {
   player.health = Math.ceil(player.maxHealth * 0.5);
   player.action = null; player.mineSwing = null;
-  if (typeof showToast === "function") showToast(player.scene === "inside" ? "Nawalan ka ng malay... nailabas ka sa kweba" : "Nawalan ka ng malay... dinala ka pabalik sa bayan");
+  if (typeof showToast === "function") showToast(player.scene === "inside" ? "You passed out... you were carried out of the cave" : "You passed out... you were carried back to town");
   if (player.scene === "inside") { if (typeof beginSceneFade === "function") beginSceneFade(() => exitInterior()); }
   else if (typeof beginSceneFade === "function") beginSceneFade(() => switchWorld("main", MAIN_EAST_PORTAL.spawn, "left")); // back to the town's east gate
 }
@@ -475,7 +499,7 @@ function killMob(st, m) {
 function pushMineNumber(x, y, text, color, big) {
   mineNumbers.push({ x: x + mineRand(-3, 3), y, text, color, big: !!big, t: 0, life: big ? 1.0 : 0.8, room: mobZoneKey() });
 }
-const MOB_TOP = { wizard: 26, soldier: 22, bossSlime: 15, bossGolem: 40, bossWolf: 18, bossWisp: 22, bossScorpion: 20, bossImp: 24, slime: 15, bat: 22, shroom: 22, beetle: 22, golem: 40, golemBoss: 40, wolf: 18, wisp: 22, scorpion: 20, imp: 24 }; // art px from the feet up to the head
+const MOB_TOP = { bossDragon: 40, siren: 34, snake: 24, lavaSlime: 15, magmaGolem: 40, fireBat: 22, bossTitan: 40, seaCrab: 20, jellySlime: 15, seaWisp: 22, bossLeviathan: 20, wizard: 26, soldier: 22, bossSlime: 15, bossGolem: 40, bossWolf: 18, bossWisp: 22, bossScorpion: 20, bossImp: 24, slime: 15, bat: 22, shroom: 22, beetle: 22, golem: 40, golemBoss: 40, wolf: 18, wisp: 22, scorpion: 20, imp: 24 }; // art px from the feet up to the head
 function mobTopY(m) {
   return m.y - (MOB_TOP[m.type] || 20) * m.def.scale;
 }
@@ -545,7 +569,7 @@ view.addEventListener("mousedown", (e) => {
   if (!best) return;
   e.stopImmediatePropagation(); e.preventDefault();
   if (Math.hypot(best.x - player.x, best.y - (player.y + MINE_FEET_OFF)) > MINE_PICKUP_RANGE) {
-    if (typeof showToast === "function") showToast("Masyadong malayo — lumapit ka muna");
+    if (typeof showToast === "function") showToast("Too far — get closer first");
     return;
   }
   best.phase = "vacuum"; best.vacT0 = best.t; best.fromX = best.x; best.fromY = best.y;
@@ -559,7 +583,7 @@ function mineIndoorUpdate(dt) {
   const st = mineStateFor(room);
   if (mineLastRoom !== room.key) {
     mineLastRoom = room.key;
-    if (typeof showToast === "function") showToast(room.name + " — mobs Lv " + room.level[0] + "-" + room.level[1] + (room.layout && room.layout.depth === 10 ? " — mag-ingat, may boss!" : ""));
+    if (typeof showToast === "function") showToast(room.name + " — mobs Lv " + room.level[0] + "-" + room.level[1] + (room.layout && room.layout.depth === 10 ? " — careful, there's a boss!" : ""));
     respawnMobs(room, st);
   }
   for (const m of st.mobs) updateMob(room, st, m, dt);
@@ -902,12 +926,15 @@ function drawMineOverlay() {
 if (typeof player.level !== "number") player.level = 1;
 // 50 x level^1.75 (Lv1 50, Lv20 ~9.5k, Lv80 ~110k)
 function expForLevel(l) { return Math.max(50, Math.round(50 * Math.pow(l, 1.75))); } // steeper: every level takes longer than the last
+const LEVEL_MAX = 100; // per request: level 1 -> 100, only from killing mobs and quests
 function gainExp(n, m) {
+  if ((player.level || 1) >= LEVEL_MAX) { player.exp = 0; return; }
   player.exp += n;
   if (m) pushMineNumber(m.x + 8, mobTopY(m) - 8, "+" + n + " EXP", "#c79bff");
-  while (player.exp >= player.maxExp) {
+  while (player.exp >= player.maxExp && player.level < LEVEL_MAX) {
     player.exp -= player.maxExp;
     player.level++;
+    if (player.level >= LEVEL_MAX) player.exp = 0;
     player.maxExp = expForLevel(player.level);
     player.maxHealth += 8; player.health = player.maxHealth;
     player.maxStamina += 4; player.stamina = player.maxStamina;

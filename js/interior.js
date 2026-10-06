@@ -516,7 +516,7 @@ function tryPlayerEnterInterior(type, placedCol, placedRow) {
   // The grocery (per request): open Monday-Friday 08:00-18:00, and only
   // while its keeper is in — otherwise the door stays shut.
   if (def.citizenShop && typeof isGroceryOpen === "function" && !isGroceryOpen()) {
-    showLockedDoorToast("Sarado ang grocery. Bukas Lunes-Biyernes, 8:00-18:00.");
+    showLockedDoorToast("The grocery is closed. Open Monday-Friday, 8:00-18:00.");
     return false;
   }
   beginSceneFade(() => enterInterior(type, placedCol, placedRow));

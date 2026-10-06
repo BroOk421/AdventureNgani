@@ -466,6 +466,10 @@ for (const S of Object.values(autotileSets)) {
   L.__autotileHooked = true;
   const set = L.set, del = L.delete;
   L.set = function (k, v) {
+    // an old-style grass tile laid by the player (the lawn's own Ground (Inner) picked up and put
+    // back) is the new grass tile straight away, so it re-tiles on the spot instead of waiting for
+    // migrateOldGrass() below
+    if (autotileArmed && !autotileFlushing && L === (autotileSets.terrainGrass && autotileSets.terrainGrass.layer) && typeof v === "string" && OLD_GRASS_RE.test(v)) v = autotileSets.terrainGrass.centers[0];
     if (autotileArmed && autotilePrefixOf(v)) {
       autotileTouched.push([k, v]);
       if (!autotileFlushing) autotileOwnedSet().add(k); // laid by the player
@@ -480,6 +484,23 @@ for (const S of Object.values(autotileSets)) {
     }
     return del.call(this, k);
   };
+}
+// A tile of the painted lawn (ground fill) was picked up: the lawn round the hole turns into real
+// grass tiles (laid by the player, so they re-tile) — the flush right after gives them their edges,
+// so the hole has proper grass borders at once.
+function formGrassEdgesAround(col, row) {
+  const S = autotileSets.terrainGrass;
+  if (!S || typeof isGroundFilled !== "function") return;
+  autotileArmed++;
+  try {
+    for (const [dx, dy] of AUTOTILE_NB) {
+      const c = col + dx, r = row + dy, k = c + "," + r;
+      if (!isGroundFilled(c, r) || S.layer.has(k)) continue;
+      setGroundFill(c, r, false);
+      S.layer.set(k, S.centers[0]);
+    }
+  } finally { autotileArmed--; }
+  if (!autotileArmed && autotileTouched.length) autotileFlush();
 }
 function autotileFlush() {
   const jobs = autotileTouched.splice(0);

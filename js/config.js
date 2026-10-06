@@ -534,19 +534,40 @@ const MOBILE_SPEED_MULT = 0.85; // per request: livelier on the phone (was 0.55 
 // Phone run speed: running is this many times the (phone) walk speed.
 // The desktop uses player.runMult (1.8); on the phone 1.8 felt too fast.
 const MOBILE_RUN_MULT = 1.45;
+// 0..1 — how far the phone's hold-to-run has eased in (js/mobile.js): walking speed at 0, full run at 1.
+let MOBILE_RUN_BLEND = 0;
 function mobileSpeedMult(running) {
   if (typeof MOBILE_ON === "undefined" || !MOBILE_ON) return 1;
-  return MOBILE_SPEED_MULT * (running ? MOBILE_RUN_MULT / player.runMult : 1);
+  // the caller multiplies by player.runMult when running; this brings it from walking speed up to
+  // the phone's run speed smoothly instead of jumping
+  return (
+    MOBILE_SPEED_MULT *
+    (running
+      ? (1 + (MOBILE_RUN_MULT - 1) * MOBILE_RUN_BLEND) / player.runMult
+      : 1)
+  );
 }
 // Phone (js/mobile.js) camera zoom. Higher = closer, lower = farther.
 // Desktop keeps ZOOM_MIN above.
-const MOBILE_ZOOM = 2.4; // per request: a closer phone camera (was 2)
+const MOBILE_ZOOM = 2.7; // per request: a closer phone camera (was 2)
 // Phone walk/run animation speed, x normal — slowed less than the movement
 // so the steps don't look like slow motion, but enough that the feet don't
 // slide. (Idle is not affected.)
 const MOBILE_ANIM_MULT = 1; // per request: the same snappy animation speed as the desktop (was 0.75)
 // true on the phone version (js/mobile.js). The phone-only changes (speed tricks, aiming, ranges)
 // check this, so the desktop plays exactly as before.
+// Building / map-editing mode (?dev=1, or localStorage "agn-dev" = "1"): the inventory shows every
+// building-mode tile and piece again, unlimited, as before the fresh start (js/freshStart.js).
+function isDevMode() {
+  try {
+    return (
+      /[?&]dev=1/.test(location.search) ||
+      localStorage.getItem("agn-dev") === "1"
+    );
+  } catch (e) {
+    return false;
+  }
+}
 function isMobileMode() {
   return typeof MOBILE_ON !== "undefined" && !!MOBILE_ON;
 }

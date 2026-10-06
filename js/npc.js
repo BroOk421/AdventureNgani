@@ -1810,7 +1810,7 @@ function sellToNpc(type, price, n) {
   if (n <= 0) return;
   slot.count -= n;
   player.gold += n * price;
-  if (typeof showToast === "function") showToast("Nabenta: " + n + " " + itemDefs[type].name + " (+" + n * price + " gold)");
+  if (typeof showToast === "function") showToast("Sold: " + n + " " + itemDefs[type].name + " (+" + n * price + " gold)");
   renderGoldDisplays(); renderHotbar(); renderInventory(); renderNpcShopGrid();
   saveGame();
 }

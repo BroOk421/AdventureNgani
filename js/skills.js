@@ -44,14 +44,14 @@ function skillStats(id, L) {
 function skillCd(id) { return skillStats(id).cd; }
 function skillDesc(id, L) {
   const st = skillStats(id, L);
-  if (id === "slash") return "Malapad na hiwa sa harap — tinatamaan lahat ng mob na abot (" + st.range.toFixed(1) + " tiles). x" + st.mult.toFixed(2) + " ATK.";
-  if (id === "stun") return "Tumatalon sa kalaban at itinutusok ang espada sa lupa — lahat ng mob sa paligid (" + st.radius.toFixed(1) + " tiles) ay x" + st.mult.toFixed(2) + " ATK at stunned nang " + st.dur + "s (boss " + st.bossDur + "s).";
-  return "Lumipat agad hanggang " + st.dist.toFixed(2) + " tiles sa harap mo (humihinto sa pader).";
+  if (id === "slash") return "A wide slash in front — hits every mob in reach (" + st.range.toFixed(1) + " tiles). x" + st.mult.toFixed(2) + " ATK.";
+  if (id === "stun") return "Leaps at the enemy and drives the sword into the ground — every mob around (" + st.radius.toFixed(1) + " tiles) takes x" + st.mult.toFixed(2) + " ATK and is stunned for " + st.dur + "s (boss " + st.bossDur + "s).";
+  return "Blink up to " + st.dist.toFixed(2) + " tiles ahead (stops at walls).";
 }
 const PASSIVES = {
-  atk:  { name: "Power",     per: "+4% ATK",          desc: "Mas malakas ang bawat tama." },
-  aspd: { name: "Swiftness", per: "+3% attack speed", desc: "Mas mabilis umatake." },
-  def:  { name: "Guard",     per: "+5% DEF, +1 DEF",  desc: "Mas kaunti ang damage na natatanggap." },
+  atk:  { name: "Power",     per: "+4% ATK",          desc: "Every hit is stronger." },
+  aspd: { name: "Swiftness", per: "+3% attack speed", desc: "Attack faster." },
+  def:  { name: "Guard",     per: "+5% DEF, +1 DEF",  desc: "Take less damage." },
 };
 const PASSIVE_MAX = 10;
 const skillReadyAt = {}; // id -> seconds (performance clock)
@@ -93,8 +93,8 @@ function skillBusy() {
 function skillToast(t) { if (typeof showToast === "function") showToast(t); }
 function skillReady(id, quiet) {
   const S = SKILLS[id], now = skillNow();
-  if ((skillReadyAt[id] || 0) > now) { if (!quiet) skillToast(S.name + " — " + Math.ceil(skillReadyAt[id] - now) + "s pa"); return false; }
-  if ((player.stamina || 0) < S.stamina) { if (!quiet) skillToast("Kulang ang stamina para sa " + S.name); return false; }
+  if ((skillReadyAt[id] || 0) > now) { if (!quiet) skillToast(S.name + " — " + Math.ceil(skillReadyAt[id] - now) + "s left"); return false; }
+  if ((player.stamina || 0) < S.stamina) { if (!quiet) skillToast("Not enough stamina for " + S.name); return false; }
   return true;
 }
 function spendSkill(id) {
@@ -145,7 +145,7 @@ function requestSkill(id) {
   if (skillBusy()) return;
   if (id === "teleport") { if (castTeleport()) spendSkill(id); return; }
   const z = mobZoneState();
-  if (!z) { skillToast(S.name + " — magagamit lang laban sa mga mob"); return; }
+  if (!z) { skillToast(S.name + " — only usable against mobs"); return; }
   const m = mobAlive(player.selectedMob, z.st) ? player.selectedMob : mobAlive(player.autoTarget, z.st) ? player.autoTarget : null;
   if (m) { beginSkillOn(id, m); return; }
   setAiming(id);
@@ -154,7 +154,7 @@ function setAiming(id) {
   skillAiming = id;
   document.body.classList.toggle("skill-aim", !!id);
   if (skillBarEl) for (const b of skillBarEl.querySelectorAll(".skill-btn[data-skill]")) b.classList.toggle("aiming", b.dataset.skill === id);
-  if (id) skillToast(SKILLS[id].name + ": i-click ang kalaban (Esc = cancel)");
+  if (id) skillToast(SKILLS[id].name + ": click an enemy (Esc = cancel)");
 }
 function beginSkillOn(id, m) {
   player.selectedMob = m;
@@ -220,7 +220,7 @@ window.addEventListener("mousedown", (e) => {
   setAiming(null);
   if (!z) return;
   const m = mobUnderPointer(e, z.st);
-  if (!m) { skillToast(SKILLS[id].name + " — kinansela"); return; }
+  if (!m) { skillToast(SKILLS[id].name + " — cancelled"); return; }
   if (skillReady(id)) beginSkillOn(id, m);
 }, true);
 window.addEventListener("keydown", (e) => { if (e.key === "Escape" && skillAiming) setAiming(null); });
@@ -342,7 +342,7 @@ function castTeleport() {
     if (teleportBlocked(x, y)) break;
     bx = x; by = y;
   }
-  if (Math.hypot(bx - x0, by - y0) < 8) { skillToast("Hindi makaraan — may harang"); return false; }
+  if (Math.hypot(bx - x0, by - y0) < 8) { skillToast("Can't get through — something's in the way"); return false; }
   const now = skillNow();
   // out: every pixel of you flies apart and fades
   for (const p of playerPixels(x0, y0, 90)) skillFx.push({ kind: "mote", x: p.x, y: p.y, c: p.c, vx: (Math.random() - 0.5) * 30 + dx * 20, vy: -10 - Math.random() * 30, t0: now + Math.random() * 0.08, life: 0.5 + Math.random() * 0.3 });
@@ -543,7 +543,7 @@ function drawSelectMarker(m) {
   ctx.beginPath(); ctx.moveTo(px - 2.6 * zoom, py - 3 * zoom); ctx.lineTo(px + 2.6 * zoom, py - 3 * zoom); ctx.lineTo(px, py); ctx.closePath(); ctx.fill(); ctx.stroke();
   const fs = Math.max(9, Math.round(3.8 * zoom));
   ctx.font = "bold " + fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-  const label = "Lv " + m.level + " " + m.def.name, hint = "I-click ulit para umatake";
+  const label = "Lv " + m.level + " " + m.def.name, hint = "Click again to attack";
   ctx.lineWidth = Math.max(2, fs / 4); ctx.strokeStyle = "rgba(0,0,0,0.85)";
   ctx.strokeText(label, px, py - 4 * zoom); ctx.fillStyle = "#ffe6a8"; ctx.fillText(label, px, py - 4 * zoom);
   ctx.font = Math.max(8, Math.round(3 * zoom)) + "px sans-serif";
@@ -802,21 +802,21 @@ function toggleSkillWindow(show) {
 function renderSkillWindow() {
   const body = skillWinEl.querySelector("#sk-body"), r = passiveRanks(), pts = skillPointsLeft();
   const sl = skillLevels();
-  let h = '<div class="sk-sec">Active <span class="pts">Skill points: ' + pts + '</span> <span class="hint">(1 bawat level)</span></div>';
+  let h = '<div class="sk-sec">Active <span class="pts">Skill points: ' + pts + '</span> <span class="hint">(1 per level)</span></div>';
   for (const [id, S] of Object.entries(SKILLS)) {
     const L = sl[id];
     let pips = "";
     for (let i = 0; i < SKILL_MAX; i++) pips += '<i class="' + (i < L ? "on" : "") + '"></i>';
     h += '<div class="sk-row"><img src="' + skillIcon(id) + '"><div class="sk-txt"><b>' + S.name + " Lv " + L + "/" + SKILL_MAX + ' <span class="k">[' + S.key.toUpperCase() + "]</span></b><br>" + skillDesc(id, L) +
       (L < SKILL_MAX ? '<div class="sk-next">Lv ' + (L + 1) + ": " + skillDesc(id, L + 1) + "</div>" : "") +
-      '<div class="sk-meta">⏱ ' + skillStats(id, L).cd + "s · ⚡ " + S.stamina + " stamina" + (S.mobsOnly ? " · mobs lang" : "") + '</div><div class="pips">' + pips + "</div></div>" +
+      '<div class="sk-meta">⏱ ' + skillStats(id, L).cd + "s · ⚡ " + S.stamina + " stamina" + (S.mobsOnly ? " · mobs only" : "") + '</div><div class="pips">' + pips + "</div></div>" +
       '<button class="sk-plus" data-s="' + id + '"' + (pts > 0 && L < SKILL_MAX ? "" : " disabled") + ">+</button></div>";
   }
   h += '<div class="sk-sec">Passive</div>';
   for (const [id, P] of Object.entries(PASSIVES)) {
     let pips = "";
     for (let i = 0; i < PASSIVE_MAX; i++) pips += '<i class="' + (i < r[id] ? "on" : "") + '"></i>';
-    h += '<div class="sk-row"><img src="' + skillIcon(id) + '"><div class="sk-txt"><b>' + P.name + " " + r[id] + "/" + PASSIVE_MAX + "</b> — " + P.per + " bawat rank<br>" + P.desc +
+    h += '<div class="sk-row"><img src="' + skillIcon(id) + '"><div class="sk-txt"><b>' + P.name + " " + r[id] + "/" + PASSIVE_MAX + "</b> — " + P.per + " per rank<br>" + P.desc +
       '<div class="pips">' + pips + "</div></div><button class=\"sk-plus\" data-p=\"" + id + "\"" + (pts > 0 && r[id] < PASSIVE_MAX ? "" : " disabled") + ">+</button></div>";
   }
   body.innerHTML = h;

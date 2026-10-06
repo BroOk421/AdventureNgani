@@ -17,7 +17,7 @@ COLS, ROWS = 188, 103
 W, H = 80, 46
 PASS = (20, 25)
 
-def build(seed, mesas, east_pass, trails, n_trees, n_bushes, west_pass=True, portals=(), passes=()):
+def build(seed, mesas, east_pass, trails, n_trees, n_bushes, west_pass=True, portals=(), passes=(), version=""):
     rng = random.Random(seed)
     items = {}
     def put(c, r, t, layer="o"): items[(c, r, layer)] = t
@@ -167,7 +167,7 @@ def build(seed, mesas, east_pass, trails, n_trees, n_bushes, west_pass=True, por
     return {"cols": W, "rows": H, "pass": list(PASS), "spawnWest": [4, (PASS[0] + PASS[1]) // 2], "spawnEast": [W - 5, (PASS[0] + PASS[1]) // 2],
             "eastPass": east_pass, "westPass": west_pass, "portals": portal_out,
             "passes": [{"side": sd, "from": a, "to": b, "name": nm} for (sd, a, b, nm) in passes],
-            "layoutVersion": "v2-" + str(seed), "placedItems": placed, "groundFill": {"cols": COLS, "rows": ROWS, "bits": base64.b64encode(bytes(b)).decode()}}
+            "layoutVersion": "v2-" + str(seed) + version, "placedItems": placed, "groundFill": {"cols": COLS, "rows": ROWS, "bits": base64.b64encode(bytes(b)).decode()}}
 
 worlds = {
     "east1": build(31, [(22, 9, 33, 13), (50, 30, 61, 34)], True,
@@ -186,8 +186,154 @@ worlds = {
                    passes=[("N", 60, 63, "back"), ("W", 31, 33, "next")]),
     "east6": build(97, [(26, 10, 36, 14), (44, 26, 54, 30), (14, 30, 22, 34)], False,
                    [(14, 18, 66, 19), (40, 19, 41, 38), (20, 38, 64, 39)], 22, 24, west_pass=False,
-                   passes=[("E", 13, 15, "back")]),
+                   passes=[("E", 13, 15, "back"), ("S", 38, 41, "next")], version="b"),
 }
+
+# ---------------- the Volcano and the Azure Coast ----------------
+def unpack_fill(w):
+    b = base64.b64decode(w["groundFill"]["bits"]); return [(b[i >> 3] >> (i & 7)) & 1 for i in range(COLS * ROWS)]
+def pack_fill(w, fill):
+    b = bytearray(math.ceil(COLS * ROWS / 8))
+    for i, v in enumerate(fill):
+        if v: b[i >> 3] |= 1 << (i & 7)
+    w["groundFill"]["bits"] = base64.b64encode(bytes(b)).decode()
+def blob(rng, cx, cy, rad):
+    cells = set()
+    for c in range(cx - rad - 2, cx + rad + 3):
+        for r in range(cy - rad - 2, cy + rad + 3):
+            d = math.hypot((c - cx) * 0.9, r - cy) + rng.uniform(-0.7, 0.7)
+            if d <= rad: cells.add((c, r))
+    return cells
+def volcano():
+    """Per request (\"lagyan mo pa ng iba pang map na volcano\"): ash and bare rock, burnt trees, the
+    volcano itself — a big mesa with a lava crater on top — and lava pools and a lava river below."""
+    w = build(113, [(30, 12, 50, 24), (8, 30, 16, 34), (60, 32, 70, 36)], False,
+              [(38, 0, 39, 12), (10, 26, 70, 27), (20, 27, 21, 45), (39, 24, 40, 27)], 20, 0, west_pass=False,
+              passes=[("N", 38, 41, "back"), ("S", 20, 23, "next")])
+    rng = random.Random(113)
+    keep = []
+    dead = ["treeThinNoLeaves1", "treeThinNoLeaves2", "treeBigCutStump", "treeThinCutStump", "treeTinyCutStump"]
+    for k, t in w["placedItems"]:
+        if t.startswith(("bush", "decoFlower", "wildGrass", "stoneDecor")): continue
+        if t.startswith("terrainGrass"): continue  # no grass at all: the plateau blobs and the trail edges go (ash and bare rock)
+        if t.startswith("tree"): t = rng.choice(dead)
+        keep.append([k, t])
+    taken = {k for k, t in keep}
+    lava = set()
+    # the crater: the top of the big mesa
+    lava |= {(c, r) for c in range(35, 46) for r in range(14, 20) if math.hypot((c - 40.5) / 5.6, (r - 16.8) / 3.1) <= 1.0}
+    # pools and a river on the valley floor (away from the trails / passes)
+    for (cx, cy, rad) in [(14, 12, 3), (64, 12, 3), (56, 40, 2), (8, 40, 2)]: lava |= blob(rng, cx, cy, rad)
+    for r in range(28, 44): lava |= {(46 + int(2 * math.sin(r * 0.5)) + d, r) for d in (0, 1, 2)}
+    trail = set()
+    for (c0, r0, c1, r1) in [(10, 25, 70, 28), (19, 27, 22, 45), (37, 0, 40, 12), (36, 37, 44, 40)]:
+        trail |= {(c, r) for c in range(c0, c1 + 1) for r in range(r0, r1 + 1)}
+    lava = {p for p in lava if p not in trail and 1 <= p[0] < W - 1 and 1 <= p[1] < H - 1}
+    # a bridge of rock where the river crosses the main trail
+    out = []
+    for k, t in keep:
+        c, r = map(int, k.split(","))
+        if (c, r) in lava and (t.startswith(("tree", "stone", "pcRocks", "postLight")) or not t.startswith("terrainMountain") or (35 <= c <= 45 and 14 <= r <= 19)): continue
+        out.append([k, t])
+    for (c, r) in sorted(lava): out.append([f"{c},{r}", "lava" + str(1 + (c * 7 + r * 3) % 3)])
+    # rocks among the ash
+    occ = {tuple(map(int, k.split(","))) for k, t in out}
+    n = 0
+    while n < 30:
+        c, r = rng.randint(6, W - 7), rng.randint(6, H - 7)
+        if (c, r) in occ or (c, r) in lava or (c, r) in trail: continue
+        out.append([f"{c},{r}", rng.choice(["pcRocks01", "pcRocks02", "pcRocks05", "pcRocks06", "stoneMedium", "stoneSmall"])]); occ.add((c, r)); n += 1
+    w["placedItems"] = out
+    pack_fill(w, [0] * (COLS * ROWS))  # no grass anywhere: ash
+    w["theme"] = "volcano"
+    return w
+PORT_SHORE = {"nw": "portTC1", "ne": "portTC3", "sw": "portBC1", "se": "portBC3", "n": "portTC2", "s": "portBC2", "w": "portL2", "e": "portR2",
+              "dnw": "portI7", "dne": "portI9", "dsw": "portI1", "dse": "portI3"}
+def coast():
+    """Per request (\"isang map na merong ocean na may port tiles tapos may mga trees din tapos ... falls na
+    may mountain\"): green land in the north-west, the sea along the east and the south (the port pieces
+    make the shore), many trees, and a cliff with a lake on top whose water falls down its face into a
+    stream that runs to the sea."""
+    w = build(127, [(8, 7, 24, 13)], False,
+              [(38, 0, 39, 14), (12, 22, 46, 23), (30, 14, 31, 22)], 60, 24, west_pass=False,
+              passes=[("N", 38, 41, "back")])
+    rng = random.Random(127)
+    sea = set()
+    for c in range(W):
+        for r in range(H):
+            coast_x = 52 + 3 * math.sin(r * 0.33) + 2 * math.sin(r * 0.11 + 1)
+            coast_y = 33 + 2 * math.sin(c * 0.29) + 1.5 * math.sin(c * 0.13 + 2)
+            if (c >= coast_x and r >= 8) or r >= coast_y: sea.add((c, r))
+    sea -= {(c, r) for c in range(34, 46) for r in range(0, 12)}  # keep the north pass on land
+    # no lonely land tiles between two water sides (the shore pieces can't draw those)
+    for _ in range(4):
+        add = set()
+        for c in range(W):
+            for r in range(H):
+                if (c, r) in sea: continue
+                if ((c - 1, r) in sea and (c + 1, r) in sea) or ((c, r - 1) in sea and (c, r + 1) in sea): add.add((c, r))
+        if not add: break
+        sea |= add
+    def sh(c, r):
+        n, s_, e, w_ = (c, r - 1) in sea, (c, r + 1) in sea, (c + 1, r) in sea, (c - 1, r) in sea
+        if n and w_: return PORT_SHORE["nw"]
+        if n and e: return PORT_SHORE["ne"]
+        if s_ and w_: return PORT_SHORE["sw"]
+        if s_ and e: return PORT_SHORE["se"]
+        if n: return PORT_SHORE["n"]
+        if s_: return PORT_SHORE["s"]
+        if w_: return PORT_SHORE["w"]
+        if e: return PORT_SHORE["e"]
+        if (c - 1, r - 1) in sea: return PORT_SHORE["dnw"]
+        if (c + 1, r - 1) in sea: return PORT_SHORE["dne"]
+        if (c - 1, r + 1) in sea: return PORT_SHORE["dsw"]
+        if (c + 1, r + 1) in sea: return PORT_SHORE["dse"]
+        return None
+    shore = {}
+    for c in range(W):
+        for r in range(H):
+            if (c, r) in sea: continue
+            t = sh(c, r)
+            if t: shore[(c, r)] = t
+    # the falls: the mesa's face under cols 15-17, a lake on top, a stream to the sea
+    falls_cols = (15, 16, 17)
+    lake = {(c, r) for c in range(12, 21) for r in range(8, 12) if math.hypot((c - 16) / 4.2, (r - 9.8) / 2.0) <= 1.0}
+    stream = set()
+    cx = 16
+    for r in range(14, 40):
+        cx += rng.choice((0, 0, 0, 1, -1)) if r > 18 else 0
+        cx = max(12, min(22, cx))
+        for d in (-1, 0, 1): stream.add((cx + d, r))
+    out = []
+    for k, t in w["placedItems"]:
+        c, r = map(int, k.split(","))
+        if (c, r) in sea or (c, r) in shore: continue
+        if (c, r) in lake and not t.startswith("terrainMountain"): continue
+        if (c, r) in lake and t.startswith("terrainMountainCenter"): continue
+        if (c, r) in stream and not (t.startswith("terrainMountain") and c not in falls_cols): continue
+        if c in falls_cols and 13 <= r <= 18 and t.startswith("terrainMountain") and "Wall" in t: continue
+        out.append([k, t])
+    taken = {tuple(map(int, k.split(","))) for k, t in out}
+    for (c, r) in sorted(sea): out.append([f"{c},{r}", "portBR"])
+    for (c, r), t in sorted(shore.items()): out.append([f"{c},{r}", t])
+    for (c, r) in sorted(lake): out.append([f"{c},{r}", "water" + str(1 + (c + r) % 3)])
+    for c in falls_cols:
+        for r in range(13, 19):
+            if not any(k == f"{c},{r}" for k, _ in out if k.startswith(f"{c},")) or True:
+                out = [[k, t] for k, t in out if k != f"{c},{r}"]
+                out.append([f"{c},{r}", "waterfall"])
+    for (c, r) in sorted(stream):
+        if (c, r) in sea or (c, r) in shore or r < 19: continue
+        out = [[k, t] for k, t in out if k != f"{c},{r}" or not t.startswith(("terrainGrass", "tree", "bush", "stone", "wildGrass", "decoFlower"))]
+        out.append([f"{c},{r}", "water" + str(1 + (c * 3 + r) % 3)])
+    w["placedItems"] = out
+    fill = unpack_fill(w)
+    for (c, r) in sea | set(shore) | lake | stream | {(c, r) for c in falls_cols for r in range(13, 19)}: fill[r * COLS + c] = 0
+    pack_fill(w, fill)
+    w["theme"] = "coast"
+    return w
+worlds["east7"] = volcano()
+worlds["east8"] = coast()
 with open(os.path.join(ROOT, "js", "eastWorlds.data.js"), "w", newline="\n") as f:
     f.write('"use strict";\n// Generated by tools/build_east_worlds.py — the worlds east of the town.\n')
     f.write("const EAST_WORLDS = " + json.dumps(worlds, separators=(",", ":")) + ";\n")

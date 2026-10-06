@@ -69,7 +69,7 @@ function findHarvestableTarget() {
       if (type && itemDefs[type].resource && isProtectedTownTree(type)) {
         if (performance.now() - townTreeToastAt > 4000 && typeof showToast === "function") {
           townTreeToastAt = performance.now();
-          showToast("Bawal magputol ng puno sa town — sa ibang map ka magputol");
+          showToast("No cutting trees in town — chop them in the other lands");
         }
         continue;
       }
@@ -88,7 +88,12 @@ function findHarvestableTarget() {
 // already correct and meaningful the moment `unlimited` is turned off for
 // a specific item later.
 function grantItem(type, amount) {
-  const slot = inventory.find((s) => s && s.type === type);
+  let slot = inventory.find((s) => s && s.type === type);
+  if (!slot && itemDefs[type]) { // its slot was cleared: make it again
+    let i = inventory.indexOf(null);
+    if (i < 0) i = inventory.length;
+    slot = inventory[i] = { type, count: 0 };
+  }
   if (slot) slot.count += amount;
   renderHotbar();
   renderInventory();

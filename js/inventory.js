@@ -80,7 +80,7 @@ const ITEM_LAYER_RULES = [
   ["bridge", /^terrainStairs/],
 
   // --- 2. the ground itself: grass, water, the port tileset ---
-  [2, /^(grass|water|port)/],
+  [2, /^(grass|water|port|lava\d)/], // (+ the Volcano's lava and the Coast's waterfall, js/farWorlds.js)
   // Mountain tiles lie ON the ground instead of replacing it — per request
   // ("gawin mo na lang object para hindi napapalitan yung mga 2nd layer"):
   // filed in the overlay, so the grass/layer-2 tile under them stays, they
@@ -3640,7 +3640,7 @@ for (const set of TERRAIN_TILE_SETS) {
 Object.assign(itemDefs, TOWN_ITEM_DEFS);
 // Farming (js/farm.js). Seeds and harvested crops start at 0 (`startCount`)
 // — seeds are bought at the grocery, crops come from the field.
-itemDefs.farmHoe = { id: "farmHoe", name: "Hoe (Pang-araro)", icon: assets.farmHoe, unlimited: true, equipSlot: "weapon", weapon: { attackAnim: "crush" } };
+itemDefs.farmHoe = { id: "farmHoe", name: "Hoe", icon: assets.farmHoe, unlimited: true, equipSlot: "weapon", weapon: { attackAnim: "crush" } };
 // Weapons (js/mines.js uses weapon.damage; bare hands do 3). You start with
 // the Wood Sword; Iron and Gold are bought at the Equipment Shop (js/shops.js).
 // weapon.reqLevel: locked (can't buy or equip) until the player reaches that level (js/mines.js).
@@ -3705,17 +3705,24 @@ itemDefs.potionElixir = { id: "potionElixir", name: "Elixir", icon: assets.bldPo
 for (const [id, name] of [["slimeGel", "Slime Gel"], ["batWing", "Bat Wing"], ["glowCap", "Glow Cap"], ["crystalShard", "Crystal Shard"], ["golemCore", "Golem Core"], ["ironIngot", "Iron Ingot"], ["goldIngot", "Gold Ingot"], ["oreLuck", "Luck Ore (+20%)"], ["oreFortune", "Fortune Ore (+50%)"], ["oreDivine", "Divine Ore (100%)"]]) {
   itemDefs[id] = { id, name, icon: assets["mob_" + id], startCount: 0, mobDrop: true };
 }
+// The Volcano's lava and the Coast's waterfall (js/farWorlds.js): flat, can't be walked on, animated live.
+for (const [id, name] of [["lava1", "Lava 1"], ["lava2", "Lava 2"], ["lava3", "Lava 3"], ["waterfall", "Waterfall"]]) {
+  itemDefs[id] = { id, name, icon: assets[id], unlimited: true, flat: true, collides: true, layer: "terrain" }; // on the ground layer, like the water
+}
+// The starter axe and pickaxe (js/freshStart.js): trees need the axe, stones the pickaxe.
+itemDefs.woodAxe = { id: "woodAxe", name: "Axe", icon: assets.woodAxe, startCount: 1, equipSlot: "weapon", weapon: { attackAnim: "slice" } };
+itemDefs.woodPickaxe = { id: "woodPickaxe", name: "Pickaxe", icon: assets.woodPickaxe, startCount: 1, equipSlot: "weapon", weapon: { attackAnim: "crush" } };
 // Fishing (js/fishing.js): the rod is equipped like a tool — F facing water casts.
-itemDefs.fishingRod = { id: "fishingRod", name: "Fishing Rod (Pamingwit)", icon: assets.fishingRod, startCount: 1, equipSlot: "weapon", weapon: { attackAnim: "fishing" } };
+itemDefs.fishingRod = { id: "fishingRod", name: "Fishing Rod", icon: assets.fishingRod, startCount: 1, equipSlot: "weapon", weapon: { attackAnim: "fishing" } };
 for (const [id, name, food] of [["fishTilapia", "Tilapia", 8], ["fishBangus", "Bangus", 12], ["fishLapu", "Lapu-Lapu", 18], ["fishKoi", "Golden Koi", 30]]) {
   itemDefs[id] = { id, name, icon: assets[id], startCount: 0, fish: true, consumable: { food, healthPercent: Math.round(food / 2) } };
 }
-itemDefs.farmCan = { id: "farmCan", name: "Watering Can (Pandilig)", icon: assets.farmCan, unlimited: true, equipSlot: "weapon", weapon: { attackAnim: "watering" } };
+itemDefs.farmCan = { id: "farmCan", name: "Watering Can", icon: assets.farmCan, unlimited: true, equipSlot: "weapon", weapon: { attackAnim: "watering" } };
 for (const [key, veg, label] of [["Carrots", "carrots", "Carrot"], ["Cabbage", "cabbage", "Cabbage"], ["Onion", "onion", "Onion"],
   ["Petchay", "petchay", "Petchay"], ["Brocolli", "brocolli", "Broccoli"], ["BrocolliFlower", "brocolli_flower", "Broccoli Flower"],
   ["Dragonfruit", "dragonfruit", "Dragonfruit"]]) {
   itemDefs["seed" + key] = { id: "seed" + key, name: label + " Seeds", icon: assets["seed" + key], startCount: 0, seedOf: veg };
-  itemDefs["crop" + key] = { id: "crop" + key, name: label + " (Ani)", icon: assets["crop" + key], startCount: 0, cropOf: veg, flat: true };
+  itemDefs["crop" + key] = { id: "crop" + key, name: label + " (Crop)", icon: assets["crop" + key], startCount: 0, cropOf: veg, flat: true };
 }
 // Mountain, split in two easy slots (js/autotile.js lays the real tiles):
 // "Mountain" = the plateau, "Mountain Wall" = a cliff wall under it. Click
@@ -4236,10 +4243,10 @@ function commitPlacementUse(usedSlotIndex) {
   // any item that doesn't have that flag.
   if (slot && !itemDefs[slot.type].unlimited) {
     slot.count -= 1;
-    if (slot.count <= 0) inventory[usedSlotIndex] = null;
+    if (slot.count <= 0) slot.count = 0; // the slot stays (empty, hidden) so buying more fills it again
 
     // stop holding once the stack runs out; otherwise keep placing more
-    if (!inventory[usedSlotIndex]) {
+    if (slot.count <= 0) {
       heldItem = null;
     }
   }
@@ -4467,6 +4474,7 @@ function tryGrabOrPlaceInFront() {
   // comes up as a real Ground (Inner) tile, same as a placed one would.
   if (!found && typeof isGroundFilled === "function" && isGroundFilled(here.col, here.row)) {
     setGroundFill(here.col, here.row, false);
+    if (typeof formGrassEdgesAround === "function") formGrassEdgesAround(here.col, here.row); // the lawn round the hole gets its edges (js/autotile.js)
     player.grabbedType = GROUND_FILL_TYPE;
     player.mode = "carrying";
     saveGame();
@@ -4821,6 +4829,7 @@ function openEquipmentWeaponPicker() {
     if (
       !slot ||
       itemDefs[slot.type].equipSlot !== "weapon" ||
+      (!itemDefs[slot.type].unlimited && slot.count <= 0) || // only what you own
       seenTypes.has(slot.type)
     )
       return;
@@ -4924,6 +4933,15 @@ function renderHotbar() {
 const inventoryOverlayEl = document.getElementById("inventory-overlay");
 const inventoryGridEl = document.getElementById("inventory-grid");
 
+// What the inventory grid lists: things you have (count > 0). The building-mode pieces (unlimited:
+// ground, terrain, buildings...) only in dev mode (isDevMode(), js/config.js).
+function inventorySlotShown(slot) {
+  const d = itemDefs[slot.type];
+  if (!d) return false;
+  if (typeof isDevMode === "function" && isDevMode()) return true;
+  if (d.unlimited) return false;
+  return slot.count > 0;
+}
 function renderInventory() {
   inventoryGridEl.innerHTML = "";
   // Columns/rows are sized in style.css to line up with the slot boxes
@@ -4933,6 +4951,7 @@ function renderInventory() {
 
   for (let i = 0; i < inventory.length; i++) {
     const slot = inventory[i];
+    if (slot && !inventorySlotShown(slot)) continue; // empty / building-mode only (js/freshStart.js)
     const group = slot ? tileGroupByType[slot.type] : null;
 
     if (group) {
@@ -5063,7 +5082,7 @@ function buildTileGroupSlotBox(group) {
   const autoCentre = typeof autotileCentreForGroup === "function" ? autotileCentreForGroup(group.id) : null;
   if (autoCentre && inventoryIndexByType[autoCentre] != null) {
     const idx = inventoryIndexByType[autoCentre];
-    box.title = group.name + " — kusang bumabagay sa katabi";
+    box.title = group.name + " — joins up with its neighbours by itself";
     box.addEventListener("click", () => useOrHoldSlot(idx));
     box.addEventListener("contextmenu", (e) => { e.preventDefault(); openItemActionMenu(idx, box); });
     return box;

@@ -92,7 +92,7 @@ function equipGear(slotId, type) {
     if (!d || !d.gear || d.gear.kind !== slot.kind) return;
     if (itemLocked(type)) { showToast("Naka-lock pa — kailangan Level " + itemReqLevel(type)); return; }
     const twin = slot.id.endsWith("L") ? slot.id.slice(0, -1) + "R" : slot.id.endsWith("R") ? slot.id.slice(0, -1) + "L" : null;
-    if (twin && player.equipment[twin] === type && ownedCount(type) < 2) { showToast("Isa lang ang " + d.name + " mo — kailangan ng dalawa"); return; }
+    if (twin && player.equipment[twin] === type && ownedCount(type) < 2) { showToast("You only have one " + d.name + " — you need two"); return; }
     if (ownedCount(type) < 1) return;
   }
   player.equipment[slotId] = type || null;
@@ -131,19 +131,19 @@ setInterval(() => {
    MAGIC RES, ATK SPEED and DEF RES (+ CRIT). Hover a stat for what it does. */
 let profileEl = null, profileCanvas = null, profilePicker = null;
 const STAT_ROWS = [
-  ["ATK", () => playerStats().atk, "Lakas ng tama: sandata + gauntlet + rings. Binabawasan ng DEF ng mob."],
-  ["DEF", () => playerStats().def, "Depensa ng armor laban sa pisikal na tama."],
-  ["MAGIC RES", () => playerStats().mres, "Depensa laban sa mahikang tama (wisp, imp, ilang boss). Galing sa helmet, armor, shield, rings."],
-  ["ATK SPEED", () => playerStats().spd.toFixed(2) + "/s", "Ilang atake bawat segundo. Dagdag mula sa boots."],
-  ["DEF RES", () => Math.round(playerStats().defPct * 100) + "%", "Bahagdan ng pisikal na tama na nababawas dahil sa DEF mo."],
-  ["CRIT", () => Math.round(playerStats().crit * 100) + "%", "Tsansang x1.8 ang tama. Dagdag mula sa rings."],
-  ["HIT", () => Math.round(playerStats().hit * 100) + "%", "Tsansang tumama (mula sa ACC). Mas mababa laban sa mob na mas mataas ang level sa iyo."],
+  ["ATK", () => playerStats().atk, "Hit strength: weapon + gauntlet + rings. Reduced by the mob's DEF."],
+  ["DEF", () => playerStats().def, "Armour defence against physical hits."],
+  ["MAGIC RES", () => playerStats().mres, "Defence against magic hits (wisps, imps, some bosses). From helmet, armour, shield, rings."],
+  ["ATK SPEED", () => playerStats().spd.toFixed(2) + "/s", "Attacks per second. Boots add to it."],
+  ["DEF RES", () => Math.round(playerStats().defPct * 100) + "%", "How much of a physical hit your DEF takes off."],
+  ["CRIT", () => Math.round(playerStats().crit * 100) + "%", "Chance of a x1.8 hit. Rings add to it."],
+  ["HIT", () => Math.round(playerStats().hit * 100) + "%", "Chance to hit (from ACC). Lower against mobs above your level."],
 ];
 const ATTR_ROWS = [
-  ["str", "STR", "Lakas: +2 ATK bawat punto."],
-  ["sta", "STA", "Tibay: +8 max health, +1 DEF at +0.8 MAGIC RES bawat punto."],
-  ["agi", "AGI", "Bilis: +0.02 ATK SPEED bawat punto."],
-  ["acc", "ACC", "Asinta: +1.2% HIT bawat punto."],
+  ["str", "STR", "Strength: +2 ATK per point."],
+  ["sta", "STA", "Stamina: +8 max health, +1 DEF and +0.8 MAGIC RES per point."],
+  ["agi", "AGI", "Agility: +0.02 ATK SPEED per point."],
+  ["acc", "ACC", "Accuracy: +1.2% HIT per point."],
 ];
 function buildProfile() {
   profileEl = document.createElement("div");
@@ -224,7 +224,7 @@ function openSlotPicker(id, anchor) {
     el.addEventListener("mouseleave", () => { el.style.background = ""; });
     profilePicker.appendChild(el);
   };
-  if (!owned.length) row("<i>Wala ka pang " + slotLabel(id).toLowerCase() + " — bumili sa Equipment Shop</i>", () => {}, true);
+  if (!owned.length) row("<i>You don't have a " + slotLabel(id).toLowerCase() + " yet — buy one at the Equipment Shop</i>", () => {}, true);
   for (const s of owned) {
     const d = itemDefs[s.type], locked = itemLocked(s.type);
     const g = d.gear || {}, info = d.weapon ? "atk " + d.weapon.damage : [g.atk && "atk +" + g.atk, g.def && "def +" + g.def, g.spd && "spd +" + Math.round(g.spd * 100) + "%", g.crit && "crit +" + Math.round(g.crit * 100) + "%"].filter(Boolean).join(", ");
@@ -758,7 +758,7 @@ function grantGearTrial() {
   if (player.gearTrialGiven) return;
   player.gearTrialGiven = true; player.gearTrial = true;
   for (const id of ["demonHelmet", "demonArmor", "demonGauntlet", "demonBoots", "demonRing", "demonShield", "demonBow", "stormSword"]) if (itemDefs[id] && ownedCount(id) < 1) grantItem(id, 1);
-  if (typeof showToast === "function") showToast("Try-out: nasa inventory mo ang isang set ng boss gear — pindutin ang P para isuot");
+  if (typeof showToast === "function") showToast("Try-out: a set of boss gear is in your inventory — press P to wear it");
   if (typeof saveGame === "function") saveGame();
 }
 {

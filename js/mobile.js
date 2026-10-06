@@ -55,13 +55,29 @@ if (MOBILE_ON) {
   .mb-btn svg { pointer-events: none; }
   #mb-stick { left: 22px; bottom: 22px; width: 128px; height: 128px; border-radius: 50%; background: rgba(26,17,10,0.45); border: 3px solid rgba(243,226,195,0.55); touch-action: none; }
   #mb-knob { position: absolute; left: 37px; top: 37px; width: 54px; height: 54px; border-radius: 50%; background: #f3e2c3; border: 3px solid #a8743e; box-shadow: 0 2px 0 #3b2a1e; pointer-events: none; box-sizing: border-box; }
-  #mb-run { left: 160px; bottom: 30px; width: 54px; height: 54px; }
+  #mb-run { display: none !important; } /* per request: no run button — hold the stick 3 s to run */
+  #mb-map { right: 98px; top: 84px; width: 28px; height: 28px; border-radius: 50%; z-index: 47; }
+  #mb-map svg { width: 15px; height: 15px; }
   #mb-run.on { background: #4a6b2e; }
   #mb-attack { right: 30px; bottom: 30px; width: 88px; height: 88px; background: #b23a32; border-color: #f3e2c3; box-shadow: 0 4px 0 #5a1612; color: #fff; font-size: 11px; font-weight: 700; }
   #mb-attack:active { background: #8e2c26; }
-  #mb-grab { right: 128px; bottom: 26px; width: 58px; height: 58px; }
-  #mb-throw { right: 120px; bottom: 98px; width: 50px; height: 50px; }
-  #mb-keep { right: 58px; bottom: 128px; width: 50px; height: 50px; }
+  /* Per request: icons only; ONE Hold button (E) — Throw (T) and Keep (R) only show while something is held,
+     right beside it; the three skills sit where Throw / Keep used to be, round the ATTACK button. */
+  #mb-grab { right: 132px; bottom: 22px; width: 54px; height: 54px; }
+  #mb-throw { right: 196px; bottom: 74px; width: 44px; height: 44px; display: none; }
+  #mb-keep { right: 196px; bottom: 22px; width: 44px; height: 44px; display: none; }
+  body.mobile.holding #mb-throw, body.mobile.holding #mb-keep { display: flex; }
+  #mb-run span, #mb-attack span, #mb-grab span { display: none; }
+  /* the skills (js/skills.js #skill-bar) as round buttons in the cluster */
+  body.mobile #skill-bar { display: contents; }
+  body.mobile #skill-bar .skill-btn[data-skill] { position: fixed; z-index: 46; width: 50px; height: 50px; border-radius: 50%; border-width: 3px; }
+  body.mobile #skill-bar .skill-btn[data-skill] img { width: 28px; height: 28px; margin-top: 0; }
+  body.mobile #skill-bar .skill-btn[data-skill] .cd { border-radius: 50%; }
+  body.mobile #skill-bar .skill-btn .key, body.mobile #skill-bar .skill-btn .st { display: none; }
+  body.mobile #skill-bar .skill-btn[data-skill="slash"] { right: 124px; bottom: 92px; }
+  body.mobile #skill-bar .skill-btn[data-skill="stun"] { right: 78px; bottom: 140px; }
+  body.mobile #skill-bar .skill-btn[data-skill="teleport"] { right: 16px; bottom: 150px; }
+  body.mobile #skill-bar .skill-more { display: none; } /* the skills window: in the top row now */
   /* the round day/night monitor sits under the minimap, centred on it */
   body.mobile #daycycle-hud { position: fixed; right: 30px; top: 112px; width: 64px !important; height: 69px !important; z-index: 48; pointer-events: auto; touch-action: none; }
   /* top left: just the bars now, a bit smaller */
@@ -77,12 +93,15 @@ if (MOBILE_ON) {
      The icons are 15x15; the buttons stay 30x30 so a thumb can still hit them. */
   #mb-menu-col { right: 122px; top: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
   #mb-top-row { display: flex; flex-direction: row; gap: 8px; }
-  #mb-top-row .mb-btn { width: 30px; height: 30px; border-radius: 8px; }
-  #mb-top-row .mb-btn svg { width: 15px; height: 15px; }
+  #mb-top-row .mb-btn { width: 26px; height: 26px; border-radius: 7px; position: relative; }
+  #mb-top-row .mb-btn svg { width: 14px; height: 14px; }
+  #mb-top-row { gap: 6px; }
+  #mb-top-row .pts { position: absolute; right: -4px; top: -4px; min-width: 12px; font-size: 9px; line-height: 12px; background: #e04040; color: #fff; border-radius: 6px; padding: 0 2px; }
+  #mb-top-row .pts:empty { display: none; }
   #mb-drop .mb-btn { width: 44px; height: 44px; }
   #mb-drop { display: none; flex-direction: column; gap: 6px; }
   #mb-drop.open { display: flex; }
-  #mb-settings { right: 176px; top: 46px; display: none; flex-direction: column; gap: 6px; padding: 8px; background: #2a1d14; border: 2px solid #a8743e; border-radius: 10px; }
+  #mb-settings { right: 122px; top: 42px; display: none; flex-direction: column; gap: 6px; padding: 8px; background: #2a1d14; border: 2px solid #a8743e; border-radius: 10px; }
   #mb-settings.open { display: flex; }
   #mb-settings button { min-width: 120px; min-height: 40px; background: #3b2a1e; border: 2px solid #a8743e; border-radius: 8px; color: #f3e2c3; font: 12px 'Pixelify Sans', ui-monospace, monospace; }
   `;
@@ -117,7 +136,7 @@ if (MOBILE_ON) {
     for (const k of held) if (!want.has(k)) { mobileKey(k, false); held.delete(k); }
     for (const k of want) if (!held.has(k)) { mobileKey(k, true); held.add(k); }
   };
-  let stickId = null;
+  let stickId = null, stickHasDir = false;
   const moveStick = (e) => {
     const r = stick.getBoundingClientRect(), cx = r.width / 2, cy = r.height / 2;
     let dx = e.clientX - r.left - cx, dy = e.clientY - r.top - cy;
@@ -131,10 +150,26 @@ if (MOBILE_ON) {
       if (Math.sin(a) > 0.38) want.add("s"); else if (Math.sin(a) < -0.38) want.add("w");
     }
     setDirs(want);
+    stickHasDir = want.size > 0;
   };
   stick.addEventListener("pointerdown", (e) => { stickId = e.pointerId; stick.setPointerCapture(e.pointerId); moveStick(e); e.preventDefault(); });
   stick.addEventListener("pointermove", (e) => { if (e.pointerId === stickId) moveStick(e); });
-  const endStick = (e) => { if (e.pointerId !== stickId) return; stickId = null; knob.style.left = "37px"; knob.style.top = "37px"; setDirs(new Set()); };
+  const endStick = (e) => { if (e.pointerId !== stickId) return; stickId = null; stickHasDir = false; knob.style.left = "37px"; knob.style.top = "37px"; setDirs(new Set()); };
+  // Per request: no run button — keep the stick held (in any direction) for 3 seconds and you start
+  // running, easing up from walking to running speed (MOBILE_RUN_BLEND, js/config.js mobileSpeedMult());
+  // let go (or stop pushing) and it's back to walking.
+  let stickHeld = 0, runOn = false, lastRunT = performance.now();
+  const runTick = (now) => {
+    const dt = Math.min(0.1, (now - lastRunT) / 1000); lastRunT = now;
+    if (stickHasDir) stickHeld += dt; else stickHeld = 0;
+    const want = stickHeld >= 3;
+    if (want && !runOn) { runOn = true; mobileKey("Shift", true); }
+    if (!want && runOn) { runOn = false; mobileKey("Shift", false); }
+    const target = want ? 1 : 0;
+    MOBILE_RUN_BLEND += Math.sign(target - MOBILE_RUN_BLEND) * Math.min(Math.abs(target - MOBILE_RUN_BLEND), dt / 0.7); // ~0.7 s from walk to full run
+    requestAnimationFrame(runTick);
+  };
+  requestAnimationFrame(runTick);
   stick.addEventListener("pointerup", endStick); stick.addEventListener("pointercancel", endStick);
 
   // buttons that press a key once
@@ -143,15 +178,20 @@ if (MOBILE_ON) {
     b.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); if (typeof key === "function") key(); else mobileTap(key); });
     return b;
   };
-  const runBtn = tapBtn("mb-run", "mb-round", ICON.run + "<span>Takbo</span>", () => {
+  const runBtn = tapBtn("mb-run", "mb-round", ICON.run + "<span></span>", () => {
     const on = !runBtn.classList.contains("on");
-    runBtn.classList.toggle("on", on); runBtn.querySelector("span").textContent = on ? "Takbo ON" : "Takbo";
+    runBtn.classList.toggle("on", on);
     mobileKey("Shift", on);
   }, "Run");
-  const attackBtn = tapBtn("mb-attack", "mb-round", ICON.sword + "<span>ATTACK</span>", "f", "Attack");
-  tapBtn("mb-grab", "mb-round", ICON.hand + "<span>Kuha</span>", "e", "Interact");
-  tapBtn("mb-throw", "mb-round", ICON.throw + "<span>Hagis</span>", "t", "Throw");
-  tapBtn("mb-keep", "mb-round", ICON.keep + "<span>Itago</span>", "r", "Keep");
+  const attackBtn = tapBtn("mb-attack", "mb-round", ICON.sword, "f", "Attack");
+  // a little map button on the minimap: the full map of where you are (you blinking on it) + the World tab
+  const ICON_MAP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15"/><path d="M15 6v15"/></svg>';
+  tapBtn("mb-map", "mb-round", ICON_MAP, () => { if (typeof toggleMap === "function") toggleMap(true, "map"); }, "Map");
+  tapBtn("mb-grab", "mb-round", ICON.hand, "e", "Hold");
+  tapBtn("mb-throw", "mb-round", ICON.throw, "t", "Throw");
+  tapBtn("mb-keep", "mb-round", ICON.keep, "r", "Keep");
+  // Throw / Keep only while something is held (grabbed with E, or picked up to place)
+  setInterval(() => { document.body.classList.toggle("holding", !!(player.grabbedType || player.mode === "carrying" || (typeof heldItem !== "undefined" && heldItem))); }, 150);
   // the attack button follows what's equipped
   let lastWeaponKind = "";
   setInterval(() => {
@@ -159,7 +199,7 @@ if (MOBILE_ON) {
     const kind = d && d.weapon ? (d.weapon.ranged ? "bow" : "sword") : "none";
     if (kind === lastWeaponKind) return;
     lastWeaponKind = kind;
-    attackBtn.innerHTML = (kind === "bow" ? ICON.bow : ICON.sword) + "<span>" + (kind === "bow" ? "PANA" : kind === "sword" ? "ESPADA" : "ATTACK") + "</span>";
+    attackBtn.innerHTML = kind === "bow" ? ICON.bow : ICON.sword;
   }, 300);
 
   // the day/night monitor (top right, under the minimap): tap = today's weather
@@ -169,20 +209,23 @@ if (MOBILE_ON) {
   if (dayMon) dayMon.addEventListener("pointerdown", (e) => {
     e.preventDefault(); e.stopPropagation();
     const w = typeof currentWeather !== "undefined" ? currentWeather : null;
-    if (typeof showToast === "function") showToast("Panahon ngayon: " + (w ? (w.name || w.id || w) : "—"));
+    if (typeof showToast === "function") showToast("Weather today: " + (w ? (w.name || w.id || w) : "—"));
   });
 
   // Menu -> Profile, Bag, Settings (drop down)
+  // Per request: no Menu drop-down any more — Profile, Bag, Skills and Settings side by side in the top row, smaller
+  const ICON_QUEST = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6"/><path d="M6 3a2 2 0 0 0-2 2v2h4"/><path d="M6 21a2 2 0 0 1-2-2v-2h4"/><path d="M10 8h6"/><path d="M10 12h6"/><path d="M10 16h4"/></svg>';
+  const ICON_SKILL = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.6 6.6L21 9l-5 4.4L17.6 21 12 17.3 6.4 21 8 13.4 3 9l6.4-.4z"/></svg>';
   const col = add(`<div id="mb-menu-col" class="mb">
     <div id="mb-top-row">
-      <button class="mb-btn" data-a="menu" aria-label="Menu" aria-expanded="false">${ICON.menu}</button>
+      <button class="mb-btn" data-a="profile" aria-label="Profile">${ICON.profile}</button>
       <button class="mb-btn" data-a="bag" aria-label="Bag">${ICON.bag}</button>
-    </div>
-    <div id="mb-drop">
-      <button class="mb-btn" data-a="profile" aria-label="Profile">${ICON.profile}<span>Profile</span></button>
-      <button class="mb-btn" data-a="settings" aria-label="Settings">${ICON.gear}<span>Settings</span></button>
+      <button class="mb-btn" data-a="quests" aria-label="Quests">${ICON_QUEST}<span class="pts qpts"></span></button>
+      <button class="mb-btn" data-a="skills" aria-label="Skills">${ICON_SKILL}<span class="pts"></span></button>
+      <button class="mb-btn" data-a="settings" aria-label="Settings">${ICON.gear}</button>
     </div></div>`);
-  const drop = col.querySelector("#mb-drop"), menuBtn = col.querySelector('[data-a="menu"]');
+  setInterval(() => { const q = col.querySelector(".qpts"); if (q && typeof QUESTS !== "undefined") { const n = QUESTS.filter((x) => (questActive(x.id) && x.turnIn && questObjectivesMet(x))).length; q.textContent = n ? "?" : ""; } }, 600);
+  setInterval(() => { const p = col.querySelector(".pts:not(.qpts)"); if (p && typeof skillPointsLeft === "function") { const n = skillPointsLeft(); p.textContent = n > 0 ? n : ""; } }, 500);
   const settings = add(`<div id="mb-settings" class="mb">
     <button data-s="map">Map</button><button data-s="save">Save</button><button data-s="export">Export</button><button data-s="import">Import</button><button data-s="fps">FPS</button><button data-s="quality" id="mb-quality">Quality: ${MOBILE_RENDER_SCALE < 1 ? "Smooth" : "Sharp"}</button></div>`);
   const clickToolbar = (re) => { for (const b of document.querySelectorAll("#top-toolbar button")) if (re.test(b.textContent)) { b.click(); return true; } return false; };
@@ -190,8 +233,9 @@ if (MOBILE_ON) {
     const b = e.target.closest("button"); if (!b) return;
     e.preventDefault(); e.stopPropagation();
     const a = b.dataset.a;
-    if (a === "menu") { const open = !drop.classList.contains("open"); drop.classList.toggle("open", open); menuBtn.classList.toggle("on", open); menuBtn.setAttribute("aria-expanded", String(open)); if (!open) settings.classList.remove("open"); }
-    else if (a === "profile") mobileTap("p");
+    if (a === "profile") mobileTap("p");
+    else if (a === "skills") { if (typeof toggleSkillWindow === "function") toggleSkillWindow(); }
+    else if (a === "quests") { if (typeof toggleQuestPanel === "function") toggleQuestPanel(); }
     else if (a === "bag") mobileTap("b");
     else if (a === "settings") settings.classList.toggle("open");
   });
