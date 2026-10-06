@@ -592,10 +592,13 @@ function ensureCloudShadowBuffers() {
 // last one is drawn again, shifted by how far the camera moved; the clouds
 // themselves drift far less than a pixel a frame, so it can't be seen.
 const CLOUD_SHADOW_REBUILD_EVERY = 3;
+// On a phone the blurred cloud-shadow / sun-ray buffers are rebuilt 3x less often (the blur is the
+// expensive part there); in between they're just slid with the camera, and they drift too slowly to tell.
+function weatherRebuildEvery(n) { return typeof MOBILE_ON !== "undefined" && MOBILE_ON ? n * 3 : n; }
 let cloudShadowCache = null;
 function drawCloudShadows(camX, camY) {
   const cc = cloudShadowCache;
-  if (cc && cc.zoom === zoom && cc.age < CLOUD_SHADOW_REBUILD_EVERY - 1 && cc.w === view.width && cc.h === view.height) {
+  if (cc && cc.zoom === zoom && cc.age < weatherRebuildEvery(CLOUD_SHADOW_REBUILD_EVERY) - 1 && cc.w === view.width && cc.h === view.height) {
     cc.age++;
     const ox = (cc.camX - camX) * zoom, oy = (cc.camY - camY) * zoom;
     ctx.save();
@@ -903,7 +906,7 @@ function drawSunRays(camX, camY) {
   if (!SUNRAYS_ENABLED) return;
   const strength = sun.rays * SUNRAY_INTENSITY * weatherSunrayMult();
   if (strength <= 0.01) { sunRayCache = null; return; }
-  if (sunRayCache && sunRayCache.zoom === zoom && sunRayCache.age < SUNRAY_REBUILD_EVERY - 1 &&
+  if (sunRayCache && sunRayCache.zoom === zoom && sunRayCache.age < weatherRebuildEvery(SUNRAY_REBUILD_EVERY) - 1 &&
       sunRayCache.w === view.width && sunRayCache.h === view.height) {
     sunRayCache.age++;
     const src = sunRayCache.src;

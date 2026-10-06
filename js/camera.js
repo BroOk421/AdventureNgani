@@ -14,7 +14,7 @@
    which is the correct look for this kind of pixel art.
 ================================================================= */
 const view = document.getElementById("view");
-const ctx = view.getContext("2d");
+let ctx = view.getContext("2d"); // `let`: js/chunks.js points it at a chunk canvas while baking the ground
 ctx.imageSmoothingEnabled = false;
 
 // Current camera top-left corner in world px — updated every render() call.

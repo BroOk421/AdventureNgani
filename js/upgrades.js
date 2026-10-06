@@ -477,29 +477,48 @@ function bodyAura(auras) {
   const f = Math.min(1, best.lvl / 10 * 0.75 + Math.min(1, total / 50) * 0.25); // 0..1
   return { el, f, lvl: best.lvl };
 }
+// Performance (phones): the blurred glow is built once per sprite frame / element / strength and cached —
+// a canvas blur every frame was one of the costly bits — then just drawn, breathing, each frame.
 const auraSilCanvas = document.createElement("canvas");
-function drawBodyAuraGlow(A, screenX, screenY, z) {
-  if (player.sleeping || player.sitting) return;
-  const E = UPGRADE_ELEMENTS[A.el], [r, g, b] = E.glow, t = performance.now() / 1000;
-  const size = DRAW_SIZE * z, W = Math.ceil(size * 1.6), H = Math.ceil(size * 1.6);
+const auraGlowCache = new Map();
+function auraGlowSprite(A, z) {
+  const sheet = currentPlayerSheet();
+  const fb = Math.round(A.f * 10);
+  const key = (sheet && sheet.src) + "#" + player.frame + "#" + (player.facing === "left" ? "L" : "R") + "#" + A.el + "#" + fb + "#" + z;
+  let c = auraGlowCache.get(key);
+  if (c) return c;
+  const E = UPGRADE_ELEMENTS[A.el], [r, g, b] = E.glow, f = fb / 10;
+  const size = DRAW_SIZE * z, W = Math.ceil(size * 1.6), H = Math.ceil(size * 1.6), k = (DRAW_SIZE / 64) * z;
   if (auraSilCanvas.width !== W || auraSilCanvas.height !== H) { auraSilCanvas.width = W; auraSilCanvas.height = H; }
   const sg = auraSilCanvas.getContext("2d");
   sg.setTransform(1, 0, 0, 1, 0, 0); sg.globalCompositeOperation = "source-over"; sg.clearRect(0, 0, W, H); sg.imageSmoothingEnabled = false;
   drawPlayerSprite(W / 2, H / 2, z, sg);
   sg.globalCompositeOperation = "source-in"; sg.fillStyle = "rgb(" + r + "," + g + "," + b + ")"; sg.fillRect(0, 0, W, H);
+  c = document.createElement("canvas"); c.width = W; c.height = H;
+  const cg = c.getContext("2d");
+  cg.globalCompositeOperation = "lighter";
+  const spread = 1.06 + 0.1 * f;
+  cg.filter = "blur(" + Math.max(1, (2.5 + 4 * f) * k).toFixed(1) + "px)";
+  cg.globalAlpha = Math.min(1, 0.25 + 0.55 * f);
+  cg.drawImage(auraSilCanvas, W / 2 - W * spread / 2, H / 2 - H * spread / 2 - 1.5 * k, W * spread, H * spread);
+  cg.filter = "blur(" + Math.max(0.6, 1.2 * k).toFixed(1) + "px)";
+  cg.globalAlpha = Math.min(1, 0.2 + 0.5 * f);
+  cg.drawImage(auraSilCanvas, 0, 0);
+  cg.filter = "none";
+  if (auraGlowCache.size > 160) auraGlowCache.delete(auraGlowCache.keys().next().value);
+  auraGlowCache.set(key, c);
+  return c;
+}
+function drawBodyAuraGlow(A, screenX, screenY, z) {
+  if (player.sleeping || player.sitting) return;
+  const E = UPGRADE_ELEMENTS[A.el], [r, g, b] = E.glow, t = performance.now() / 1000;
+  const size = DRAW_SIZE * z, k = (DRAW_SIZE / 64) * z;
   const breathe = 0.75 + 0.25 * Math.sin(t * 2.6) + 0.08 * Math.sin(t * 7.3);
-  const k = (DRAW_SIZE / 64) * z;
+  const glow = auraGlowSprite(A, z);
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
-  // a wide soft halo, then a tighter bright rim
-  const spread = 1.06 + 0.1 * A.f;
-  ctx.filter = "blur(" + Math.max(1, (2.5 + 4 * A.f) * k).toFixed(1) + "px)";
-  ctx.globalAlpha = Math.min(1, (0.25 + 0.55 * A.f) * breathe);
-  ctx.drawImage(auraSilCanvas, screenX - W * spread / 2, screenY - H * spread / 2 - 1.5 * k, W * spread, H * spread);
-  ctx.filter = "blur(" + Math.max(0.6, 1.2 * k).toFixed(1) + "px)";
-  ctx.globalAlpha = Math.min(1, (0.2 + 0.5 * A.f) * breathe);
-  ctx.drawImage(auraSilCanvas, screenX - W / 2, screenY - H / 2, W, H);
-  ctx.filter = "none";
+  ctx.globalAlpha = Math.min(1, breathe);
+  ctx.drawImage(glow, Math.round(screenX - glow.width / 2), Math.round(screenY - glow.height / 2));
   // a faint glow on the ground
   const gy = screenY + (SPRITE_FEET_FRACTION - 0.5) * size;
   const gr = ctx.createRadialGradient(screenX, gy, 0, screenX, gy, (10 + 8 * A.f) * k);
@@ -516,10 +535,12 @@ function drawBladeGlow(A, auras, z) {
   const E = UPGRADE_ELEMENTS[w.el], [r, g, b] = E.glow, t = performance.now() / 1000, k = (DRAW_SIZE / 64) * z;
   ctx.save();
   ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round";
-  ctx.filter = "blur(" + Math.max(1, 2 * k).toFixed(1) + "px)";
-  ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + "," + ((0.3 + 0.5 * w.f) * (0.8 + 0.2 * Math.sin(t * 3.4))).toFixed(3) + ")";
-  ctx.lineWidth = (2 + 3 * w.f) * k;
-  ctx.beginPath(); ctx.moveTo(L.x0, L.y0); ctx.lineTo(L.x1, L.y1); ctx.stroke();
+  const a = (0.3 + 0.5 * w.f) * (0.8 + 0.2 * Math.sin(t * 3.4));
+  for (const [wd, al] of [[6 + 5 * w.f, 0.1], [3.5 + 3 * w.f, 0.18], [1.6 + 1.5 * w.f, 0.3]]) { // soft layers instead of a canvas blur
+    ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + "," + (a * al).toFixed(3) + ")";
+    ctx.lineWidth = wd * k;
+    ctx.beginPath(); ctx.moveTo(L.x0, L.y0); ctx.lineTo(L.x1, L.y1); ctx.stroke();
+  }
   ctx.restore();
 }
 // the element flashing over the aura now and then

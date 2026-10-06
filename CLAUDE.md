@@ -6078,3 +6078,40 @@ browser can't show a stale cave texture.
   target (window.skillSwingNoAim). js/gear.js BOW_RANGE = 3 tiles;
   js/mines.js: outdoors F only becomes an attack with a mob within 2 / 3
   tiles. index.html -> ?v=20261022a.
+
+## ATTACK seeks a mob within 4 tiles; slimmer web/APK build
+
+- js/combat.js mineIndoorUpdate wrapper: F / ATTACK with nothing in reach
+  (2 tiles, bow 3) but a mob within ATTACK_SEEK_RANGE (4 tiles) sets it as
+  player.autoTarget — the character runs up to it and keeps attacking
+  (movement cancels, like click-to-attack).
+- scripts/build-web.mjs: also skips assets/pixelcrawler/source (tool
+  sources), the full-size 31716px day/night HUD sheets (the game loads the
+  *_hud.png copies), .md/.py/.pyc — www/ 26 MB -> 19 MB.
+- Measured: the game decodes ~16 MB of images at runtime and ~2.5 MB of
+  JS; file sizes affect start-up, not the frame rate (that is the pixels
+  drawn per frame — see the Quality setting). index.html -> ?v=20261023a.
+
+## Sharp by default + cached ground chunks, lighter weather/aura per frame
+
+- js/mobile.js: Quality defaults to Sharp (full resolution) again; Smooth
+  is still in Settings.
+- js/chunks.js (new, after autotile.js): the flat ground is baked into
+  16x16-tile chunk canvases (1 world px per art px, nearest-neighbour, so
+  pixel-identical) and blitted, instead of thousands of tile drawImage calls
+  a frame. Stack A = snow fill + layer 1 (drawn where drawSnowGroundFill()
+  was), stack B = layer 2 + layer 2-over (in drawFlatGroundItems()). Live
+  every frame: art bigger than a tile, artRoot / litWindow /
+  fadeWithDaylight pieces, raked soil, depth-sorted ones (drawLiveLayer()).
+  Rebuilt per chunk when a tile in/next to it changes (every layer's
+  set/delete marks it), on snow on/off, world switch (layer clear) or a
+  whole-map repaint; max 4 builds a frame, unbuilt chunks drawn live.
+  ?nochunks=1 turns it off. js/camera.js: `ctx` is `let` (the baking points
+  it at the chunk canvas).
+- js/weatherfx.js weatherRebuildEvery(): on phones the blurred cloud-shadow
+  / sun-ray buffers rebuild 3x less often (slid with the camera between).
+- js/upgrades.js: the body aura glow is built once per sprite frame /
+  element / strength and cached (no canvas blur per frame); the blade glow
+  is three soft strokes instead of a blur.
+- Headless phone-size Sharp test (east world, snow, day): ~42 -> ~54 fps.
+  index.html -> ?v=20261025a (+ js/chunks.js).

@@ -25,9 +25,9 @@ const MOBILE_ON = (() => {
   } catch (e) { return false; }
 })();
 
-// Settings > Quality: "Smooth" (half resolution, much faster — the default) or "Sharp" (full).
-let MOBILE_RENDER_SCALE = 0.5;
-try { const q = localStorage.getItem("agn-render-scale"); if (q === "1") MOBILE_RENDER_SCALE = 1; } catch (e) { /* private mode */ }
+// Settings > Quality: "Sharp" (full resolution — the default, per request) or "Smooth" (half, faster).
+let MOBILE_RENDER_SCALE = 1;
+try { const q = localStorage.getItem("agn-render-scale"); if (q === "0.5") MOBILE_RENDER_SCALE = 0.5; } catch (e) { /* private mode */ }
 function mobileKey(key, down) {
   window.dispatchEvent(new KeyboardEvent(down ? "keydown" : "keyup", { key, bubbles: true }));
 }
