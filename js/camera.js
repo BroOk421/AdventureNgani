@@ -370,13 +370,16 @@ function getIndoorLighting() {
 
 // Caves (the tunnel, the old caves, every mine level): no daylight down
 // there — always the same blue-ish dark, lamps and candles always lit.
-const CAVE_DARKNESS = 0.78;
+// Per request ("sa cave is liwanagan na yung ilaw yung buong map ... mapa umaga or gabi"):
+// the whole cave is lit now, day or night — just a light cave dim (was 0.78 + a fog
+// round the player), the lamps and candles a soft warm accent on top.
+const CAVE_DARKNESS = 0.2, CAVE_CANDLE = 0.45;
 {
   const base = getIndoorLighting;
   getIndoorLighting = function () {
     const room = player.scene === "inside" && INTERIOR_ROOMS[player.activeRoomId];
     if (room && room.custom && room.custom.floor === "cave") {
-      return { clock: 0, ownerDark: CAVE_DARKNESS, relight: CAVE_DARKNESS, candle: 1 };
+      return { clock: 0, ownerDark: CAVE_DARKNESS, relight: CAVE_DARKNESS, candle: CAVE_CANDLE };
     }
     return base.apply(this, arguments);
   };
@@ -762,6 +765,12 @@ function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
       const layerN = layerNumberForType(type);
       if (layerN === 4 || layerN === 5 || layerN === 6) continue;
       if (def.flat && !def.collides) continue;
+      // The shop / tavern counter (bartender* pieces) throws no shadow — per request
+      // ("may isa jan na table ... meron ilaw yung taas dapat hindi magkaroon ilaw"):
+      // a light standing right at the counter dropped one piece (light inside it) but
+      // not its neighbours, which left a bright wedge across the counter top. The
+      // counter is cut out of the light instead (counterLightCutouts()).
+      if (/^bartender/.test(type)) continue;
       const [col, row] = key.split(",").map(Number);
       pushSprite(type, col, row);
     }
@@ -912,7 +921,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   const cached = candleCache.get(ckey);
   if (cached) {
     candleCache.delete(ckey); candleCache.set(ckey, cached); // most recently used
-    addSceneLight(cached, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB);
+    addSceneLight(cached, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
     return;
   }
 
@@ -1004,7 +1013,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   //    night washes, where this candle used to land before them — so it's
   //    dimmed by hand to the same strength the washes used to leave it
   //    at (POST_GLOW_MATCH_CANDLE, the lamp's own figure for exactly this).
-  addSceneLight(glowCanvas, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB);
+  addSceneLight(glowCanvas, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
   // keep a copy for next frame (see the cache lookup above)
   const keep = document.createElement("canvas");
   keep.width = d; keep.height = d;
@@ -1013,6 +1022,25 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   if (candleCache.size > CANDLE_CACHE_MAX) candleCache.delete(candleCache.keys().next().value);
 }
 const CANDLE_CACHE_MAX = 24;
+// The counter pieces (bartender*) in the room, as screen-space cutouts for
+// addSceneLight(): no candle or lamp lights the counter top (see
+// collectLightOccluders()). Same rects relightOccluders() uses indoors.
+function counterLightCutouts() {
+  if (player.scene !== "inside") return null;
+  const room = INTERIOR_ROOMS[player.activeRoomId];
+  if (!room || !room.decor) return null;
+  let out = null;
+  for (const [key, type] of room.decor) {
+    if (type.charCodeAt(0) !== 98 || !/^bartender/.test(type)) continue; // 'b'
+    const icon = itemDefs[type] && itemDefs[type].icon;
+    if (!icon || !icon.width) continue;
+    const comma = key.indexOf(",");
+    const col = +key.slice(0, comma), row = +key.slice(comma + 1);
+    (out || (out = [])).push({ icon, x: ((col + 0.5) * TILE - camX) * zoom - icon.width * zoom / 2,
+      y: ((row + 1) * TILE - camY) * zoom - icon.height * zoom, w: icon.width * zoom, h: icon.height * zoom, alpha: 1 });
+  }
+  return out;
+}
 const candleCache = new Map();
 
 // The player's own light — a thin wrapper around the shared
@@ -1452,6 +1480,7 @@ function drawCharacterNightRelights() {
   }
   for (const c of citizenRelightList()) order.push(c);
   for (const a of animalRelightList()) order.push(a); // animals standing in a light (js/animals.js)
+  if (typeof shopKeeperRelightList === "function") for (const k of shopKeeperRelightList()) order.push(k); // the shop keepers keep their colours (js/shops.js)
   if (typeof mineRelightList === "function") for (const m of mineRelightList()) order.push(m); // cave mobs in your light (js/mines.js)
   order.sort((a, b) => a.sortY - b.sortY);
   for (const o of order) o.draw();
@@ -2133,26 +2162,18 @@ function getShadowedPostGlow(key, wx, wy) {
    silhouette (shapes still readable), and far away it's black. Outside the
    cave's own picture is black too. Damage numbers / drops flying to you are
    drawn after this (drawMineOverlay()), so they stay readable. */
-const CAVE_FOG_CLEAR = 46, CAVE_FOG_SILHOUETTE = 92, CAVE_FOG_DARK = 140, CAVE_FOG_BLACK = 185; // world px from the player
 function drawCaveFog(room, vw, vh) {
-  const px = (player.x - camX) * zoom, py = (player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE - 8 - camY) * zoom;
-  const R = CAVE_FOG_BLACK * zoom;
-  const g = ctx.createRadialGradient(px, py, CAVE_FOG_CLEAR * zoom, px, py, R);
-  const k = (d) => (d - CAVE_FOG_CLEAR) / (CAVE_FOG_BLACK - CAVE_FOG_CLEAR);
-  g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(k(CAVE_FOG_SILHOUETTE), "rgba(0,0,0,0.5)");
-  g.addColorStop(k(CAVE_FOG_DARK), "rgba(0,0,0,0.82)");
-  g.addColorStop(1, "rgba(0,0,0,1)");
+  // The cave is lit everywhere now (CAVE_DARKNESS): no fog round the player, only
+  // the black beyond the cave's own picture.
   ctx.save();
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, vw, vh);
-  // outside the cave's picture: plain black
   ctx.fillStyle = "#000";
-  const x0 = (0 - camX) * zoom, y0 = (0 - camY) * zoom, x1 = (room.width - camX) * zoom, y1 = (room.height - camY) * zoom;
-  if (x0 > 0) ctx.fillRect(0, 0, x0, vh);
-  if (x1 < vw) ctx.fillRect(x1, 0, vw - x1, vh);
-  if (y0 > 0) ctx.fillRect(0, 0, vw, y0);
-  if (y1 < vh) ctx.fillRect(0, y1, vw, vh - y1);
+  {
+    const x0 = (0 - camX) * zoom, y0 = (0 - camY) * zoom, x1 = (room.width - camX) * zoom, y1 = (room.height - camY) * zoom;
+    if (x0 > 0) ctx.fillRect(0, 0, x0, vh);
+    if (x1 < vw) ctx.fillRect(x1, 0, vw - x1, vh);
+    if (y0 > 0) ctx.fillRect(0, 0, vw, y0);
+    if (y1 < vh) ctx.fillRect(0, y1, vw, vh - y1);
+  }
   ctx.restore();
 }
 
@@ -2174,7 +2195,7 @@ function drawIndoorLampGlows(room, strength) {
     const wy = (row + 1) * TILE + (def.lightGlow.groundOffsetY !== undefined ? def.lightGlow.groundOffsetY : def.lightGlow.offsetY);
     const sx = (wx - camX) * zoom - size / 2, sy = (wy - camY) * zoom - size / 2;
     if (sx + size < 0 || sy + size < 0 || sx > view.width || sy > view.height) continue;
-    addSceneLight(postGlowCanvas, sx, sy, size, size, strength * POST_GLOW_MATCH_CANDLE * (def.lightGlow.small ? 0.9 : 1));
+    addSceneLight(postGlowCanvas, sx, sy, size, size, strength * POST_GLOW_MATCH_CANDLE * (def.lightGlow.small ? 0.9 : 1), undefined, counterLightCutouts());
   }
 }
 
@@ -2680,6 +2701,7 @@ function renderWorldObjectsSorted() {
   if (typeof farmDrawables === "function") for (const d of farmDrawables()) drawables.push(d); // crops + the harvest collector (js/farm.js)
   if (typeof fallingTreeDrawables === "function") for (const d of fallingTreeDrawables()) drawables.push(d); // a felled tree toppling (js/plantfx.js)
   if (typeof mineIndoorDrawables === "function") for (const d of mineIndoorDrawables()) drawables.push(d); // mobs + drops in the east worlds (js/mines.js)
+  if (typeof treasureDrawables === "function") for (const d of treasureDrawables()) drawables.push(d); // crystals + hidden chests (js/treasure.js)
 
   drawables.sort(drawableOrder);
   drawables.forEach((d) => d.draw());
@@ -3426,7 +3448,8 @@ function renderInteriorScene() {
   for (const d of customerDrawables()) indoorChars.push(d); // tavern customers (js/customers.js)
   for (const d of citizenIndoorDrawables(player.activeRoomId)) indoorChars.push(d); // citizens sheltering here for the night (js/citizens.js)
   if (typeof mineIndoorDrawables === "function") for (const d of mineIndoorDrawables(player.activeRoomId)) indoorChars.push(d); // mobs + their drops (js/mines.js)
-  if (typeof shopKeeperDrawables === "function") for (const d of shopKeeperDrawables()) indoorChars.push(d); // the Smith / the Alchemist (js/shops.js)
+  if (typeof shopKeeperDrawables === "function") for (const d of shopKeeperDrawables()) indoorChars.push(d);
+  if (typeof treasureDrawables === "function") for (const d of treasureDrawables()) indoorChars.push(d); // crystals + hidden chests (js/treasure.js) // the Smith / the Alchemist (js/shops.js)
   indoorChars.sort((a, b) => a.sortY - b.sortY);
   indoorChars.forEach((c) => c.draw());
   indoorOnTop.forEach((d) => d()); // things on top of furniture + ceiling, over everyone
@@ -3470,11 +3493,13 @@ function renderInteriorScene() {
     ctx.fillRect(0, 0, vw, vh);
     ctx.restore();
   }
+  if (typeof treasureLights === "function") treasureLights(); // the crystals' blue glow (js/treasure.js)
   drawIndoorLampGlows(room, lighting.candle); // lamps and wall candles in the room shine too (caves: always)
   flushSceneLights(); // the candles, merged, after the washes — same as outdoors
   drawCharacterNightRelights(); // and the same relight, so the player (and Maria, if she's in this room) keep their colours indoors too
   if (isCave) drawCaveFog(room, vw, vh);
   if (typeof drawMineOverlay === "function") drawMineOverlay(); // damage numbers, drops flying to you, the hurt flash (js/mines.js)
+  if (typeof drawTreasureOverlay === "function") drawTreasureOverlay(); // chest glints, loot popups (js/treasure.js)
 
   // Small "how to leave" hint — the exit mat isn't otherwise marked as
   // interactive, so this keeps it discoverable. Pinned to the bottom of
@@ -3727,10 +3752,12 @@ function render() {
   drawMinimap(); // top-right overview — a separate <canvas> (index.html), not part of the main view/sky tint above (js/hud.js)
 
   drawNightBlueTint(); // extra blue cast at night, on top of the sky tint above — see above
+  if (typeof treasureLights === "function") treasureLights(); // the crystals' blue glow (js/treasure.js)
   drawPostLightGlows(camX, camY); // lamps join the candles already collected in the shared light buffer
   flushSceneLights();             // ...and every light lands at once, merged instead of stacked
   drawLampNightRelight();         // the lit lanterns get most of their own colour back, so they don't look dead
   drawCharacterNightRelights();   // then the characters get their own colours back ON TOP, so no light can overdrive them
+  if (typeof drawTreasureOverlay === "function") drawTreasureOverlay(); // chest glints, loot popups (js/treasure.js)
   if (typeof drawMineOverlay === "function") drawMineOverlay(); // east worlds: damage numbers, drops flying to you, hurt flash (js/mines.js)
   drawVignetteBlur(); // soft edge blur, all four sides, sunny daytime only — see above
   drawSceneFadeOverlay(); // interior enter/exit fade-to-black (js/interior.js) — drawn last, over absolutely everything

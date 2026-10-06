@@ -5829,3 +5829,219 @@ browser can't show a stale cave texture.
   sensorLandscape, MainActivity full screen + keep screen on). See
   CAPACITOR.md. node_modules/ and www/ are not shipped in the zip.
   index.html -> ?v=20261009r (+ js/mobile.js).
+
+## Shop keepers lit, counter never lit, bright caves, crystals + hidden chests
+
+- js/shops.js: the keepers (Armorer, Blacksmith, Alchemist) carry the same
+  candle circle as the player (drawCharacterGlow() in their draw) and get
+  their colours back at night (shopKeeperRelightList(), joined into
+  drawCharacterNightRelights(); the counter in front is cut out of it).
+- js/camera.js: the counter (bartender* pieces) throws no candle shadow
+  (collectLightOccluders()) and is cut out of every candle / room lamp
+  (counterLightCutouts() -> addSceneLight cutouts) — the bright wedge on the
+  counter top is gone.
+- Caves lit all over, day or night: CAVE_DARKNESS 0.2 (was 0.78), lamps and
+  candles at CAVE_CANDLE 0.45; drawCaveFog() now only blacks out beyond the
+  cave's picture (the radial fog round the player is gone).
+- js/treasure.js (new, before main.js): every cave (old caves, tunnel, mine
+  levels) and Crystal Ridge (east2) get glowing crystal clusters (pcRocks22-24,
+  blue light in the shared buffer, twinkles) and 1-3 treasure chests in the
+  far ends, among the crystals. Seeded per place (+ refill count); every
+  crystal is flood-fill checked so no path is ever cut off; nothing stands on
+  wall-edge tiles. Chests are invisible beyond ~2.2 tiles (fade over 1.2 more),
+  a faint glint within 4.5 tiles is the only clue. E / click opens: gold +
+  2-4 rolls (potions, Crystal Shard, Iron/Gold Ingot, rare swords/bows/armour
+  by place level). player.treasure.zones[key] = { gen, opened } saved; all
+  opened + 30 min -> a fresh set in new spots. Crystals/chests are solid
+  (isInteriorBodyBlockedAt / isBodyBlockedAt wrapped). Art:
+  tools/treasure_art.py (assets/treasure/chest_*.png, ironIngot/goldIngot
+  icons). New items ironIngot / goldIngot (sold to the shops).
+  index.html -> ?v=20261012a (+ js/treasure.js).
+
+## Drops auto-pickup, gear looks off, weapon slung on the back
+
+- js/mines.js updateDrops(): a resting drop within MINE_AUTO_PICKUP (2 tiles,
+  feet to drop) flies into the player by itself; clicking still works.
+- js/gear.js: GEAR_LOOKS_ON = false — worn helmet/armor/gauntlet/boots (boss
+  and metal sets) no longer change the character's look; the boss pieces keep
+  only the violet aura + lightning. Flip the flag to bring the looks back.
+- js/gear.js: idle / walk / run in a mob zone, the equipped sword or bow is
+  slung across the back (BACK_SLING per facing: grip point + blade direction;
+  behind the body facing down/sideways, over it facing up), every sword now,
+  not only the holdSprite ones. The swing during an attack is unchanged.
+  Picture: sword-sa-likod-idle-walk.png in the delivery.
+  index.html -> ?v=20261012b. Sword grip lowered 4px (BACK_SLING) -> ?v=20261012c.
+
+## Back sword everywhere, chest window, Blacksmith upgrades +1..+10 with auras, centred arrows
+
+- js/gear.js heldSwordStrip(): the slung weapon shows everywhere (no mob-zone
+  rule). drawHeldSword() records the blade's screen line (backWeaponLine) for
+  the auras.
+- js/treasure.js: opening a chest rolls its loot once into st.loot[i] (saved)
+  and opens a 6x3 chest window (#chest-overlay); click a slot -> inventory
+  (gold -> player.gold), "Kunin lahat" takes all; leftovers stay; E again /
+  Esc / outside click / walking away closes it.
+- js/upgrades.js (new, before treasure.js): the Blacksmith's shop popup gets
+  an "⚒ Upgrade" button -> #upgrade-overlay. Swords, bows, helmet, armor,
+  gauntlet, boots go +0..+10 (player.upgrades[type] = { lvl, el }, per item
+  type; saved). Cost upgradeCost(): gold 40 x n^2 x (1 + reqLevel/12), Iron
+  Ingot ceil(1.5n), Gold Ingot n-2 (from +4), Crystal Shard n-4 (+6), Golem
+  Core n-7 (+9); always succeeds. Bonus upgradeBonus(): +10% of the piece's
+  ATK/DEF/MRES per level (+1 DEF per 2 levels on gear), added in a
+  playerStats() wrapper. From +4 an element aura (lightning / fire / holy /
+  ice / wind, picked in the window, free to change), stronger at +7 and +10:
+  glow behind at the body part + particles in front (drawPlayer wrapper);
+  the weapon's along the slung blade. Rock mobs / soldiers / golem bosses now
+  drop ingots sometimes.
+- js/mines.js: a bow's arrow starts at the middle of the drawn bow
+  (drawBowShot()), not above it.
+  index.html -> ?v=20261013a (+ js/upgrades.js).
+
+## Item info tooltips, spinning gold coin, tougher mobs, 3 sword attacks, hit effects
+
+- js/itemInfo.js (new): hover anything with data-item-type (inventory and
+  hotbar slots — set in renderInventory()/renderHotbar(), chest slots, the
+  upgrade list) for #item-tip: name (+upgrade), category, description
+  (ITEM_DESC or a generic one by kind), stats (damage/ATK/DEF/MRES/SPD/CRIT,
+  upgrade bonus, required level, potion/food effects) and, if any shop buys
+  it, "Benta: N gold" at the bottom (sell entries of the shop stocks +
+  CROP_SELL_PRICE). Touch: shown for 2.2 s.
+- tools/coin_art.py: new goldCoin.png icon + goldCoin_spin.png (8 frames).
+  js/combat.js: drawMineDrop() draws gold drops as a spinning coin (a little
+  pile for 5+), drawMariaPayFx() (js/waiter.js) uses the same coin + glint.
+  The HUD's gold_coins.png is unchanged.
+- js/combat.js makeMob wrapper: hp x(1 + 0.22(L-1) + 0.004(L-1)^2), dmg
+  x(1 + 0.14(L-1)), DEF 0.7L; bosses hp x1.6 x(1 + 0.02(L-1)), dmg
+  x(1 + 0.03(L-1)), DEF 1.2L.
+- Swords: every sword now plays the body "hit" and one of three attacks at
+  random (startMineSwing wrapper, mineSwing.style): overhead slash, wide
+  horizontal sweep (squashed ellipse through the front), lunging thrust.
+  drawSwordSwing() replaced (swordPose(), SWORD_PIVOT); the trail takes the
+  upgrade aura's colour (violet for boss gear, silver otherwise).
+- Hit effects (combatFx, drawn after drawMineOverlay()): mob hit = impact
+  ring, white flash, sparks, slash mark (swords); crit = orange, bigger,
+  screen shake; kill = burst; miss = puff. Player hit = red ring + shards,
+  red tint on the sprite (0.3 s), screen shake.
+  index.html -> ?v=20261014a (+ js/combat.js, js/itemInfo.js).
+
+## Death + fishing animations, moving water, skills (Slash / Stun / Teleport) + passives
+
+- js/fishing.js (new): player.special = { kind: "death" | "fishing" } runs
+  instead of updatePlayer() (wrapper) using the player's own Death / Fishing
+  sheets (assets/sprites/Death, /Fishing; already in ONE_SHOT_ACTION_SHEETS).
+  Death: playerBlackout() wrapped — fall (8 frames @6fps), lie 0.9 s, then the
+  old blackout. Fishing: equip the Fishing Rod (itemDefs.fishingRod, start
+  with 1, grocery sells it for 30), F facing water (isWaterTile(): a water*
+  tile on groundLayer, no overlay / solid object, 0.6-3.2 tiles ahead) ->
+  cast (frames 0-4), wait 2.5-7 s, bite ("!", bobber dips, 1.1 s / koi 0.75 s)
+  -> F reels (frames 5-7), the fish flies to you. Moving or getting hit
+  cancels; mobs keep updating. Line/bobber/ripples drawn in a drawPlayer
+  wrapper (FISH_TIP = rod tip per facing, measured). Fish (tools/fish_art.py,
+  assets/items/fish): Tilapia / Bangus / Lapu-Lapu / Golden Koi (4%), edible,
+  sold to the grocery 8 / 14 / 28 / 120.
+- Moving water: drawWaterAnim() after drawFlatGroundItems() — rolling
+  shimmer bands, drifting glints (2 per tile, hashed), foam along shores.
+- js/skills.js (new): skill bar (#skill-bar, right, above the hotbar; mobile:
+  centred above the hotbar) + Skills window (K / ✦). Z Slash (mobs only, 4 s,
+  15 stamina, x2.2 ATK to every mob in a ~3-tile front arc, crescent wave),
+  X Stun (mobs only, 8 s, 20 stamina, bolt, x0.9 ATK, stunUntil 2.5 s / boss
+  1.2 s: updateMob wrapper freezes it, drawMob wrapper draws orbiting stars),
+  C Teleport (anywhere, 6 s, 12 stamina, up to 4 tiles along the held
+  direction / facing, stops at walls, afterimage + puffs, 0.35 s safe).
+  Passives Power (+4% ATK), Swiftness (+3% attack speed), Guard (+5% DEF +1)
+  up to 10 ranks, 1 point per level after 1 (player.passives, saved),
+  applied in a playerStats() wrapper.
+  index.html -> ?v=20261015a (+ js/fishing.js, js/skills.js).
+
+## Long swords two-handed, ground-plunge Stun (AoE), skill levels, 2-click attack
+
+- js/combat.js: isLongSword() — the 40px blades (iron, bronze, emerald,
+  diamond, Storm Greatsword) swing in BOTH hands (SWORD_PIVOT_2H, two fists
+  drawn on the grip — drawGripHands(), hidden facing up), 15% slower, longer
+  reach (R 27); the 16px short swords one-handed (R 17). New swing style
+  "plunge": raised in both hands, driven point-first into the ground in
+  front. The item tooltip says Long Sword (2 kamay) / Short Sword (1 kamay).
+- js/skills.js: Stun is now an AoE: plunge -> shockwave ring, cracks and dust
+  ("quake" fx) + screen shake; every mob within the radius takes damage and
+  is stunned. Slash / Stun / Teleport level 1 -> 10 (player.skillLv, saved),
+  same skill points as the passives (1 per level after 1):
+  Slash x2.2 +0.18/lvl ATK, range 3 +0.1/lvl tiles, cd 4 -0.1/lvl;
+  Stun x0.9 +0.1/lvl, radius 2.5 +0.1/lvl, 2 s +0.15/lvl (boss 1 s +0.06),
+  cd 8 -0.25/lvl; Teleport 4 +0.25/lvl tiles, cd 6 -0.25/lvl. The window
+  shows each level and the next one.
+- js/gear.js + js/skills.js: clicking a mob first only SELECTS it
+  (player.selectedMob: dashed gold ring, outline, arrow, "Lv N Name",
+  "I-click ulit para umatake"); clicking the same mob again attacks it.
+  index.html -> ?v=20261016a.
+
+## Skills aimed at a mob, jump-plunge-pull Stun, dissolving Teleport, butterflies + fireflies
+
+- js/skills.js: Slash / Stun go at the highlighted (1-click) or attacked mob;
+  with none, the key/button starts aiming (body.skill-aim crosshair, glowing
+  button) and the next click on a mob picks it (window capture listener;
+  Esc / empty click cancels). Out of reach you walk up first
+  (skillPending, handled in an autoAttackTick wrapper; movement cancels).
+  The skill counts as the 2nd click: afterwards you keep attacking it.
+- Stun (player.skillAnim kind "stun", STUN_T): leap at the mob (jumpZ arc,
+  ground shadow), sword point-down in both hands, driven into the ground on
+  landing (quake: every mob in the radius damaged + stunned 3 s +0.15/lvl,
+  boss 1.5 s), held in the earth (blade clipped at the ground, glow), then
+  wrenched out with earth thrown up; mobs keep updating meanwhile. Stunned
+  mobs sway, a daze swirl + 4 stars orbit, a small timer bar.
+- Teleport (kind "teleport", TP_T): the character's own pixels fly apart
+  and fade at the start (playerPixels() -> "mote" fx), you're hidden, then
+  specks gather into your shape at the end ("gather" fx).
+- js/critters.js (new) + tools/butterfly_art.py (assets/critters/
+  butterflies.png, 4 looks x 4 frames): butterflies wander round the trees on
+  screen by day (not in rain/snow); fireflies drift among them at night,
+  blinking, adding a little light (shared buffer) and glowing over the dark.
+  index.html -> ?v=20261017a (+ js/critters.js).
+
+## Shop furniture repair, sword always behind, effects only from upgrades (+1..+10), new water
+
+- js/shops.js repairShopRoom(): a shop room with no counter left (a save from
+  when its furniture was lost) gets its blueprint's pieces back on empty
+  tiles; checked every second while inside.
+- js/gear.js BACK_SLING: front:false for every facing (facing up: hilt over
+  the left shoulder), so the slung weapon is always behind the body.
+  BOSS_INNATE_FX = false: the boss gear's own violet aura + lightning is
+  off; boss blades draw their plain icon (not the baked aura strip) on the
+  back, in the swing and in the Stun (js/combat.js, js/skills.js).
+- js/upgrades.js: UPGRADE_AURA_FROM = 1 — the aura starts faint at +1 and
+  grows every level (glow alpha/radius by lvl/10, particles 1/2/3, flickers
+  only part of the time at low levels, constant at +10). Upgrading with no
+  element picked defaults to Lightning. grantWornPlus10(): once
+  (player.plus10Given, saved), on loading a save, the worn helmet / armor /
+  gauntlet / boots, the equipped weapon and every owned bow become +10.
+- js/fishing.js drawWaterAnim() rewritten: looping seamless caustics
+  (WATER_FRAMES x 48px tile from interfering integer sine waves, two-tone
+  pixel art) in two drifting layers, a slow swell gradient, pre-drawn
+  breathing shore foam (16 frames, rotated per side, out of step per tile)
+  and daytime sun glints; clipped to the water tiles on screen.
+  index.html -> ?v=20261018a.
+
+## +N badge on items, upgrade success rates + ores
+
+- An upgraded item shows "+N" at its top right (green, gold at +10) in the
+  Profile slots (js/gear.js renderProfile()), inventory and hotbar
+  (js/inventory.js, .slot-plus); profile slots also get the hover info.
+- js/upgrades.js: UPGRADE_RATE +1..+5 100%, +6 80, +7 65, +8 50, +9 35,
+  +10 25. One ore per try (picked in the window, from +6): Luck Ore +20%,
+  Fortune Ore +50%, Divine Ore = 100% (tools/ore_art.py, assets/mobs/icons/
+  ore*.png; itemDefs in inventory.js). A fail spends gold/mats/ore, keeps
+  the level, shakes the window red; success flashes green. Ores: Blacksmith
+  sells Luck 250 / Fortune 1200; chests (Luck, Fortune Lv4+, Divine Lv8+,
+  rare) and bosses (Fortune 50%, Divine 12%) drop them.
+  index.html -> ?v=20261019a.
+
+## One glowing body aura, element bursts only now and then
+
+- js/upgrades.js: the per-body-part sparks are replaced by bodyAura(): the
+  character's own silhouette, tinted the main element (most upgrade levels),
+  blurred into a breathing halo + bright rim + ground glow behind the sprite
+  (drawBodyAuraGlow()); strength = best piece's level (75%) + all upgraded
+  levels together (25%). The slung blade glows along its line
+  (drawBladeGlow()). The element itself only bursts now and then
+  (drawAuraBursts(): every 2.6 s at +1 down to 0.8 s at +10, 1-3 at once,
+  round the outline): lightning arcs, embers, holy sparkles, frost shards, a
+  gust ring. index.html -> ?v=20261020a.

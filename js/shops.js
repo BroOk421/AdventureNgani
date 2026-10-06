@@ -25,6 +25,7 @@ const TIERS_ = ["leather", "iron", "gold", "mythril", "dragon"], TIER_PRICE = [3
 const SELL_DROPS = [
   { type: "slimeGel", price: 4, sell: true }, { type: "batWing", price: 5, sell: true },
   { type: "crystalShard", price: 14, sell: true }, { type: "golemCore", price: 30, sell: true },
+  { type: "ironIngot", price: 22, sell: true }, { type: "goldIngot", price: 60, sell: true }, // from the hidden cave chests (js/treasure.js)
 ];
 // Armour, rings, boots (the Demon set is never sold — bosses only).
 const EQUIP_STOCK = [
@@ -171,6 +172,33 @@ function ensureEastRoad() {
   if (typeof saveGame === "function") saveGame();
 }
 
+/* ---------------- the shop furniture comes back ----------------
+   Per request ("nawala yung mga object sa blacksmith"): a shop room that was saved with its
+   furniture missing (no counter at all) gets its blueprint's pieces put back — only on tiles that
+   are empty, so nothing you placed is touched. Checked whenever you're in a shop. */
+function repairShopRoom(room) {
+  if (!room || !room.decor || !SHOP_KEEPERS[room.blueprintId]) return false;
+  for (const t of room.decor.values()) if (/^bartender/.test(t)) return false; // the counter is there: fine
+  const bp = (typeof INTERIOR_ROOM_BLUEPRINTS !== "undefined" ? INTERIOR_ROOM_BLUEPRINTS : TOWN_ROOM_BLUEPRINTS)[room.blueprintId];
+  if (!bp || !bp.defaultDecor) return false;
+  let n = 0;
+  for (const [col, row, type] of bp.defaultDecor) {
+    if (!itemDefs[type]) continue;
+    const key = col + "," + row;
+    const floor = typeof isInteriorFloorType === "function" && isInteriorFloorType(type);
+    const map = floor ? (room.floorDecor || (room.floorDecor = new Map())) : room.decor;
+    if (map.has(key)) continue;
+    map.set(key, type); n++;
+  }
+  if (n && typeof interiorTopStripsCache !== "undefined") try { interiorTopStripsCache.delete(room); } catch (e) { /* none */ }
+  return n > 0;
+}
+setInterval(() => {
+  if (player.scene !== "inside") return;
+  const room = INTERIOR_ROOMS[player.activeRoomId];
+  if (room && repairShopRoom(room) && typeof saveGame === "function") saveGame();
+}, 1000);
+
 /* ---------------- the keepers ---------------- */
 function shopKeeperHere() {
   if (player.scene !== "inside" || typeof player.activeRoomId !== "string") return null;
@@ -191,6 +219,13 @@ function shopKeeperDrawables() {
       const s = (DRAW_SIZE / 64) * zoom, size = 64 * s;
       const x = (f.x - camX) * zoom - size / 2;
       const y = (f.y - camY) * zoom - SPRITE_FEET_FRACTION * size; // same feet line as every character
+      // Their own candle circle, like the player's and Maria's — per request ("yung mga
+      // npc ... dapat may circle light din parang character"). Centred where a
+      // character's light is: the middle of the sprite (drawCharacterGlow(), js/camera.js).
+      if (typeof drawCharacterGlow === "function") {
+        const cy = f.y - (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+        drawCharacterGlow(x + size / 2, (cy - camY) * zoom, size, f.x, cy);
+      }
       ctx.save(); ctx.imageSmoothingEnabled = false;
       ctx.drawImage(sheet, fr * 64, 0, 64, 64, Math.round(x), Math.round(y), size, size);
       // a little name tag
@@ -200,6 +235,28 @@ function shopKeeperDrawables() {
       const ty = y + size * 0.22;
       ctx.strokeText(k.name, x + size / 2, ty); ctx.fillStyle = "#ffe6a8"; ctx.fillText(k.name, x + size / 2, ty);
       ctx.restore();
+    },
+  }];
+}
+// At night the keeper gets his own colours back after the washes, like the player
+// (drawCharacterNightRelights(), js/camera.js) — the counter in front of him is cut
+// out of the relit copy (drawMaskedRelight() -> relightOccluders()).
+function shopKeeperRelightList() {
+  const k = shopKeeperHere();
+  if (!k || typeof drawMaskedRelight !== "function") return [];
+  const sheet = assets["keeper_" + k.look];
+  if (!sheet || !sheet.width) return [];
+  const night = getRelightStrength();
+  if (night <= 0.01) return [];
+  const f = keeperFeet(k);
+  return [{
+    sortY: f.y,
+    draw: () => {
+      const frames = Math.max(1, Math.round(sheet.width / sheet.height));
+      const fr = Math.floor(performance.now() / 250) % frames;
+      const s = (DRAW_SIZE / 64) * zoom, size = 64 * s;
+      const x = Math.round((f.x - camX) * zoom - size / 2), y = Math.round((f.y - camY) * zoom - SPRITE_FEET_FRACTION * size);
+      drawMaskedRelight((g) => g.drawImage(sheet, fr * 64, 0, 64, 64, x, y, size, size), x + size / 2, y + size / 2, size, f.y, night, false);
     },
   }];
 }

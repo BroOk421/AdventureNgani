@@ -187,6 +187,11 @@ function renderProfile() {
     const t = slotItem(b.dataset.slot), d = t && itemDefs[t];
     b.innerHTML = d && d.icon ? `<img src="${d.icon.src}" style="width:28px;height:28px;image-rendering:pixelated;object-fit:contain">` : `<span style="font-size:8px;opacity:.6">${slotLabel(b.dataset.slot)}</span>`;
     b.title = d ? d.name : slotLabel(b.dataset.slot) + " (wala)";
+    // its upgrade level, top right (js/upgrades.js)
+    b.style.position = "relative";
+    if (t) b.dataset.itemType = t; else delete b.dataset.itemType;
+    const lv = t && typeof upgradeLevel === "function" ? upgradeLevel(t) : 0;
+    if (lv > 0) b.insertAdjacentHTML("beforeend", '<span class="slot-plus' + (lv >= 10 ? " max" : "") + '">+' + lv + "</span>");
   }
   profileEl.querySelector("#profile-bars").innerHTML =
     profileBar("Health", player.health, player.maxHealth, "#e05050") + profileBar("Stamina", player.stamina, player.maxStamina, "#e8c84a") +
@@ -286,7 +291,14 @@ view.addEventListener("mousedown", (e) => {
   // Per request (a bug: spam-clicking a mob sped the swings up): a click only
   // picks the target — the attack timer keeps running, so it's one swing per
   // 1/ATK SPEED however often you click.
-  player.autoTarget = best;
+  // Per request ("2 click 1 click view palang or highlight after click ulit atk
+  // na"): the FIRST click only selects the mob (highlighted, its name / level /
+  // HP shown — js/skills.js drawSelectedMob()); clicking the SAME mob again
+  // attacks it. Clicking another mob selects that one instead.
+  if (player.autoTarget === best) return;
+  if (player.selectedMob === best) { player.autoTarget = best; return; }
+  if (player.autoTarget) stopAutoAttack();
+  player.selectedMob = best;
 }, true);
 // Hovering a mob: a sword cursor, and the mob gets an outline (drawMob(), js/mines.js).
 const SWORD_CURSOR = (() => {
@@ -455,37 +467,78 @@ const HAND_AT = { // 64px frame coords of the screen-right hand: idle / walk / r
 };
 const HOLD_GRIP = [7, 33]; // where the grip sits in the 40px sword art
 const HOLD_SCALE = 0.55;   // world px per art px
+/* Per request ("yung sa sword naman kapag idle or walk is dapat nasa likod niya
+   hindi niya hawak pero kapag hit sa kalaban same parin"): while idle / walking /
+   running the weapon is slung across the BACK instead of held — hilt up over a
+   shoulder, blade down the back. The swing (drawSwordSwing(), the attack sheets)
+   is unchanged: during an attack nothing is drawn here. Every sword shows now,
+   not only the holdSprite ones (the 16px icons are slung too); bows go on the
+   back upright. Shown everywhere (town, rooms, caves, every world). */
 function heldSwordStrip() {
-  if (player.action || player.sleeping || player.sitting || !(typeof currentMineRoom === "function" && currentMineRoom())) return null;
+  // Per request ("kahit wala dapat mobs kapag equip niya nasusuot na sa likod"): everywhere now, not just mob zones.
+  if (player.action || player.sleeping || player.sitting) return null;
   if (!HAND_AT[player.anim]) return null;
   const d = player.equippedWeapon && itemDefs[player.equippedWeapon];
-  if (!d || !d.holdSprite || itemLocked(player.equippedWeapon)) return null;
-  const strip = d.weapon && d.weapon.ranged ? d.icon : assets[d.animStrip];
+  if (!d || !d.weapon || d.weapon.attackAnim === "crush" || d.weapon.attackAnim === "watering" || itemLocked(player.equippedWeapon)) return null;
+  if (!/Sword|Bow|Cleaver|Reaver/.test(player.equippedWeapon)) return null; // swords and bows only (not the hoe, axe, pickaxe...)
+  // effects only come from upgrades now (js/upgrades.js): a boss weapon's baked-in aura strip isn't used
+  const strip = d.weapon.ranged || !d.animStrip || d.bossDrop ? d.icon : assets[d.animStrip];
   return strip && strip.width ? strip : null;
 }
+// Per facing: where the grip sits (64px frame coords) and which way the blade points
+// (grip -> tip, degrees, 0 = right, 90 = down), and whether it's in front of the body.
+// Per request ("parang nasa harap yung sword dapat nasa likod ng character"): always BEHIND the
+// body — the hilt shows over a shoulder and the point below the other hip, whichever way you face.
+const BACK_SLING = {
+  up:    { grip: [25, 25], dir: 62,  front: false }, // seen from behind: hilt over the left shoulder
+  down:  { grip: [39, 25], dir: 118, front: false }, // the hilt peeks over the right shoulder, the tip by the left leg
+  right: { grip: [27, 26], dir: 104, front: false }, // the back is on the left of a right-facing sprite
+};
+const BACK_SWORD_LEN = 20; // world px, hilt to tip
 function drawHeldSword(strip, screenX, screenY, z) {
   const hs = HAND_AT[player.anim], h = hs[player.frame % hs.length] || hs[0];
+  const bob = h[1] - 38; // the body's bob, off the measured hand
   const k = (DRAW_SIZE / 64) * z;                       // sprite px -> screen px
-  const flip = player.facing === "left"; // same as drawPlayer(): the side sheets face right, facing left is mirrored
-  const hx = screenX + (flip ? 32 - h[0] : h[0] - 32) * k, hy = screenY + (h[1] - 32) * k;
-  const S = strip.height, fr = Math.floor(performance.now() / 90) % Math.max(1, Math.round(strip.width / S));
+  const facing = player.facing === "left" ? "right" : player.facing;
+  const flip = player.facing === "left"; // the side sheets face right, facing left is mirrored
+  const L = BACK_SLING[facing] || BACK_SLING.down;
+  const gx = screenX + (flip ? 32 - L.grip[0] : L.grip[0] - 32) * k, gy = screenY + (L.grip[1] + bob - 32) * k;
+  const S = strip.height, frames = Math.max(1, Math.round(strip.width / S)), fr = Math.floor(performance.now() / 90) % frames;
   const bow = !!(itemDefs[player.equippedWeapon].weapon || {}).ranged;
-  const s = bow ? (14 / S) * z : HOLD_SCALE * z; // a bow is held upright by its middle, ~14 world px tall
-  const grip = bow ? [S * 0.45, S * 0.5] : HOLD_GRIP;
+  // the blade's line on screen, for the upgrade auras (js/upgrades.js)
+  if (typeof backWeaponLine !== "undefined") {
+    const ux = Math.cos(L.dir * Math.PI / 180) * (flip ? -1 : 1), uy = Math.sin(L.dir * Math.PI / 180);
+    const len = (bow ? 16 : BACK_SWORD_LEN) * z, off = bow ? -len / 2 + 7 * z : 0;
+    backWeaponLine = { x0: gx + ux * off, y0: gy + uy * off, x1: gx + ux * (off + len), y1: gy + uy * (off + len), at: performance.now() };
+  }
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  ctx.translate(Math.round(hx), Math.round(hy));
+  ctx.translate(Math.round(gx), Math.round(gy));
   if (flip) ctx.scale(-1, 1);
-  ctx.drawImage(strip, fr * S, 0, S, S, -grip[0] * s, -grip[1] * s, S * s, S * s);
+  if (bow) {
+    const s = (16 / S) * z; // ~16 world px tall, by its middle, tilted along the back
+    ctx.rotate((L.dir - 90) * Math.PI / 180);
+    ctx.translate(0, 7 * z);
+    ctx.drawImage(strip, fr * S, 0, S, S, -S * 0.45 * s, -S * 0.5 * s, S * s, S * s);
+  } else {
+    // the art lies on the diagonal, grip bottom-left, tip top-right (-45 deg)
+    const grip = S >= 32 ? HOLD_GRIP : [S * 0.16, S * 0.84];
+    const artLen = Math.hypot(S - grip[0], grip[1]); // grip -> top-right corner
+    const s = (BACK_SWORD_LEN / artLen) * z;
+    ctx.rotate((L.dir + 45) * Math.PI / 180);
+    ctx.drawImage(strip, fr * S, 0, S, S, -grip[0] * s, -grip[1] * s, S * s, S * s);
+  }
   ctx.restore();
 }
 {
   const base = drawPlayer;
   drawPlayer = function (screenX, screenY, z) {
     const strip = heldSwordStrip();
-    if (strip && player.facing === "up") drawHeldSword(strip, screenX, screenY, z); // behind the back
+    const facing = player.facing === "left" ? "right" : player.facing;
+    const front = !!(BACK_SLING[facing] || {}).front;
+    if (strip && !front) drawHeldSword(strip, screenX, screenY, z); // behind the body
     const r = base.apply(this, arguments);
-    if (strip && player.facing !== "up") drawHeldSword(strip, screenX, screenY, z);
+    if (strip && front) drawHeldSword(strip, screenX, screenY, z);  // seen from behind: over the back
     return r;
   };
 }
@@ -499,6 +552,7 @@ function drawHeldSword(strip, screenX, screenY, z) {
    head, armor at the chest, gauntlet at the hand, boots at the feet, ring and
    shield at the sides. Bolts re-roll every ~90ms. Everywhere, not just in the
    mob areas. */
+const BOSS_INNATE_FX = false;
 const WORN_SPOTS = { helmet: [[32, 18]], armor: [[29, 34], [35, 34]], gauntlet: [[37, 39]], boots: [[29, 47], [35, 47]], ringL: [[27, 39]], ringR: [[37, 40]], shield: [[26, 36]] };
 function wornBossSpots() {
   const out = [];
@@ -539,7 +593,8 @@ function drawWornLightning(screenX, screenY, z, spots, behind) {
 {
   const base = drawPlayer;
   drawPlayer = function (screenX, screenY, z) {
-    const spots = player.sleeping || player.sitting ? [] : wornBossSpots();
+    // Per request: no built-in aura/lightning on boss gear any more — every glow comes from its upgrade level (js/upgrades.js).
+    const spots = BOSS_INNATE_FX && !(player.sleeping || player.sitting) ? wornBossSpots() : [];
     if (spots.length) drawWornLightning(screenX, screenY, z, spots, true);
     const r = base.apply(this, arguments);
     if (spots.length) drawWornLightning(screenX, screenY, z, spots, false);
@@ -556,6 +611,7 @@ function drawWornLightning(screenX, screenY, z, spots, behind) {
    muscle cuirass, armoured forearms, violet boots with a pink trim) drawn over
    the matching frame whenever that boss piece is worn. drawPlayerSprite() is
    wrapped, so the night relight shows them too. */
+const GEAR_LOOKS_ON = false;
 const GEAR_LOOK_SLOTS = ["boots", "armor", "gauntlet", "helmet"]; // drawn in this order
 const gearOverlayCache = new Map();
 function gearOverlayFor(piece, sheet, set) {
@@ -571,6 +627,11 @@ function gearOverlayFor(piece, sheet, set) {
 }
 // [slot, set] for every worn piece that changes the look (boss gear: set null; the metal sets: their name)
 function wornLookPieces() {
+  // Per request ("yung armor, helmet, gauntlet boots is alisin mo na yung itsura
+  // yung iwan mo na lang is aura at yung lightning"): worn gear no longer changes
+  // how the character looks — the boss pieces keep only their aura + lightning
+  // (drawWornLightning() above). Return the pieces again to bring the looks back.
+  if (!GEAR_LOOKS_ON) return [];
   const out = [];
   for (const slot of GEAR_LOOK_SLOTS) {
     const t = player.equipment[slot], d = t && itemDefs[t];

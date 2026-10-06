@@ -109,7 +109,8 @@ const MINE_SPAWNS = {
 const MINE_ANIMS = ["idle", "move", "attack", "death"];
 const MINE_RESPAWN_SEC = 120;      // a killed mob comes back this long after, once you're away from its spot
 const MINE_DROP_LIFE_SEC = 300;    // drops left lying around vanish after this
-const MINE_PICKUP_RANGE = 2.5 * TILE; // world px — per request you have to be close to pick a drop up
+const MINE_PICKUP_RANGE = 2.5 * TILE; // world px — per request you have to be close to pick a drop up (click)
+const MINE_AUTO_PICKUP = 2 * TILE;    // world px — a resting drop this close (feet to drop) is picked up by itself
 const PLAYER_HURT_INVULN = 0.6;    // seconds of safety after a hit
 
 for (const id of Object.keys(MINE_TYPES)) {
@@ -422,7 +423,13 @@ function resolveMineSwing(room, st, swing) {
   const missed = Math.random() > hitChance;
   const crit = !missed && Math.random() < (swing.crit || 0.12);
   const dmg = missed ? 0 : Math.max(1, Math.round(swing.dmg * mineRand(0.85, 1.15) * (crit ? 1.8 : 1) - (m.armor || 0) * 0.5));
-  if (ranged) mineArrows.push({ x0: fx + dx * 8, y0: fy - 12, m, st, dmg, crit, missed, t: 0, fx, fy });
+  // Per request ("yung arrow nun is i center mo pagka tira kasi nasa taas ng bow nanggagaling"):
+  // the arrow leaves from the middle of the bow as drawBowShot() (js/gear.js) draws it —
+  // 7 sprite px out along the facing (5 vertically) and 4 below the sprite's centre.
+  if (ranged) {
+    const k = DRAW_SIZE / 64;
+    mineArrows.push({ x0: player.x + dx * 7 * k, y0: player.y + 4 * k + dy * 5 * k, m, st, dmg, crit, missed, t: 0, fx, fy });
+  }
   else landMineHit(st, m, dmg, crit, missed, fx, fy);
   return true;
 }
@@ -495,7 +502,12 @@ function updateDrops(room, st, dt) {
         else { d.vz = -d.vz * 0.45; d.vx *= 0.55; d.vy *= 0.55; }
       }
     } else if (d.phase === "rest") {
-      if (now - d.born > MINE_DROP_LIFE_SEC) st.drops.splice(i, 1);
+      if (now - d.born > MINE_DROP_LIFE_SEC) { st.drops.splice(i, 1); continue; }
+      // Per request ("kapag lumapit na lang yung character sa loot 2 tiles ang layo"):
+      // walk within MINE_AUTO_PICKUP of a resting drop and it flies into you — no click.
+      if (d.t > 0.25 && !player.sleeping && Math.hypot(d.x - player.x, d.y - (player.y + MINE_FEET_OFF)) <= MINE_AUTO_PICKUP) {
+        d.phase = "vacuum"; d.vacT0 = d.t; d.fromX = d.x; d.fromY = d.y;
+      }
     } else if (d.phase === "vacuum") {
       const k = Math.min(1, (d.t - d.vacT0) / 0.35), e = k * k;
       d.x = d.fromX + (player.x - d.fromX) * e;

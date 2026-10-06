@@ -3702,8 +3702,13 @@ itemDefs.warpPortal = { id: "warpPortal", name: "Warp Portal", icon: assets.warp
 itemDefs.potionHealth = { id: "potionHealth", name: "Health Potion", icon: assets.bldPotionRed, startCount: 0, consumable: { healthPercent: 40 } };
 itemDefs.potionStamina = { id: "potionStamina", name: "Stamina Potion", icon: assets.bldPotionGreen, startCount: 0, consumable: { staminaPercent: 60 } };
 itemDefs.potionElixir = { id: "potionElixir", name: "Elixir", icon: assets.bldPotionPurple, startCount: 0, consumable: { healthPercent: 100, staminaPercent: 100, food: 30 } };
-for (const [id, name] of [["slimeGel", "Slime Gel"], ["batWing", "Bat Wing"], ["glowCap", "Glow Cap"], ["crystalShard", "Crystal Shard"], ["golemCore", "Golem Core"]]) {
+for (const [id, name] of [["slimeGel", "Slime Gel"], ["batWing", "Bat Wing"], ["glowCap", "Glow Cap"], ["crystalShard", "Crystal Shard"], ["golemCore", "Golem Core"], ["ironIngot", "Iron Ingot"], ["goldIngot", "Gold Ingot"], ["oreLuck", "Luck Ore (+20%)"], ["oreFortune", "Fortune Ore (+50%)"], ["oreDivine", "Divine Ore (100%)"]]) {
   itemDefs[id] = { id, name, icon: assets["mob_" + id], startCount: 0, mobDrop: true };
+}
+// Fishing (js/fishing.js): the rod is equipped like a tool — F facing water casts.
+itemDefs.fishingRod = { id: "fishingRod", name: "Fishing Rod (Pamingwit)", icon: assets.fishingRod, startCount: 1, equipSlot: "weapon", weapon: { attackAnim: "fishing" } };
+for (const [id, name, food] of [["fishTilapia", "Tilapia", 8], ["fishBangus", "Bangus", 12], ["fishLapu", "Lapu-Lapu", 18], ["fishKoi", "Golden Koi", 30]]) {
+  itemDefs[id] = { id, name, icon: assets[id], startCount: 0, fish: true, consumable: { food, healthPercent: Math.round(food / 2) } };
 }
 itemDefs.farmCan = { id: "farmCan", name: "Watering Can (Pandilig)", icon: assets.farmCan, unlimited: true, equipSlot: "weapon", weapon: { attackAnim: "watering" } };
 for (const [key, veg, label] of [["Carrots", "carrots", "Carrot"], ["Cabbage", "cabbage", "Cabbage"], ["Onion", "onion", "Onion"],
@@ -4893,6 +4898,8 @@ function renderHotbar() {
       img.src = itemDefs[slot.type].icon.src;
       img.alt = itemDefs[slot.type].name;
       box.appendChild(img);
+      box.dataset.itemType = slot.type; // hover: name + description (js/itemInfo.js)
+      if (typeof upgradeLevel === "function" && upgradeLevel(slot.type) > 0) { const up = document.createElement("span"); up.className = "slot-plus" + (upgradeLevel(slot.type) >= 10 ? " max" : ""); up.textContent = "+" + upgradeLevel(slot.type); box.appendChild(up); } // its upgrade level, top right (js/upgrades.js)
 
       const count = document.createElement("span");
       count.className = "slot-count";
@@ -4944,6 +4951,8 @@ function renderInventory() {
       img.src = itemDefs[slot.type].icon.src;
       img.alt = itemDefs[slot.type].name;
       box.appendChild(img);
+      box.dataset.itemType = slot.type; // hover: name + description (js/itemInfo.js)
+      if (typeof upgradeLevel === "function" && upgradeLevel(slot.type) > 0) { const up = document.createElement("span"); up.className = "slot-plus" + (upgradeLevel(slot.type) >= 10 ? " max" : ""); up.textContent = "+" + upgradeLevel(slot.type); box.appendChild(up); } // its upgrade level, top right (js/upgrades.js)
 
       const count = document.createElement("span");
       count.className = "slot-count";

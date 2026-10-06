@@ -1543,3 +1543,137 @@ html, body {
   mask-composite: add;
 }
 #vignette-blur.on { opacity: 1; }
+
+/* ---------------- treasure chest window (js/treasure.js) + Blacksmith upgrades (js/upgrades.js) ---------------- */
+#chest-overlay, #upgrade-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 60;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+#chest-overlay.hidden, #upgrade-overlay.hidden { display: none; }
+#chest-panel, #upgrade-panel {
+  background: rgba(25, 18, 12, 0.96); border: 2px solid #b8893a; border-radius: 10px;
+  padding: 14px; color: #f3e9dc; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+.chest-title, .upg-title { font-size: 15px; text-align: center; margin-bottom: 10px; }
+.chest-title .hint, .upg-title .hint, .chest-foot .hint { color: #b8a893; font-size: 12px; }
+#chest-grid { display: grid; grid-template-columns: repeat(6, 46px); grid-template-rows: repeat(3, 46px); gap: 5px; }
+.chest-slot {
+  position: relative; background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px; display: flex; align-items: center; justify-content: center;
+}
+.chest-slot.full { cursor: pointer; border-color: rgba(224, 197, 108, 0.55); background: rgba(70, 50, 25, 0.6); }
+.chest-slot.full:hover { background: rgba(120, 88, 40, 0.75); border-color: #f0c860; }
+.chest-slot.rare { box-shadow: inset 0 0 10px rgba(255, 120, 230, 0.55); border-color: #ff9cf0; }
+.chest-slot img { width: 32px; height: 32px; image-rendering: pixelated; }
+.chest-slot .cnt { position: absolute; right: 3px; bottom: 1px; font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+.chest-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 10px; }
+#chest-all, #upg-go, #npc-shop-upgrade {
+  background: #e0a63c; border: none; color: #1b1410; font-weight: 700; font-size: 13px;
+  padding: 7px 12px; border-radius: 6px; cursor: pointer;
+}
+#chest-all:hover:not(:disabled), #upg-go:hover:not(:disabled), #npc-shop-upgrade:hover { background: #f0b64c; }
+#chest-all:disabled, #upg-go:disabled { background: rgba(255, 255, 255, 0.15); color: rgba(243, 233, 220, 0.4); cursor: not-allowed; }
+#npc-shop-upgrade { margin-bottom: 10px; width: 100%; }
+#upgrade-panel { width: 380px; max-height: 86vh; display: flex; flex-direction: column; }
+.upg-gold { color: #e0c56c; font-size: 13px; text-align: center; margin: -4px 0 8px; }
+#upg-list { max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px;
+  scrollbar-width: thin; scrollbar-color: #d4af37 rgba(0, 0, 0, 0.35); }
+.upg-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; cursor: pointer;
+  background: rgba(20, 15, 10, 0.65); border: 1px solid rgba(255, 255, 255, 0.12); font-size: 13px; }
+.upg-row:hover { border-color: rgba(224, 197, 108, 0.6); }
+.upg-row.sel { border-color: #f0c860; background: rgba(90, 64, 28, 0.7); }
+.upg-row img { width: 26px; height: 26px; image-rendering: pixelated; }
+.upg-row .n { flex: 1; } .upg-row .n i { color: #9cf59a; font-style: normal; font-size: 11px; }
+.upg-row .lv { color: #ffd84a; font-weight: 700; }
+.upg-empty { color: #b8a893; font-size: 13px; text-align: center; padding: 10px; }
+#upg-detail { margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.15); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.upg-head { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+.upg-head img { width: 40px; height: 40px; image-rendering: pixelated; background: rgba(0,0,0,0.4); border-radius: 6px; padding: 3px; }
+.upg-head .up { color: #9cf59a; } .upg-head .sub { color: #cdbfae; font-size: 12px; margin-top: 3px; }
+.upg-cost { display: flex; flex-wrap: wrap; gap: 6px; }
+.upg-cost span { display: flex; align-items: center; gap: 4px; font-size: 12px; padding: 3px 7px; border-radius: 5px; background: rgba(0, 0, 0, 0.4); font-variant-numeric: tabular-nums; }
+.upg-cost span img { width: 18px; height: 18px; image-rendering: pixelated; }
+.upg-cost .ok { color: #9cf59a; } .upg-cost .no { color: #ff7d7d; }
+.upg-el-label { font-size: 12px; color: #cdbfae; }
+.upg-els { display: flex; flex-wrap: wrap; gap: 5px; }
+.upg-els button { background: rgba(0, 0, 0, 0.4); color: #f3e9dc; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
+.upg-els button.on { border-color: #f0c860; background: rgba(120, 88, 40, 0.8); }
+
+/* ---------------- item hover info (js/itemInfo.js) ---------------- */
+#item-tip {
+  position: fixed; z-index: 80; pointer-events: none; max-width: 240px;
+  background: rgba(22, 16, 10, 0.96); border: 1px solid #b8893a; border-radius: 8px;
+  padding: 8px 10px; color: #f3e9dc; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; line-height: 1.35;
+}
+#item-tip.hidden { display: none; }
+#item-tip .tip-name { font-size: 14px; font-weight: 700; color: #ffe6a8; }
+#item-tip .tip-name .plus { color: #9cf59a; }
+#item-tip .tip-cat { color: #b8a893; font-size: 11px; margin-bottom: 4px; }
+#item-tip .tip-desc { color: #e9dfd2; }
+#item-tip .tip-stats { margin-top: 5px; color: #cfe6ff; }
+#item-tip .tip-stats .up { color: #9cf59a; } #item-tip .tip-stats .ok { color: #9cf59a; } #item-tip .tip-stats .no { color: #ff7d7d; }
+#item-tip .tip-price { margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(255, 255, 255, 0.15); color: #ffd84a; font-weight: 700; display: flex; align-items: center; gap: 5px; }
+#item-tip .tip-price img { width: 14px; height: 14px; image-rendering: pixelated; }
+
+/* ---------------- skills (js/skills.js) ---------------- */
+#skill-bar {
+  position: fixed; right: 14px; bottom: 96px; z-index: 15; display: flex; gap: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+body.mobile #skill-bar { right: auto; left: 50%; transform: translateX(-50%); bottom: 92px; }
+.skill-btn {
+  position: relative; width: 46px; height: 46px; padding: 0; border-radius: 9px; cursor: pointer;
+  background: radial-gradient(circle at 50% 35%, #4a3520, #1e140b); border: 2px solid #b8893a;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5); color: #ffe6a8; overflow: hidden;
+}
+.skill-btn:hover { border-color: #f0c860; }
+.skill-btn img { width: 30px; height: 30px; margin-top: 6px; image-rendering: auto; }
+.skill-btn .cd { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; color: #fff; text-shadow: 0 0 3px #000; }
+.skill-btn .key { position: absolute; left: 3px; top: 1px; font-size: 10px; font-weight: 700; color: #ffe6a8; text-shadow: 0 0 2px #000; }
+.skill-btn .st { position: absolute; right: 3px; bottom: 1px; font-size: 9px; font-weight: 700; color: #ffe27a; text-shadow: 0 0 2px #000; }
+.skill-btn.nost img { filter: grayscale(0.8) brightness(0.7); }
+.skill-btn.nozone { opacity: 0.55; }
+.skill-more { font-size: 20px; color: #ffd84a; }
+.skill-more .pts { position: absolute; right: 2px; top: 1px; min-width: 14px; font-size: 10px; background: #e04040; color: #fff; border-radius: 7px; padding: 0 3px; }
+.skill-more .pts:empty { display: none; }
+#skill-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; z-index: 60;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+#skill-overlay.hidden { display: none; }
+#skill-panel { width: 400px; max-height: 86vh; overflow-y: auto; background: rgba(25, 18, 12, 0.96); border: 2px solid #b8893a; border-radius: 10px; padding: 14px; color: #f3e9dc; }
+.sk-title { font-size: 15px; text-align: center; margin-bottom: 8px; }
+.sk-title .hint, .sk-sec .hint { color: #b8a893; font-size: 11px; }
+.sk-sec { color: #ffd84a; font-weight: 700; font-size: 13px; margin: 10px 0 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.15); padding-bottom: 3px; }
+.sk-sec .pts { color: #9cf59a; margin-left: 8px; }
+.sk-row { display: flex; gap: 10px; align-items: center; background: rgba(20, 15, 10, 0.65); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 7px; padding: 6px 8px; margin-bottom: 5px; font-size: 12px; }
+.sk-row img { width: 32px; height: 32px; flex-shrink: 0; }
+.sk-txt { flex: 1; color: #e9dfd2; } .sk-txt b { color: #ffe6a8; font-size: 13px; } .sk-txt .k { color: #b8a893; font-weight: 400; }
+.sk-meta { color: #cfe6ff; margin-top: 2px; font-size: 11px; }
+.pips { display: flex; gap: 3px; margin-top: 4px; } .pips i { width: 12px; height: 6px; border-radius: 2px; background: rgba(255, 255, 255, 0.15); } .pips i.on { background: #ffd84a; }
+.sk-plus { width: 30px; height: 30px; border-radius: 6px; border: none; background: #e0a63c; color: #1b1410; font-weight: 800; font-size: 18px; cursor: pointer; }
+.sk-plus:disabled { background: rgba(255, 255, 255, 0.15); color: rgba(243, 233, 220, 0.4); cursor: not-allowed; }
+.sk-next { color: #9cf59a; font-size: 11px; margin-top: 2px; }
+body.skill-aim #view { cursor: crosshair !important; }
+.skill-btn.aiming { border-color: #fff4b0; box-shadow: 0 0 12px rgba(255, 220, 90, 0.9); }
+
+/* ---------------- upgrade level badge (top right of an item) + success rate / ores ---------------- */
+.slot-plus {
+  position: absolute; top: 1px; right: 2px; z-index: 2; pointer-events: none;
+  font: 800 10px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #9cf59a; text-shadow: 0 0 2px #000, 0 0 2px #000, 1px 1px 0 #000;
+}
+.slot-plus.max { color: #ffd84a; text-shadow: 0 0 3px #ff9a2e, 0 0 2px #000, 1px 1px 0 #000; }
+.upg-rate { font-size: 13px; }
+.upg-rate b.ok { color: #9cf59a; } .upg-rate b.mid { color: #ffd84a; } .upg-rate b.low { color: #ff7d7d; }
+.upg-rate.hint, .upg-rate .hint { color: #b8a893; font-size: 11px; }
+.upg-ores { display: flex; flex-wrap: wrap; gap: 5px; }
+.upg-ores button { display: flex; align-items: center; gap: 4px; background: rgba(0, 0, 0, 0.4); color: #f3e9dc; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 3px 7px; font-size: 12px; cursor: pointer; }
+.upg-ores button img { width: 18px; height: 18px; image-rendering: pixelated; }
+.upg-ores button .have { color: #b8a893; font-size: 10px; }
+.upg-ores button.on { border-color: #f0c860; background: rgba(120, 88, 40, 0.8); }
+.upg-ores button:disabled { opacity: 0.4; cursor: not-allowed; }
+@keyframes upgOk { 0% { box-shadow: 0 0 0 rgba(156, 245, 154, 0); } 30% { box-shadow: 0 0 40px rgba(156, 245, 154, 0.9); } 100% { box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); } }
+@keyframes upgFail { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); box-shadow: 0 0 30px rgba(255, 70, 70, 0.9); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+#upgrade-panel.flash-ok { animation: upgOk 0.7s ease-out; }
+#upgrade-panel.flash-fail { animation: upgFail 0.5s ease-out; }
