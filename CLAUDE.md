@@ -6128,3 +6128,9 @@ browser can't show a stale cave texture.
   flat layers, citizens, animals, lights, critters, chests) was already
   culled. Headless phone Sharp east-world snow: ~54 -> ~61 fps.
   index.html -> ?v=20261026a (+ js/culling.js).
+
+## Phone feel: faster animation + movement, closer camera
+
+- js/config.js: MOBILE_ANIM_MULT 0.75 -> 1 (walk/run frames as fast as the
+  desktop), MOBILE_SPEED_MULT 0.55 -> 0.85 (the slow steps read as lag),
+  MOBILE_ZOOM 2 -> 2.7 (closer camera). index.html -> ?v=20261027a.
