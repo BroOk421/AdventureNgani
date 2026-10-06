@@ -713,6 +713,39 @@ function iconOpaqueNear(icon, px, py, r) {
   return false;
 }
 
+/* --- Performance: row buckets of a layer ---------------------------------
+   The relights (every character, animal, lamp at night) and the light
+   shadows used to walk EVERY placed item on the map, several times a frame
+   — the biggest cost on a phone. Each layer now keeps (per purpose) a
+   Map row -> [[col, type, key], ...] of just the items that matter, rebuilt
+   only when the layer changes (its set/delete/clear bump a version). */
+const layerVersions = new WeakMap();
+for (const L of new Set([...ALL_LAYERS, objectLayer, groundLayer, groundOverlayLayer, upperLayer])) {
+  layerVersions.set(L, 0);
+  const bump = () => layerVersions.set(L, (layerVersions.get(L) || 0) + 1);
+  const set = L.set, del = L.delete, clr = L.clear;
+  L.set = function () { bump(); return set.apply(this, arguments); };
+  L.delete = function () { bump(); return del.apply(this, arguments); };
+  L.clear = function () { bump(); return clr.apply(this, arguments); };
+}
+const rowIndexCache = new Map(); // tag -> { layer, ver, rows }
+function layerRows(layer, tag, keep) {
+  const ver = layerVersions.get(layer) || 0;
+  let e = rowIndexCache.get(tag);
+  if (e && e.layer === layer && e.ver === ver) return e.rows;
+  const rows = new Map();
+  for (const [key, type] of layer) {
+    if (!keep(type)) continue;
+    const comma = key.indexOf(",");
+    const col = +key.slice(0, comma), row = +key.slice(comma + 1);
+    let a = rows.get(row);
+    if (!a) rows.set(row, (a = []));
+    a.push([col, type, key]);
+  }
+  rowIndexCache.set(tag, { layer, ver, rows });
+  return rows;
+}
+
 function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
   const excludeKey = opts && opts.excludeKey;
   const maxOccluders = (opts && opts.maxOccluders) || LIGHT_MAX_OCCLUDERS;
@@ -785,45 +818,26 @@ function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
     const maxRow = Math.ceil(maxY / TILE) + LIGHT_OCCLUDER_TILE_MARGIN;
     // Performance: look up only the tiles in reach of the light instead of
     // walking every placed item on the map for every candle and lamp.
-    const span = (maxCol - minCol + 1) * (maxRow - minRow + 1);
-    for (const layer of ALL_LAYERS) {
-      const entries = layer.size <= span ? layer : null;
-      const iter = entries ? entries.entries() : (function* () {
-        for (let r = minRow; r <= maxRow; r++) for (let c = minCol; c <= maxCol; c++) {
-          const k = c + "," + r, t = layer.get(k);
-          if (t !== undefined) yield [k, t];
-        }
-      })();
-      for (const [key, type] of iter) {
+    ALL_LAYERS.forEach((layer, li) => {
+      const rows = layerRows(layer, "occ" + li, (type) => {
         const def = itemDefs[type];
-        if (!def) continue;
-        // Two ways in: anything solid blocks light by definition, and
-        // anything flagged `castsLightShadow` opts in on top of that —
-        // per request ("add mo rin yung ibang walang shadow gaya ng bush,
-        // mushrooms... pero yung flower na folder flower1, flower2 lagyan
-        // mo ng shadow"). Bushes, mushrooms and the tall/short flowers
-        // are things you walk straight through, so they never collided
-        // and so never showed up in the light — but they're solid enough
-        // to block a candle, and a lit clearing where the bushes throw
-        // nothing looks wrong. The flowering bushes in assets/bushes/ are
-        // deliberately left out, as asked.
-        if (!def.collides && !def.castsLightShadow) continue;
-        // Per request: the mountain plateau tiles (top / inner / center /
-        // bottom mountain grass, `noLightShadow`, js/inventory.js) are the
-        // ground you walk on up there, not something standing in the light.
-        if (def.noLightShadow) continue;
-        // Per request: nothing on layers 1 and 2 (dirt, the ground —
-        // grass, water, port tiles) throws a shadow. The Water Crates
-        // live on layer 2 by name but are real objects, so they keep one.
-        if ((layer === dirtLayer || layer === groundLayer) && !def.depthBand) continue;
-        if (key === excludeKey) continue;
-        const comma = key.indexOf(",");
-        const col = +key.slice(0, comma);
-        const row = +key.slice(comma + 1);
-        if (col < minCol || col > maxCol || row < minRow || row > maxRow) continue;
-        pushSprite(type, col, row);
+        if (!def) return false;
+        // anything solid blocks light, `castsLightShadow` items opt in (bushes, mushrooms, flowers);
+        // not the plateau tops (`noLightShadow`), nothing flat on layers 1-2 but the water crates
+        if (!def.collides && !def.castsLightShadow) return false;
+        if (def.noLightShadow) return false;
+        if ((layer === dirtLayer || layer === groundLayer) && !def.depthBand) return false;
+        return true;
+      });
+      for (let row = minRow; row <= maxRow; row++) {
+        const a = rows.get(row);
+        if (!a) continue;
+        for (const [col, type, key] of a) {
+          if (col < minCol || col > maxCol || key === excludeKey) continue;
+          pushSprite(type, col, row);
+        }
       }
-    }
+    });
   }
 
   // Drop anything whose picture the light is sitting INSIDE of — a
@@ -1195,42 +1209,52 @@ function relightOccluders(feetY, isPlayer) {
     return out;
   }
   const nRow = Math.floor(feetY / TILE);
-  objectLayer.forEach((type, key) => {
-    const def = itemDefs[type];
-    if (!def || def.alwaysBehindPlayer) return;
-    const comma = key.indexOf(",");
-    const col = +key.slice(0, comma), row = +key.slice(comma + 1);
-    if (row < nRow - 2 || row > nRow + 14) return; // only things further down the screen can be in front (-2: a crate's band sits above its own tile)
-    if (itemSortY(type, col, row) <= feetY + (/^(bush|decoFlower)/.test(type) ? CHARACTER_VISIBLE_FEET_EXTRA : 0)) return; // bushes: against the visible feet (drawableOrder())
-    if (seated && col === player.sitAnchorCol && row === player.sitAnchorRow) return;
-    const swap = nightSwapFor(type);
-    const showNight = swap && swap.night > 0.5;
-    const icon = showNight ? swap.icon : def.icon;
-    if (!icon || !icon.width) return;
-    const r = objectArtRect(icon, showNight ? swap.root : def.artRoot, col, row, camX, camY);
-    let alpha = 1;
-    if (isPlayer) {
-      // Same see-through check drawObjectLayerItem() uses for this frame.
-      const minX = camX + r.x / zoom, minY = camY + r.y / zoom;
-      if (shouldFadeForOcclusion(type, minX, minX + icon.width, minY, minY + icon.height,
-        itemSortY(type, col, row), showNight ? (def.nightMaskType || type) : type, col, row)) alpha = 1 - OBJECT_FADE_ALPHA;
-    }
-    out.push({ icon, x: r.x, y: r.y, w: r.w, h: r.h, alpha });
-  });
-  // Crates/mushrooms on the other layers (see renderWorldObjectsSorted()).
-  for (const layer of [groundLayer, groundOverlayLayer, upperLayer]) {
-    layer.forEach((type, key) => {
+  // Performance: only the rows that can be in front, and only near the screen (row buckets, above).
+  const vc0 = Math.floor(camX / TILE) - 10, vc1 = Math.ceil((camX + view.width / zoom) / TILE) + 10;
+  const objRows = layerRows(objectLayer, "relightObj", (type) => { const d = itemDefs[type]; return !!(d && !d.alwaysBehindPlayer); });
+  for (let row = nRow - 2; row <= nRow + 14; row++) { // only things further down the screen can be in front (-2: a crate's band sits above its own tile)
+    const list = objRows.get(row);
+    if (!list) continue;
+    for (const [col, type] of list) {
+      if (col < vc0 || col > vc1) continue;
       const def = itemDefs[type];
-      const flower = layer === groundOverlayLayer && /^decoFlower/.test(type);
-      if (!def || (!def.depthBand && !flower)) return;
-      const [col, row] = key.split(",").map(Number);
-      if (flower ? (row + 1) * TILE <= feetY + CHARACTER_VISIBLE_FEET_EXTRA : itemSortY(type, col, row) <= feetY) return;
-      const icon = def.icon;
-      if (!icon || !icon.width) return;
-      out.push({ icon, x: ((col + 0.5) * TILE - camX) * zoom - icon.width * zoom / 2,
-        y: ((row + 1) * TILE - camY) * zoom - icon.height * zoom, w: icon.width * zoom, h: icon.height * zoom, alpha: 1 });
-    });
+      if (itemSortY(type, col, row) <= feetY + (/^(bush|decoFlower)/.test(type) ? CHARACTER_VISIBLE_FEET_EXTRA : 0)) continue; // bushes: against the visible feet (drawableOrder())
+      if (seated && col === player.sitAnchorCol && row === player.sitAnchorRow) continue;
+      const swap = nightSwapFor(type);
+      const showNight = swap && swap.night > 0.5;
+      const icon = showNight ? swap.icon : def.icon;
+      if (!icon || !icon.width) continue;
+      const r = objectArtRect(icon, showNight ? swap.root : def.artRoot, col, row, camX, camY);
+      let alpha = 1;
+      if (isPlayer) {
+        // Same see-through check drawObjectLayerItem() uses for this frame.
+        const minX = camX + r.x / zoom, minY = camY + r.y / zoom;
+        if (shouldFadeForOcclusion(type, minX, minX + icon.width, minY, minY + icon.height,
+          itemSortY(type, col, row), showNight ? (def.nightMaskType || type) : type, col, row)) alpha = 1 - OBJECT_FADE_ALPHA;
+      }
+      out.push({ icon, x: r.x, y: r.y, w: r.w, h: r.h, alpha });
+    }
   }
+  // Crates/mushrooms on the other layers (see renderWorldObjectsSorted()).
+  [groundLayer, groundOverlayLayer, upperLayer].forEach((layer, li) => {
+    const rows = layerRows(layer, "relightBand" + li, (type) => {
+      const def = itemDefs[type];
+      return !!(def && (def.depthBand || (layer === groundOverlayLayer && /^decoFlower/.test(type))));
+    });
+    for (const [row, list] of rows) {
+      if (row < nRow - 3) continue;
+      for (const [col, type] of list) {
+        if (col < vc0 || col > vc1) continue;
+        const def = itemDefs[type];
+        const flower = layer === groundOverlayLayer && /^decoFlower/.test(type);
+        if (flower ? (row + 1) * TILE <= feetY + CHARACTER_VISIBLE_FEET_EXTRA : itemSortY(type, col, row) <= feetY) continue;
+        const icon = def.icon;
+        if (!icon || !icon.width) continue;
+        out.push({ icon, x: ((col + 0.5) * TILE - camX) * zoom - icon.width * zoom / 2,
+          y: ((row + 1) * TILE - camY) * zoom - icon.height * zoom, w: icon.width * zoom, h: icon.height * zoom, alpha: 1 });
+      }
+    }
+  });
   // A Port Bridge covers whoever's feet are inside its span (under it) —
   // same rule as renderWorldObjectsSorted(); never the player up on it.
   if (!(isPlayer && player.elevated)) {
@@ -2568,7 +2592,14 @@ function renderWorldObjectsSorted() {
   // slot the sat-on bench in just behind the player (see `sittingOnThis`).
   const seatedPlayerSortY = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
 
-  objectLayer.forEach((type, key) => {
+  // Performance: only the rows/cols around the screen (row buckets, see layerRows()) instead of
+  // walking every placed item on the map every frame.
+  const vr0 = Math.floor(camY / TILE) - 3, vr1 = Math.ceil((camY + view.height / zoom) / TILE) + 14;
+  const vc0 = Math.floor(camX / TILE) - 12, vc1 = Math.ceil((camX + view.width / zoom) / TILE) + 12;
+  const drawRows = layerRows(objectLayer, "drawObj", () => true);
+  const visibleObjects = [];
+  for (let r = vr0; r <= vr1; r++) { const a = drawRows.get(r); if (a) for (const e of a) if (e[0] >= vc0 && e[0] <= vc1) visibleObjects.push(e); }
+  visibleObjects.forEach(([, type, key]) => {
     // Hidden while its own sleep animation is playing (drawSleepingBed()
     // below draws in its place instead) — per request, the two must
     // never show at once, or it looks like two beds stacked on top of
@@ -2622,8 +2653,11 @@ function renderWorldObjectsSorted() {
   // (getDepthBandRect(), inventory.js): walk in from behind and they're
   // drawn over the character, walk in from the front and the character
   // is drawn over them.
-  for (const layer of [groundLayer, groundOverlayLayer, upperLayer]) {
-    layer.forEach((type, key) => {
+  [groundLayer, groundOverlayLayer, upperLayer].forEach((layer, li) => {
+    const bandRows = layerRows(layer, "relightBand" + li, (type) => { const def = itemDefs[type]; return !!(def && (def.depthBand || (layer === groundOverlayLayer && /^decoFlower/.test(type)))); });
+    const vis = [];
+    for (let r = vr0; r <= vr1; r++) { const a = bandRows.get(r); if (a) for (const e of a) if (e[0] >= vc0 && e[0] <= vc1) vis.push([e[1], e[2]]); }
+    vis.forEach(([type, key]) => {
       const flower = layer === groundOverlayLayer && /^decoFlower/.test(type);
       if (!itemDefs[type].depthBand && !flower) return;
       const [col, row] = key.split(",").map(Number);
@@ -2633,7 +2667,7 @@ function renderWorldObjectsSorted() {
       // visible-feet rule as the bushes (drawableOrder()).
       drawables.push({ sortY: flower ? (row + 1) * TILE : itemSortY(type, col, row), bush: flower, draw: () => drawGroundItemAt(type, col, row) });
     });
-  }
+  });
 
   // Port Bridge (bridgeLayer): each connected bridge is ONE drawable,
   // Y-sorted on its bottom edge like a big object. So a tree or anyone

@@ -845,7 +845,8 @@ function drawMineOverlay() {
   if (!room) return;
   const st = mineStates[mobZoneKey()];
   if (st) for (const d of st.drops) if (d.phase === "vacuum") drawMineDrop(d);
-  const dt = 1 / 60;
+  const nowT = performance.now(), dt = Math.min(0.05, (nowT - (drawMineOverlay.lastT || nowT)) / 1000); // real frame time: the numbers float at the same speed at 30, 60 or 120 fps
+  drawMineOverlay.lastT = nowT;
   for (let i = mineNumbers.length - 1; i >= 0; i--) {
     const n = mineNumbers[i];
     if (n.room !== mobZoneKey()) { mineNumbers.splice(i, 1); continue; }

@@ -698,6 +698,7 @@ function isInGrocery() {
 }
 let roomHintEl = null;
 function updateRoomHint() {
+  if (typeof player === "undefined") return; // the interval can fire before js/player.js has loaded
   if (!roomHintEl) {
     roomHintEl = document.createElement("div");
     roomHintEl.style.cssText = "position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:40;padding:4px 10px;background:rgba(0,0,0,.55);color:#f3e2c3;font:12px monospace;border-radius:6px;pointer-events:none;display:none";

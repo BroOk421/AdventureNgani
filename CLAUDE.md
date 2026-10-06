@@ -6045,3 +6045,20 @@ browser can't show a stale cave texture.
   (drawAuraBursts(): every 2.6 s at +1 down to 0.8 s at +10, 1-3 at once,
   round the outline): lightning arcs, embers, holy sparkles, frost shards, a
   gust ring. index.html -> ?v=20261020a.
+
+## Performance pass (phones), high refresh rate
+
+- js/camera.js: layer row buckets — layerRows(layer, tag, keep) keeps a
+  Map row -> [[col, type, key]] of the items a pass cares about, rebuilt
+  only when the layer changes (set/delete/clear of every layer are wrapped to
+  bump layerVersions). Used by relightOccluders() (was a full objectLayer +
+  ground/overlay/upper scan per relit character / lamp, several per frame
+  at night), collectLightOccluders() (outdoors) and
+  renderWorldObjectsSorted() (only rows/cols around the screen). Headless
+  phone-sized test at night: ~29 -> ~38 fps; JS is no longer the bulk.
+- android MainActivity useHighestRefreshRate(): asks for the display's
+  fastest mode (90/120 Hz phones), which the WebView's frame rate follows.
+  Needs an APK rebuild (npm run build:web, npx cap sync, build).
+- js/mines.js drawMineOverlay(): real frame time for the floating numbers
+  (was a fixed 1/60). js/roomCustomizer.js updateRoomHint(): no error if it
+  fires before js/player.js loads. index.html -> ?v=20261021a.
