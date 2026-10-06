@@ -600,7 +600,7 @@ function mineIndoorUpdate(dt) {
   if (harvestRequested && !(typeof isRoomTool === "function" && isRoomTool(player.equippedWeapon))) {
     // outdoors F still chops trees / breaks stones unless a mob is right there
     const wpn = player.equippedWeapon && itemDefs[player.equippedWeapon];
-    if (room.kind === "world" && !mobInFront(st, wpn && wpn.weapon && wpn.weapon.ranged ? 5 * TILE + 8 : 40)) return false;
+    if (room.kind === "world" && !mobInFront(st, (wpn && wpn.weapon && wpn.weapon.ranged ? 3 : 2) * TILE + 8)) return false; // a mob within 2 tiles (bow: 3) — otherwise F still chops / breaks
     harvestRequested = false;
     startMineSwing();
     return true;

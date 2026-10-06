@@ -115,7 +115,8 @@ function skillDamage(mult, m) {
 }
 // a sword-style body swing whose own hit is skipped (the skill deals the damage)
 function skillSwing(style) {
-  startMineSwing();
+  window.skillSwingNoAim = true;
+  try { startMineSwing(); } finally { window.skillSwingNoAim = false; }
   if (player.mineSwing) { player.mineSwing.hitDone = true; player.mineSwing.style = style; player.mineSwing.skill = true; }
 }
 const skillFx = []; // { kind, ..., t0 }

@@ -25,6 +25,9 @@ const MOBILE_ON = (() => {
   } catch (e) { return false; }
 })();
 
+// Settings > Quality: "Smooth" (half resolution, much faster — the default) or "Sharp" (full).
+let MOBILE_RENDER_SCALE = 0.5;
+try { const q = localStorage.getItem("agn-render-scale"); if (q === "1") MOBILE_RENDER_SCALE = 1; } catch (e) { /* private mode */ }
 function mobileKey(key, down) {
   window.dispatchEvent(new KeyboardEvent(down ? "keydown" : "keyup", { key, bubbles: true }));
 }
@@ -39,6 +42,7 @@ if (MOBILE_ON) {
   css.textContent = `
   body.mobile { overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   body.mobile #top-toolbar { display: none !important; }
+  body.mobile #vignette-blur { display: none !important; } /* a full-screen backdrop blur: very heavy on a phone */
   body.mobile #hotbar { zoom: 0.66; } /* the 10 slots fit between the joystick and the action buttons */
   body.mobile #minimap { position: fixed !important; right: 14px !important; top: 10px !important; left: auto !important; bottom: auto !important;
     width: 96px !important; height: 96px !important; border-radius: 50%; border: 3px solid #a8743e; box-shadow: 0 3px 0 #3b2a1e; z-index: 45; }
@@ -179,7 +183,7 @@ if (MOBILE_ON) {
     </div></div>`);
   const drop = col.querySelector("#mb-drop"), menuBtn = col.querySelector('[data-a="menu"]');
   const settings = add(`<div id="mb-settings" class="mb">
-    <button data-s="map">Map</button><button data-s="save">Save</button><button data-s="export">Export</button><button data-s="import">Import</button><button data-s="fps">FPS</button></div>`);
+    <button data-s="map">Map</button><button data-s="save">Save</button><button data-s="export">Export</button><button data-s="import">Import</button><button data-s="fps">FPS</button><button data-s="quality" id="mb-quality">Quality: ${MOBILE_RENDER_SCALE < 1 ? "Smooth" : "Sharp"}</button></div>`);
   const clickToolbar = (re) => { for (const b of document.querySelectorAll("#top-toolbar button")) if (re.test(b.textContent)) { b.click(); return true; } return false; };
   col.addEventListener("pointerdown", (e) => {
     const b = e.target.closest("button"); if (!b) return;
@@ -199,6 +203,12 @@ if (MOBILE_ON) {
     else if (s === "export") clickToolbar(/Export/);
     else if (s === "import") clickToolbar(/Import/);
     else if (s === "fps") toggleFps();
+    else if (s === "quality") {
+      MOBILE_RENDER_SCALE = MOBILE_RENDER_SCALE < 1 ? 1 : 0.5;
+      try { localStorage.setItem("agn-render-scale", String(MOBILE_RENDER_SCALE)); } catch (e) { /* ignore */ }
+      b.textContent = "Quality: " + (MOBILE_RENDER_SCALE < 1 ? "Smooth" : "Sharp");
+      resizeCanvas();
+    }
     settings.classList.remove("open");
   });
 

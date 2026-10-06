@@ -59,10 +59,36 @@ function isLongSword(type) {
   return S >= 32;
 }
 let lastSwordStyle = null;
+/* Per request ("kapag pinpindot yung espada or yung malaking button na yun is mga 2 tiles away is yun
+   yung ma hit niya tapos bow 3 tiles"): F / the ATTACK button aims by itself — the nearest mob within
+   2 tiles (a bow: 3) is turned to and hit, wherever it stands round you. */
+const SWORD_AUTO_RANGE = 2 * TILE, BOW_AUTO_RANGE = 3 * TILE;
+function autoAimMob() {
+  const zone = typeof currentMineRoom === "function" ? currentMineRoom() : null;
+  const st = zone && mineStates[mobZoneKey()];
+  if (!st) return null;
+  const w = player.equippedWeapon && itemDefs[player.equippedWeapon];
+  const range = w && w.weapon && w.weapon.ranged ? BOW_AUTO_RANGE : SWORD_AUTO_RANGE;
+  const fx = player.x, fy = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+  let best = null, bd = 1e9;
+  for (const m of st.mobs) {
+    if (m.state === "dead" || m.gone) continue;
+    const d = Math.hypot(m.x - fx, m.y - fy) - m.def.r * 0.5;
+    if (d <= range && d < bd) { bd = d; best = m; }
+  }
+  return best;
+}
 {
   const base = startMineSwing;
   startMineSwing = function () {
+    // the mob to hit: the one you're attacking (clicked), else the nearest in reach
+    const aim = window.skillSwingNoAim || (player.autoTarget && player.autoTarget.state !== "dead") ? null : autoAimMob(); // a skill picks its own target (js/skills.js)
+    if (aim) {
+      const fx = player.x, fy = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE, dx = aim.x - fx, dy = aim.y - fy;
+      player.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+    }
     const r = base.apply(this, arguments);
+    if (aim && player.mineSwing) player.mineSwing.aim = aim;
     if (player.mineSwing && isSwordWeapon(player.equippedWeapon)) {
       // the body plays the plain swing; the sword itself is drawn by drawSwordSwing() below
       player.action = "hit"; player.frame = 0; player.frameTimer = 0;
@@ -201,6 +227,22 @@ drawSwordSwing = function (screenX, screenY, z) {
   ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.fillRect(tx - k, ty - k, 2 * k, 2 * k);
   ctx.restore();
 };
+
+{
+  // the aimed mob is the one hit (it may stand beside or behind the old "in front" box)
+  const base = resolveMineSwing;
+  resolveMineSwing = function (room, st, swing) {
+    const m = swing && swing.aim;
+    if (m && m.state !== "dead" && st.mobs.includes(m) && !player.autoTarget) {
+      const keep = player.autoTarget;
+      player.autoTarget = m;
+      const reach = swing.reach;
+      if (!swing.ranged) swing.reach = Math.max(swing.reach || 0, SWORD_AUTO_RANGE);
+      try { return base.apply(this, arguments); } finally { player.autoTarget = keep; swing.reach = reach; }
+    }
+    return base.apply(this, arguments);
+  };
+}
 
 /* ---------------- hit effects ---------------- */
 const combatFx = []; // { kind, x, y, t0, crit, color, zone, ang }

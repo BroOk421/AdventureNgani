@@ -32,7 +32,12 @@ function resizeCanvas() {
   // art is scaled up by the browser with image-rendering: pixelated, so it
   // stays sharp.
   const isMobile = typeof MOBILE_ON !== "undefined" && MOBILE_ON;
-  const dpr = isMobile ? 1 : (window.devicePixelRatio || 1);
+  // Phones (Settings > Quality, js/mobile.js): "Smooth" draws at HALF resolution — a quarter of the
+  // pixels every frame — with the camera zoom halved to match, so every art pixel is still exactly one
+  // canvas pixel (then 2 screen px, image-rendering: pixelated): the picture looks the same, much faster.
+  const mobileScale = isMobile && typeof MOBILE_RENDER_SCALE !== "undefined" ? MOBILE_RENDER_SCALE : 1;
+  const dpr = isMobile ? mobileScale : (window.devicePixelRatio || 1);
+  if (isMobile && typeof MOBILE_ZOOM !== "undefined") zoom = MOBILE_ZOOM * mobileScale;
   // Render at full device-pixel resolution so nothing gets upscaled/blurred
   // by the browser, then keep the CSS size at the window size.
   view.width = Math.round(window.innerWidth * dpr);

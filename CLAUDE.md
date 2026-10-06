@@ -6062,3 +6062,19 @@ browser can't show a stale cave texture.
 - js/mines.js drawMineOverlay(): real frame time for the floating numbers
   (was a fixed 1/60). js/roomCustomizer.js updateRoomHint(): no error if it
   fires before js/player.js loads. index.html -> ?v=20261021a.
+
+## Phones: half-resolution "Smooth" quality; ATTACK auto-aims (sword 2 tiles, bow 3)
+
+- js/mobile.js MOBILE_RENDER_SCALE (Settings > Quality: Smooth 0.5 = the
+  default / Sharp 1, saved as localStorage "agn-render-scale"). js/camera.js
+  resizeCanvas(): on a phone the canvas is drawn at that scale and zoom is
+  MOBILE_ZOOM x scale, so one art pixel is still one canvas pixel (CSS
+  pixelated upscale) — a quarter of the pixels per frame at Smooth. Headless
+  1248x576 snow test: ~49 -> ~78 fps. The full-screen backdrop-filter
+  vignette (#vignette-blur) is off on phones.
+- js/combat.js autoAimMob(): F / ATTACK turns to and hits the nearest mob
+  within 2 tiles (bows 3), wherever it stands (startMineSwing wrapper sets
+  mineSwing.aim; resolveMineSwing wrapper hits it); skills keep their own
+  target (window.skillSwingNoAim). js/gear.js BOW_RANGE = 3 tiles;
+  js/mines.js: outdoors F only becomes an attack with a mob within 2 / 3
+  tiles. index.html -> ?v=20261022a.
