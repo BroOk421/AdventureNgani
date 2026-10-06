@@ -540,11 +540,16 @@ function mobileSpeedMult(running) {
 }
 // Phone (js/mobile.js) camera zoom. Higher = closer, lower = farther.
 // Desktop keeps ZOOM_MIN above.
-const MOBILE_ZOOM = 2.7; // per request: a closer phone camera (was 2)
+const MOBILE_ZOOM = 2.4; // per request: a closer phone camera (was 2)
 // Phone walk/run animation speed, x normal — slowed less than the movement
 // so the steps don't look like slow motion, but enough that the feet don't
 // slide. (Idle is not affected.)
 const MOBILE_ANIM_MULT = 1; // per request: the same snappy animation speed as the desktop (was 0.75)
+// true on the phone version (js/mobile.js). The phone-only changes (speed tricks, aiming, ranges)
+// check this, so the desktop plays exactly as before.
+function isMobileMode() {
+  return typeof MOBILE_ON !== "undefined" && !!MOBILE_ON;
+}
 function mobileAnimMult() {
   return typeof MOBILE_ON !== "undefined" && MOBILE_ON ? MOBILE_ANIM_MULT : 1;
 }

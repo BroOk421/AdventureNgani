@@ -511,6 +511,7 @@ function auraGlowSprite(A, z) {
 }
 function drawBodyAuraGlow(A, screenX, screenY, z) {
   if (player.sleeping || player.sitting) return;
+  if (!isMobileMode()) return drawBodyAuraGlowDesktop(A, screenX, screenY, z); // the desktop draws it live, as before
   const E = UPGRADE_ELEMENTS[A.el], [r, g, b] = E.glow, t = performance.now() / 1000;
   const size = DRAW_SIZE * z, k = (DRAW_SIZE / 64) * z;
   const breathe = 0.75 + 0.25 * Math.sin(t * 2.6) + 0.08 * Math.sin(t * 7.3);
@@ -527,6 +528,34 @@ function drawBodyAuraGlow(A, screenX, screenY, z) {
   ctx.beginPath(); ctx.ellipse(screenX, gy, (10 + 8 * A.f) * k, (4 + 3 * A.f) * k, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
+// The desktop's version (unchanged): built and blurred live every frame.
+function drawBodyAuraGlowDesktop(A, screenX, screenY, z) {
+  const E = UPGRADE_ELEMENTS[A.el], [r, g, b] = E.glow, t = performance.now() / 1000;
+  const size = DRAW_SIZE * z, W = Math.ceil(size * 1.6), H = Math.ceil(size * 1.6);
+  if (auraSilCanvas.width !== W || auraSilCanvas.height !== H) { auraSilCanvas.width = W; auraSilCanvas.height = H; }
+  const sg = auraSilCanvas.getContext("2d");
+  sg.setTransform(1, 0, 0, 1, 0, 0); sg.globalCompositeOperation = "source-over"; sg.clearRect(0, 0, W, H); sg.imageSmoothingEnabled = false;
+  drawPlayerSprite(W / 2, H / 2, z, sg);
+  sg.globalCompositeOperation = "source-in"; sg.fillStyle = "rgb(" + r + "," + g + "," + b + ")"; sg.fillRect(0, 0, W, H);
+  const breathe = 0.75 + 0.25 * Math.sin(t * 2.6) + 0.08 * Math.sin(t * 7.3);
+  const k = (DRAW_SIZE / 64) * z;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const spread = 1.06 + 0.1 * A.f;
+  ctx.filter = "blur(" + Math.max(1, (2.5 + 4 * A.f) * k).toFixed(1) + "px)";
+  ctx.globalAlpha = Math.min(1, (0.25 + 0.55 * A.f) * breathe);
+  ctx.drawImage(auraSilCanvas, screenX - W * spread / 2, screenY - H * spread / 2 - 1.5 * k, W * spread, H * spread);
+  ctx.filter = "blur(" + Math.max(0.6, 1.2 * k).toFixed(1) + "px)";
+  ctx.globalAlpha = Math.min(1, (0.2 + 0.5 * A.f) * breathe);
+  ctx.drawImage(auraSilCanvas, screenX - W / 2, screenY - H / 2, W, H);
+  ctx.filter = "none";
+  const gy = screenY + (SPRITE_FEET_FRACTION - 0.5) * size;
+  const gr = ctx.createRadialGradient(screenX, gy, 0, screenX, gy, (10 + 8 * A.f) * k);
+  gr.addColorStop(0, "rgba(" + r + "," + g + "," + b + "," + (0.25 * A.f * breathe).toFixed(3) + ")"); gr.addColorStop(1, "rgba(" + r + "," + g + "," + b + ",0)");
+  ctx.globalAlpha = 1; ctx.fillStyle = gr;
+  ctx.beginPath(); ctx.ellipse(screenX, gy, (10 + 8 * A.f) * k, (4 + 3 * A.f) * k, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
 // the slung blade glows in the weapon's own element (behind the body, like the sword)
 function drawBladeGlow(A, auras, z) {
   const w = auras.find((a) => a.slot === "weapon");
@@ -535,6 +564,15 @@ function drawBladeGlow(A, auras, z) {
   const E = UPGRADE_ELEMENTS[w.el], [r, g, b] = E.glow, t = performance.now() / 1000, k = (DRAW_SIZE / 64) * z;
   ctx.save();
   ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round";
+  if (!isMobileMode()) { // the desktop's version (unchanged): one blurred stroke
+    ctx.filter = "blur(" + Math.max(1, 2 * k).toFixed(1) + "px)";
+    ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + "," + ((0.3 + 0.5 * w.f) * (0.8 + 0.2 * Math.sin(t * 3.4))).toFixed(3) + ")";
+    ctx.lineWidth = (2 + 3 * w.f) * k;
+    ctx.beginPath(); ctx.moveTo(L.x0, L.y0); ctx.lineTo(L.x1, L.y1); ctx.stroke();
+    ctx.filter = "none";
+    ctx.restore();
+    return;
+  }
   const a = (0.3 + 0.5 * w.f) * (0.8 + 0.2 * Math.sin(t * 3.4));
   for (const [wd, al] of [[6 + 5 * w.f, 0.1], [3.5 + 3 * w.f, 0.18], [1.6 + 1.5 * w.f, 0.3]]) { // soft layers instead of a canvas blur
     ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + "," + (a * al).toFixed(3) + ")";

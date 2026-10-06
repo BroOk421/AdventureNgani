@@ -35,6 +35,7 @@ function mobileTap(key) { mobileKey(key, true); setTimeout(() => mobileKey(key, 
 
 if (MOBILE_ON) {
   document.body.classList.add("mobile");
+  if (typeof BOW_RANGE !== "undefined") BOW_RANGE = 3 * TILE; // the phone's bow reach (per request); the desktop keeps 5
   zoom = MOBILE_ZOOM; // phone camera (js/config.js)
   const vp = document.querySelector('meta[name="viewport"]');
   if (vp) vp.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover");

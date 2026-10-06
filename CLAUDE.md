@@ -6134,3 +6134,18 @@ browser can't show a stale cave texture.
 - js/config.js: MOBILE_ANIM_MULT 0.75 -> 1 (walk/run frames as fast as the
   desktop), MOBILE_SPEED_MULT 0.55 -> 0.85 (the slow steps read as lag),
   MOBILE_ZOOM 2 -> 2.7 (closer camera). index.html -> ?v=20261027a.
+
+## Phone-only changes kept off the desktop
+
+- js/config.js isMobileMode(). Everything done for the phone now checks it,
+  so the desktop runs exactly as before: the ground chunks (js/chunks.js
+  falls back to the old passes), culling (js/culling.js: old
+  itemOffscreen(), mobs drawn / updated every frame), the row-bucket paths
+  in js/camera.js (collectLightOccluders / relightOccluders /
+  renderWorldObjectsSorted keep both versions), the ATTACK auto-aim and
+  4-tile seek (js/combat.js), the 2/3-tile F gate outdoors (js/mines.js),
+  the overlay's real-dt numbers, the cached aura glow / stroke blade glow
+  (js/upgrades.js: the desktop draws them live with the blur, as before).
+  BOW_RANGE is `let` (js/gear.js): 5 tiles, set to 3 by js/mobile.js on a
+  phone. Already phone-only: render scale, MOBILE_* speeds/zoom, weather
+  rebuild rate, the vignette blur. index.html -> ?v=20261028a.

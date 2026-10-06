@@ -27,7 +27,10 @@ function rectInView(x0, y0, x1, y1) {
 }
 
 /* ---------------- placed objects ---------------- */
+// Phones only — per request the desktop is left exactly as it was.
+const itemOffscreenDesktop = itemOffscreen;
 itemOffscreen = function (type, col, row) {
+  if (!isMobileMode()) return itemOffscreenDesktop.apply(this, arguments);
   const d = itemDefs[type];
   const ic = d && d.icon;
   if (!ic || !ic.width) return false;
@@ -45,11 +48,12 @@ function mobOnScreen(m) {
 }
 {
   const draw = drawMob;
-  drawMob = function (m) { if (!mobOnScreen(m)) return; return draw.apply(this, arguments); };
+  drawMob = function (m) { if (isMobileMode() && !mobOnScreen(m)) return; return draw.apply(this, arguments); };
   const drop = drawMineDrop;
-  drawMineDrop = function (d) { if (d.phase === "rest" && !rectInView(d.x - 10, d.y - 20, d.x + 10, d.y + 4)) return; return drop.apply(this, arguments); };
+  drawMineDrop = function (d) { if (isMobileMode() && d.phase === "rest" && !rectInView(d.x - 10, d.y - 20, d.x + 10, d.y + 4)) return; return drop.apply(this, arguments); };
   const upd = updateMob;
   updateMob = function (room, st, m, dt) {
+    if (!isMobileMode()) return upd.apply(this, arguments);
     if (m.state === "dead" || m.state === "attack" || (m.stunUntil && m.stunUntil > performance.now() / 1000) || player.autoTarget === m || mobOnScreen(m)) {
       if (m._idleDt) { dt += m._idleDt; m._idleDt = 0; }
       return upd.call(this, room, st, m, Math.min(dt, 0.25));

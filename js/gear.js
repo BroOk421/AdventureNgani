@@ -263,7 +263,7 @@ setInterval(() => {
 }, 250);
 
 /* ---------------- click a mob: walk up and keep attacking ---------------- */
-const BOW_RANGE = 3 * TILE; // per request: a bow hits a mob up to 3 tiles away (a sword 2 — js/combat.js)
+let BOW_RANGE = 5 * TILE; // a bow hits a mob up to 5 tiles away; on the phone 3 (set in js/mobile.js, per request)
 player.autoTarget = null;
 let autoKeysHeld = new Set(), attackCooldown = 0;
 function releaseAutoKeys() { for (const k of autoKeysHeld) keys[k] = false; autoKeysHeld.clear(); }

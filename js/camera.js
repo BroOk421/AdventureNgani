@@ -823,6 +823,7 @@ function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
     const maxRow = Math.ceil(maxY / TILE) + LIGHT_OCCLUDER_TILE_MARGIN;
     // Performance: look up only the tiles in reach of the light instead of
     // walking every placed item on the map for every candle and lamp.
+    if (isMobileMode()) { // phones: the row-bucket version (same result, far less work)
     ALL_LAYERS.forEach((layer, li) => {
       const rows = layerRows(layer, "occ" + li, (type) => {
         const def = itemDefs[type];
@@ -843,6 +844,47 @@ function collectLightOccluders(worldCX, worldCY, worldRadius, opts) {
         }
       }
     });
+    } else {
+    const span = (maxCol - minCol + 1) * (maxRow - minRow + 1);
+    for (const layer of ALL_LAYERS) {
+      const entries = layer.size <= span ? layer : null;
+      const iter = entries ? entries.entries() : (function* () {
+        for (let r = minRow; r <= maxRow; r++) for (let c = minCol; c <= maxCol; c++) {
+          const k = c + "," + r, t = layer.get(k);
+          if (t !== undefined) yield [k, t];
+        }
+      })();
+      for (const [key, type] of iter) {
+        const def = itemDefs[type];
+        if (!def) continue;
+        // Two ways in: anything solid blocks light by definition, and
+        // anything flagged `castsLightShadow` opts in on top of that —
+        // per request ("add mo rin yung ibang walang shadow gaya ng bush,
+        // mushrooms... pero yung flower na folder flower1, flower2 lagyan
+        // mo ng shadow"). Bushes, mushrooms and the tall/short flowers
+        // are things you walk straight through, so they never collided
+        // and so never showed up in the light — but they're solid enough
+        // to block a candle, and a lit clearing where the bushes throw
+        // nothing looks wrong. The flowering bushes in assets/bushes/ are
+        // deliberately left out, as asked.
+        if (!def.collides && !def.castsLightShadow) continue;
+        // Per request: the mountain plateau tiles (top / inner / center /
+        // bottom mountain grass, `noLightShadow`, js/inventory.js) are the
+        // ground you walk on up there, not something standing in the light.
+        if (def.noLightShadow) continue;
+        // Per request: nothing on layers 1 and 2 (dirt, the ground —
+        // grass, water, port tiles) throws a shadow. The Water Crates
+        // live on layer 2 by name but are real objects, so they keep one.
+        if ((layer === dirtLayer || layer === groundLayer) && !def.depthBand) continue;
+        if (key === excludeKey) continue;
+        const comma = key.indexOf(",");
+        const col = +key.slice(0, comma);
+        const row = +key.slice(comma + 1);
+        if (col < minCol || col > maxCol || row < minRow || row > maxRow) continue;
+        pushSprite(type, col, row);
+      }
+    }
+    }
   }
 
   // Drop anything whose picture the light is sitting INSIDE of — a
@@ -1213,6 +1255,7 @@ function relightOccluders(feetY, isPlayer) {
     if (typeof mineRelightOccluders === "function") for (const o of mineRelightOccluders(feetY)) out.push(o); // cave mobs in front (js/mines.js)
     return out;
   }
+  if (isMobileMode()) { // phones: the row-bucket version (same result, far less work)
   const nRow = Math.floor(feetY / TILE);
   // Performance: only the rows that can be in front, and only near the screen (row buckets, above).
   const vc0 = Math.floor(camX / TILE) - 10, vc1 = Math.ceil((camX + view.width / zoom) / TILE) + 10;
@@ -1260,6 +1303,45 @@ function relightOccluders(feetY, isPlayer) {
       }
     }
   });
+  } else {
+  const nRow = Math.floor(feetY / TILE);
+  objectLayer.forEach((type, key) => {
+    const def = itemDefs[type];
+    if (!def || def.alwaysBehindPlayer) return;
+    const comma = key.indexOf(",");
+    const col = +key.slice(0, comma), row = +key.slice(comma + 1);
+    if (row < nRow - 2 || row > nRow + 14) return; // only things further down the screen can be in front (-2: a crate's band sits above its own tile)
+    if (itemSortY(type, col, row) <= feetY + (/^(bush|decoFlower)/.test(type) ? CHARACTER_VISIBLE_FEET_EXTRA : 0)) return; // bushes: against the visible feet (drawableOrder())
+    if (seated && col === player.sitAnchorCol && row === player.sitAnchorRow) return;
+    const swap = nightSwapFor(type);
+    const showNight = swap && swap.night > 0.5;
+    const icon = showNight ? swap.icon : def.icon;
+    if (!icon || !icon.width) return;
+    const r = objectArtRect(icon, showNight ? swap.root : def.artRoot, col, row, camX, camY);
+    let alpha = 1;
+    if (isPlayer) {
+      // Same see-through check drawObjectLayerItem() uses for this frame.
+      const minX = camX + r.x / zoom, minY = camY + r.y / zoom;
+      if (shouldFadeForOcclusion(type, minX, minX + icon.width, minY, minY + icon.height,
+        itemSortY(type, col, row), showNight ? (def.nightMaskType || type) : type, col, row)) alpha = 1 - OBJECT_FADE_ALPHA;
+    }
+    out.push({ icon, x: r.x, y: r.y, w: r.w, h: r.h, alpha });
+  });
+  // Crates/mushrooms on the other layers (see renderWorldObjectsSorted()).
+  for (const layer of [groundLayer, groundOverlayLayer, upperLayer]) {
+    layer.forEach((type, key) => {
+      const def = itemDefs[type];
+      const flower = layer === groundOverlayLayer && /^decoFlower/.test(type);
+      if (!def || (!def.depthBand && !flower)) return;
+      const [col, row] = key.split(",").map(Number);
+      if (flower ? (row + 1) * TILE <= feetY + CHARACTER_VISIBLE_FEET_EXTRA : itemSortY(type, col, row) <= feetY) return;
+      const icon = def.icon;
+      if (!icon || !icon.width) return;
+      out.push({ icon, x: ((col + 0.5) * TILE - camX) * zoom - icon.width * zoom / 2,
+        y: ((row + 1) * TILE - camY) * zoom - icon.height * zoom, w: icon.width * zoom, h: icon.height * zoom, alpha: 1 });
+    });
+  }
+  }
   // A Port Bridge covers whoever's feet are inside its span (under it) —
   // same rule as renderWorldObjectsSorted(); never the player up on it.
   if (!(isPlayer && player.elevated)) {
@@ -2599,12 +2681,7 @@ function renderWorldObjectsSorted() {
 
   // Performance: only the rows/cols around the screen (row buckets, see layerRows()) instead of
   // walking every placed item on the map every frame.
-  const vr0 = Math.floor(camY / TILE) - 3, vr1 = Math.ceil((camY + view.height / zoom) / TILE) + 14;
-  const vc0 = Math.floor(camX / TILE) - 12, vc1 = Math.ceil((camX + view.width / zoom) / TILE) + 12;
-  const drawRows = layerRows(objectLayer, "drawObj", () => true);
-  const visibleObjects = [];
-  for (let r = vr0; r <= vr1; r++) { const a = drawRows.get(r); if (a) for (const e of a) if (e[0] >= vc0 && e[0] <= vc1) visibleObjects.push(e); }
-  visibleObjects.forEach(([, type, key]) => {
+  const objBody = (type, key) => {
     // Hidden while its own sleep animation is playing (drawSleepingBed()
     // below draws in its place instead) — per request, the two must
     // never show at once, or it looks like two beds stacked on top of
@@ -2650,7 +2727,14 @@ function renderWorldObjectsSorted() {
         : itemSortY(type, col, row));
     // bushes compare against characters' visible feet (drawableOrder())
     drawables.push({ sortY, bush: /^bush/.test(type) && sortY !== -Infinity, draw: () => drawObjectLayerItem(type, col, row) });
-  });
+  };
+  // phones: only the rows/cols round the screen (row buckets); the desktop walks the layer as before
+  const vr0 = Math.floor(camY / TILE) - 3, vr1 = Math.ceil((camY + view.height / zoom) / TILE) + 14;
+  const vc0 = Math.floor(camX / TILE) - 12, vc1 = Math.ceil((camX + view.width / zoom) / TILE) + 12;
+  if (isMobileMode()) {
+    const drawRows = layerRows(objectLayer, "drawObj", () => true);
+    for (let r = vr0; r <= vr1; r++) { const a = drawRows.get(r); if (a) for (const e of a) if (e[0] >= vc0 && e[0] <= vc1) objBody(e[1], e[2]); }
+  } else objectLayer.forEach(objBody);
 
   // `depthBand` items on the overlay layer (mushrooms), layer 4 (the
   // crates) and the ground layer (the Water Crates) — per request, these no longer sit permanently under / over
@@ -2659,10 +2743,7 @@ function renderWorldObjectsSorted() {
   // drawn over the character, walk in from the front and the character
   // is drawn over them.
   [groundLayer, groundOverlayLayer, upperLayer].forEach((layer, li) => {
-    const bandRows = layerRows(layer, "relightBand" + li, (type) => { const def = itemDefs[type]; return !!(def && (def.depthBand || (layer === groundOverlayLayer && /^decoFlower/.test(type)))); });
-    const vis = [];
-    for (let r = vr0; r <= vr1; r++) { const a = bandRows.get(r); if (a) for (const e of a) if (e[0] >= vc0 && e[0] <= vc1) vis.push([e[1], e[2]]); }
-    vis.forEach(([type, key]) => {
+    const bandBody = (type, key) => {
       const flower = layer === groundOverlayLayer && /^decoFlower/.test(type);
       if (!itemDefs[type].depthBand && !flower) return;
       const [col, row] = key.split(",").map(Number);
@@ -2671,7 +2752,11 @@ function renderWorldObjectsSorted() {
       // above their base, under one whose shoes have passed it — the same
       // visible-feet rule as the bushes (drawableOrder()).
       drawables.push({ sortY: flower ? (row + 1) * TILE : itemSortY(type, col, row), bush: flower, draw: () => drawGroundItemAt(type, col, row) });
-    });
+    };
+    if (isMobileMode()) {
+      const bandRows = layerRows(layer, "relightBand" + li, (type) => { const def = itemDefs[type]; return !!(def && (def.depthBand || (layer === groundOverlayLayer && /^decoFlower/.test(type)))); });
+      for (let r = vr0; r <= vr1; r++) { const a = bandRows.get(r); if (a) for (const e of a) if (e[0] >= vc0 && e[0] <= vc1) bandBody(e[1], e[2]); }
+    } else layer.forEach(bandBody);
   });
 
   // Port Bridge (bridgeLayer): each connected bridge is ONE drawable,

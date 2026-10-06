@@ -189,24 +189,29 @@ function drawLiveLayer(layer, tag, extra) {
 }
 
 /* ---------------- the passes, re-pointed ---------------- */
-if (!/[?&]nochunks=1/.test(location.search)) { // ?nochunks=1 turns this off (to compare)
-drawSnowGroundFill = function () { drawStackChunks("A"); };      // stack A (snow fill + layer 1), where the snow fill was drawn
-drawDirtLayer = function () {                                     // only what layer 1 still draws live
-  drawLiveLayer(dirtLayer, "liveDirt", (type, col, row) => {
-    if (type === "dirtRake" && typeof drawDirtRakeAuto === "function" && drawDirtRakeAuto(col, row)) return;
-    drawGroundItemAt(type, col, row);
-  });
-};
-drawFlatGroundItems = function () {                               // stack B, then layer 2's live pieces
-  drawStackChunks("B");
-  drawLiveLayer(groundLayer, "liveGround", (type, col, row) => drawGroundItemAt(type, col, row));
-};
-drawGroundOverlay = function () {                                 // layer 2-over's live pieces (the rest is in stack B)
-  drawLiveLayer(groundOverlayLayer, "liveOverlay", (type, col, row) => {
-    drawMountainInnerBacking(type, col, row);
-    drawGroundItemAt(snowSwapMountainType(type), col, row);
-  });
-};
+{ // phones only (per request the desktop is left exactly as it was); ?nochunks=1 turns it off to compare
+  const useChunks = () => isMobileMode() && !/[?&]nochunks=1/.test(location.search);
+  const base = { snow: drawSnowGroundFill, dirt: drawDirtLayer, flat: drawFlatGroundItems, over: drawGroundOverlay };
+  drawSnowGroundFill = function () { if (!useChunks()) return base.snow.apply(this, arguments); drawStackChunks("A"); }; // stack A (snow fill + layer 1)
+  drawDirtLayer = function () {                                     // only what layer 1 still draws live
+    if (!useChunks()) return base.dirt.apply(this, arguments);
+    drawLiveLayer(dirtLayer, "liveDirt", (type, col, row) => {
+      if (type === "dirtRake" && typeof drawDirtRakeAuto === "function" && drawDirtRakeAuto(col, row)) return;
+      drawGroundItemAt(type, col, row);
+    });
+  };
+  drawFlatGroundItems = function () {                               // stack B, then layer 2's live pieces
+    if (!useChunks()) return base.flat.apply(this, arguments);
+    drawStackChunks("B");
+    drawLiveLayer(groundLayer, "liveGround", (type, col, row) => drawGroundItemAt(type, col, row));
+  };
+  drawGroundOverlay = function () {                                 // layer 2-over's live pieces (the rest is in stack B)
+    if (!useChunks()) return base.over.apply(this, arguments);
+    drawLiveLayer(groundOverlayLayer, "liveOverlay", (type, col, row) => {
+      drawMountainInnerBacking(type, col, row);
+      drawGroundItemAt(snowSwapMountainType(type), col, row);
+    });
+  };
 }
 // art that finishes loading after a chunk was built: rebuild everything once
 window.addEventListener("load", () => { chunkEpoch++; });

@@ -82,7 +82,7 @@ function autoAimMob() {
   const base = startMineSwing;
   startMineSwing = function () {
     // the mob to hit: the one you're attacking (clicked), else the nearest in reach
-    const aim = window.skillSwingNoAim || (player.autoTarget && player.autoTarget.state !== "dead") ? null : autoAimMob(); // a skill picks its own target (js/skills.js)
+    const aim = !isMobileMode() || window.skillSwingNoAim || (player.autoTarget && player.autoTarget.state !== "dead") ? null : autoAimMob(); // a skill picks its own target (js/skills.js)
     if (aim) {
       const fx = player.x, fy = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE, dx = aim.x - fx, dy = aim.y - fy;
       player.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
@@ -239,6 +239,31 @@ drawSwordSwing = function (screenX, screenY, z) {
       const reach = swing.reach;
       if (!swing.ranged) swing.reach = Math.max(swing.reach || 0, SWORD_AUTO_RANGE);
       try { return base.apply(this, arguments); } finally { player.autoTarget = keep; swing.reach = reach; }
+    }
+    return base.apply(this, arguments);
+  };
+}
+
+/* Per request ("yung sa atk na espada na button kahit 4 tiles na pala ang sakop na range malapitan niya
+   yung mobs at espadahin"): F / ATTACK with no mob in reach but one within 4 tiles — the character runs
+   up to it and attacks (the same as clicking it twice: player.autoTarget, js/gear.js autoAttackTick()). */
+const ATTACK_SEEK_RANGE = 4 * TILE;
+{
+  const base = mineIndoorUpdate;
+  mineIndoorUpdate = function (dt) {
+    if (isMobileMode() && harvestRequested && !player.autoTarget && !player.action && !player.mineSwing && !player.skillAnim &&
+        !(typeof isRoomTool === "function" && isRoomTool(player.equippedWeapon)) && player.equippedWeapon !== "fishingRod") {
+      const zone = currentMineRoom(), st = zone && mineStates[mobZoneKey()];
+      if (st && !autoAimMob()) {
+        const fx = player.x, fy = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+        let best = null, bd = 1e9;
+        for (const m of st.mobs) {
+          if (m.state === "dead" || m.gone) continue;
+          const d = Math.hypot(m.x - fx, m.y - fy) - m.def.r * 0.5;
+          if (d <= ATTACK_SEEK_RANGE && d < bd) { bd = d; best = m; }
+        }
+        if (best) { harvestRequested = false; player.autoTarget = best; player.selectedMob = best; }
+      }
     }
     return base.apply(this, arguments);
   };

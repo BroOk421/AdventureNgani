@@ -600,7 +600,7 @@ function mineIndoorUpdate(dt) {
   if (harvestRequested && !(typeof isRoomTool === "function" && isRoomTool(player.equippedWeapon))) {
     // outdoors F still chops trees / breaks stones unless a mob is right there
     const wpn = player.equippedWeapon && itemDefs[player.equippedWeapon];
-    if (room.kind === "world" && !mobInFront(st, (wpn && wpn.weapon && wpn.weapon.ranged ? 3 : 2) * TILE + 8)) return false; // a mob within 2 tiles (bow: 3) — otherwise F still chops / breaks
+    if (room.kind === "world" && !mobInFront(st, isMobileMode() ? (wpn && wpn.weapon && wpn.weapon.ranged ? 3 : 2) * TILE + 8 : (wpn && wpn.weapon && wpn.weapon.ranged ? 5 * TILE + 8 : 40))) return false; // phone: a mob within 2 tiles (bow 3); desktop as before — otherwise F still chops / breaks
     harvestRequested = false;
     startMineSwing();
     return true;
@@ -845,7 +845,7 @@ function drawMineOverlay() {
   if (!room) return;
   const st = mineStates[mobZoneKey()];
   if (st) for (const d of st.drops) if (d.phase === "vacuum") drawMineDrop(d);
-  const nowT = performance.now(), dt = Math.min(0.05, (nowT - (drawMineOverlay.lastT || nowT)) / 1000); // real frame time: the numbers float at the same speed at 30, 60 or 120 fps
+  const nowT = performance.now(), dt = isMobileMode() ? Math.min(0.05, (nowT - (drawMineOverlay.lastT || nowT)) / 1000) : 1 / 60; // phone: real frame time (30-120 fps); desktop as before
   drawMineOverlay.lastT = nowT;
   for (let i = mineNumbers.length - 1; i >= 0; i--) {
     const n = mineNumbers[i];
