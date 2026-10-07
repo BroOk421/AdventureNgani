@@ -966,7 +966,7 @@ function weaponLocked(type) {
   const hudBase = updateStatsHUD;
   updateStatsHUD = function () {
     hudBase.apply(this, arguments);
-    if (typeof expBarTextEl !== "undefined" && expBarTextEl) expBarTextEl.textContent = "Lv " + player.level + "  " + Math.floor(player.exp) + "/" + player.maxExp;
+    if (typeof expBarTextEl !== "undefined" && expBarTextEl) setHudText(expBarTextEl, "Lv " + player.level + "  " + Math.floor(player.exp) + "/" + player.maxExp); // (unchanged text: no write, js/hud.js)
   };
   const saveBase = buildSaveData;
   buildSaveData = function () {

@@ -78,6 +78,19 @@ function chunkIconFor(type, col, row, layer) {
   if (!icon || !icon.width || icon.width > TILE || icon.height > TILE) return null;
   return icon;
 }
+// Phones: the base ground (worldCanvas: the dirt terrain + the painted lawn)
+// is baked into stack A as well, so render() doesn't have to blit it as a
+// separate full-screen layer first — one less whole screen of pixels to
+// paint every frame (on a phone the outdoor frame rate is limited by how
+// many screens' worth of pixels get painted). Same order, same pixels.
+function groundBaseInChunks() { return isMobileMode() && !/[?&]nochunks=1/.test(location.search); }
+function drawWorldBaseRegion(wx, wy, ww, wh, dx, dy, dw, dh) {
+  // clipped to worldCanvas (a chunk at the map's edge reaches past it)
+  const x0 = Math.max(0, wx), y0 = Math.max(0, wy), x1 = Math.min(worldCanvas.width, wx + ww), y1 = Math.min(worldCanvas.height, wy + wh);
+  if (x1 <= x0 || y1 <= y0) return;
+  const sx = dw / ww, sy = dh / wh;
+  ctx.drawImage(worldCanvas, x0, y0, x1 - x0, y1 - y0, dx + (x0 - wx) * sx, dy + (y0 - wy) * sy, (x1 - x0) * sx, (y1 - y0) * sy);
+}
 function chunkSig() { return (isSnowGroundActive() ? "s" : "n") + "|" + (typeof currentWorld !== "undefined" ? currentWorld : "") + "|" + chunkEpoch; }
 
 // Draws one stack's tiles of a chunk with the CURRENT ctx/camX/camY/zoom (live or into a chunk canvas).
@@ -87,6 +100,11 @@ function drawChunkTiles(stack, cx, cy, liveOnly) {
   const c0 = cx * CHUNK_TILES, r0 = cy * CHUNK_TILES;
   const snow = stack === "A" && isSnowGroundActive();
   const ring = liveOnly ? 0 : 1; // a baked chunk also paints the neighbouring tiles into its padded border
+  if (stack === "A" && groundBaseInChunks()) { // the base ground under it (a baked chunk incl. its padded border)
+    const p = liveOnly ? 0 : CHUNK_PAD, wx = c0 * TILE - p, wy = r0 * TILE - p, ws = CHUNK_PX + p * 2;
+    const x = (wx - camX) * zoom, y = (wy - camY) * zoom;
+    drawWorldBaseRegion(wx, wy, ws, ws, liveOnly ? Math.round(x) : x, liveOnly ? Math.round(y) : y, liveOnly ? Math.round((wx + ws - camX) * zoom) - Math.round(x) : ws * zoom, liveOnly ? Math.round((wy + ws - camY) * zoom) - Math.round(y) : ws * zoom);
+  }
   for (let r = r0 - ring; r < r0 + CHUNK_TILES + ring; r++) {
     for (let c = c0 - ring; c < c0 + CHUNK_TILES + ring; c++) {
       const k = c + "," + r;
@@ -131,6 +149,7 @@ function buildChunk(stack, cx, cy, entry) {
   return complete;
 }
 function hasChunkContent(stack, cx, cy) {
+  if (stack === "A" && groundBaseInChunks()) return true; // carries the base ground
   const c0 = cx * CHUNK_TILES, r0 = cy * CHUNK_TILES;
   const snow = stack === "A" && isSnowGroundActive();
   for (let r = r0; r < r0 + CHUNK_TILES; r++) for (let c = c0; c < c0 + CHUNK_TILES; c++) {

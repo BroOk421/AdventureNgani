@@ -7,7 +7,7 @@
    kapag nasa view na ng screen ... lagpas lang ng screen 3 tiles pa"):
    most passes already skipped what's off screen (the ground chunks, the
    flat layers, citizens, animals, lights, critters, chests). The rest now
-   follow the same rule, with a CULL_MARGIN of 3 tiles past the screen:
+   follow the same rule, with a CULL_MARGIN of 4 tiles past the screen:
      - placed objects (trees, rocks, houses...): drawn only when their art
        rectangle reaches the screen + 3 tiles (was a looser box);
      - mobs: drawn only on screen + 3 tiles; a mob that's off screen AND
@@ -16,7 +16,7 @@
      - drops lying off screen aren't drawn.
 ================================================================= */
 
-const CULL_MARGIN = 3 * TILE; // world px past the screen edge
+const CULL_MARGIN = 4 * TILE; // world px past the screen edge (things vanish 4 tiles off screen)
 function cullView() {
   return { x0: camX - CULL_MARGIN, y0: camY - CULL_MARGIN, x1: camX + view.width / zoom + CULL_MARGIN, y1: camY + view.height / zoom + CULL_MARGIN };
 }

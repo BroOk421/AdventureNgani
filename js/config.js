@@ -576,7 +576,8 @@ const MOBILE_MAX_FPS = 60;
 // which is cheap. 0 = no limit (draw everything on screen). Settings > View
 // on the phone switches it on/off (js/mobile.js), see js/renderwindow.js.
 let MOBILE_RENDER_TILES = 16;
-try { if (localStorage.getItem("agn-view-tiles") === "0") MOBILE_RENDER_TILES = 0; } catch (e) { /* private mode */ }
+// Settings > View on the phone: 10 / 16 / 20 tiles across, or 0 = Full (the screen + CULL_MARGIN)
+try { const v = localStorage.getItem("agn-view-tiles"); if (v === "0" || v === "10" || v === "16" || v === "20") MOBILE_RENDER_TILES = +v; } catch (e) { /* private mode */ }
 // Phone walk/run animation speed, x normal — slowed less than the movement
 // so the steps don't look like slow motion, but enough that the feet don't
 // slide. (Idle is not affected.)

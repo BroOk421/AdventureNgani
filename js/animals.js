@@ -505,7 +505,7 @@ function animalRelightOccluders(feetY) {
     const b = animalScreenBox(a);
     if (!b) continue;
     if (b.x > view.width || b.y > view.height || b.x + b.w < 0 || b.y + b.h < 0) continue;
-    out.push({ icon: animalFrameCanvas(b.sheet, b.sx, b.fw, b.fh), x: b.x, y: b.y, w: b.w, h: b.h, alpha: 1 });
+    out.push({ icon: animalFrameCanvas(b.sheet, b.sx, b.fw, b.fh), x: b.x, y: b.y, w: b.w, h: b.h, alpha: 1, k: a.fy - CHARACTER_VISIBLE_FEET_EXTRA });
   }
   return out;
 }

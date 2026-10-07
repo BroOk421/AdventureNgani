@@ -261,12 +261,14 @@ if (MOBILE_ON) {
       resizeCanvas();
     }
     else if (s === "view") {
-      // Settings > View: the render window (js/renderwindow.js) — 16x16 tiles round you, or the full screen
-      MOBILE_RENDER_TILES = MOBILE_RENDER_TILES > 0 ? 0 : 16;
+      // Settings > View: the render window (js/renderwindow.js) — 10x10 / 16x16 / 20x20 tiles round you,
+      // or Full (the whole screen + 4 tiles). Each tap goes to the next one.
+      const VIEWS = [10, 16, 20, 0];
+      MOBILE_RENDER_TILES = VIEWS[(VIEWS.indexOf(MOBILE_RENDER_TILES) + 1) % VIEWS.length];
       try { localStorage.setItem("agn-view-tiles", String(MOBILE_RENDER_TILES)); } catch (e) { /* ignore */ }
       b.textContent = "View: " + (MOBILE_RENDER_TILES > 0 ? MOBILE_RENDER_TILES + "x" + MOBILE_RENDER_TILES : "Full");
     }
-    settings.classList.remove("open");
+    if (s !== "view") settings.classList.remove("open"); // View: stay open so you can tap through the sizes
   });
 
   // FPS readout (Settings > FPS) — top centre, to see how smooth it runs on this phone

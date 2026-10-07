@@ -250,9 +250,10 @@ function drawRain(onlyRow) {
 
   // Splats: the dotted top edge of an ellipse (15 x 10 CSS px in the
   // pen) popping open from nothing, then fading out as it grows a bit more.
-  ctx.lineWidth = Math.max(1, 2 * k);
-  ctx.setLineDash([Math.max(1, 2 * k), Math.max(1, 2 * k)]);
-  ctx.strokeStyle = "rgba(" + RAIN_COLOR_RGB + "," + RAIN_SPLAT_ALPHA + ")";
+  // Performance (phones): a dashed stroked ellipse per splash per frame was
+  // very costly; the dotted arc is drawn once (rainSplatSprite()) and
+  // stamped at each splash's size.
+  const splat = rainSplatSprite(k);
   for (const s of splashes) {
     if (onlyRow !== undefined && s.row !== onlyRow) continue;
     const p = s.t / RAIN_SPLAT_SECONDS;
@@ -260,11 +261,28 @@ function drawRain(onlyRow) {
     const alpha = p < 0.5 ? 1 - p : Math.max(0, 1 - p) * 1; // 1 -> 0.5 -> 0
     if (scale <= 0.02) continue;
     ctx.globalAlpha = alpha * (s.row === 1 ? 0.5 : 1) * fade;
-    ctx.beginPath();
-    ctx.ellipse(s.x * W, s.y * H + 5 * k * scale, 7.5 * k * scale, 5 * k * scale, 0, Math.PI, 2 * Math.PI);
-    ctx.stroke();
+    const rx = 7.5 * k * scale, ry = 5 * k * scale, cx = s.x * W, cy = s.y * H + 5 * k * scale;
+    const pad = splat.pad * scale;
+    ctx.drawImage(splat.c, cx - rx - pad, cy - ry - pad, rx * 2 + pad * 2, ry + pad * 2);
   }
   ctx.restore();
+}
+// The splat's dotted half-ellipse, drawn once per pixel scale (`k`).
+let rainSplatCache = null;
+function rainSplatSprite(k) {
+  if (rainSplatCache && rainSplatCache.k === k) return rainSplatCache;
+  const rx = 7.5 * k, ry = 5 * k, pad = Math.max(1, 2 * k);
+  const c = document.createElement("canvas");
+  c.width = Math.ceil(rx * 2 + pad * 2); c.height = Math.ceil(ry + pad * 2);
+  const g = c.getContext("2d");
+  g.lineWidth = Math.max(1, 2 * k);
+  g.setLineDash([Math.max(1, 2 * k), Math.max(1, 2 * k)]);
+  g.strokeStyle = "rgba(" + RAIN_COLOR_RGB + "," + RAIN_SPLAT_ALPHA + ")";
+  g.beginPath();
+  g.ellipse(pad + rx, pad + ry, rx, ry, 0, Math.PI, 2 * Math.PI);
+  g.stroke();
+  rainSplatCache = { c, k, pad };
+  return rainSplatCache;
 }
 
 // --- Lightning (Thunderstorm only) -----------------------------------
@@ -440,18 +458,34 @@ function drawSnow(row) {
   // starting / stopping: fewer flakes and fainter, growing to the full snowfall
   const n = Math.ceil(snowFlakes.length * Math.min(1, amt * 1.3));
   ctx.save();
-  ctx.fillStyle = "#ffffff";
   ctx.globalAlpha = (row === 1 ? SNOW_BACK_ALPHA : SNOW_FRONT_ALPHA) * Math.min(1, amt * 1.5);
-  ctx.beginPath();
+  // Performance (phones): every flake used to be a circle in ONE big path —
+  // ~75 anti-aliased circles filled per row, every frame. Rasterising a
+  // path like that is one of the most expensive things a phone's canvas
+  // can do (measured: switching snow off doubled the outdoor frame rate).
+  // Each flake is now the same pre-drawn soft dot (snowFlakeSprite()),
+  // stamped scaled to its radius — image quads the GPU batches cheaply.
+  // Same look: white, round, same sizes, same alpha.
+  const dot = snowFlakeSprite();
+  ctx.imageSmoothingEnabled = true;
   for (let i = 0; i < n; i++) {
     const f = snowFlakes[i];
     if (f.row !== row) continue;
     const x = f.x * k, y = f.y * k, r = Math.max(0.6, f.r * k);
-    ctx.moveTo(x + r, y);
-    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.drawImage(dot, x - r, y - r, r * 2, r * 2);
   }
-  ctx.fill();
   ctx.restore();
+}
+let snowFlakeDot = null;
+function snowFlakeSprite() {
+  if (snowFlakeDot) return snowFlakeDot;
+  const S = 32, c = document.createElement("canvas");
+  c.width = c.height = S;
+  const g = c.getContext("2d");
+  g.fillStyle = "#ffffff";
+  g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 0.5, 0, Math.PI * 2); g.fill();
+  snowFlakeDot = c;
+  return c;
 }
 
 /* --- Falling leaves (sunny days, 09:00-15:00) ------------------------

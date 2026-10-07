@@ -71,10 +71,25 @@ function formatDuration(totalSeconds) {
   return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
 }
 
+// Performance: only touch the page when what's shown actually changes. Every
+// HUD change makes the phone redraw that part of the page and send it to the
+// screen again — the food bar crept a hair narrower EVERY frame (food drains
+// continuously) and the EXP text was written twice a frame (here, then again
+// with the level by js/mines.js), so the HUD was redrawn every single frame.
+function setHudText(el, text) {
+  if (!el || el._hudText === text) return;
+  el._hudText = text;
+  el.textContent = text;
+}
 function setBar(fillEl, textEl, current, max) {
   const pct = max > 0 ? Math.max(0, Math.min(100, (current / max) * 100)) : 0;
-  fillEl.style.width = pct + "%";
-  textEl.textContent = Math.round(current) + "/" + max;
+  const w = (Math.round(pct * 2) / 2) + "%"; // half-percent steps: invisible on a ~70px bar
+  if (fillEl._hudWidth !== w) { fillEl._hudWidth = w; fillEl.style.width = w; }
+  // the EXP bar shows the level too (js/mines.js) — formatted here so it's written once
+  const text = textEl === expBarTextEl && typeof player.level === "number"
+    ? "Lv " + player.level + "  " + Math.floor(current) + "/" + max
+    : Math.round(current) + "/" + max;
+  setHudText(textEl, text);
 }
 
 // Called every frame (main.js's loop) — updates every left-hud stat
@@ -279,9 +294,17 @@ function minimapItemsCanvas(scale) {
 }
 
 const MINIMAP_EVERY = 3;
-let minimapFrame = 0;
+// Phones: by time, ~8 times a second, not every 3rd frame — the minimap is
+// its own canvas on the page, and every redraw is another picture the phone
+// has to send to the screen.
+const MINIMAP_PHONE_MS = 120;
+let minimapFrame = 0, minimapDrawnAt = 0;
 function drawMinimap() {
-  if (++minimapFrame % MINIMAP_EVERY !== 0) return;
+  if (typeof isMobileMode === "function" && isMobileMode()) {
+    const now = performance.now();
+    if (now - minimapDrawnAt < MINIMAP_PHONE_MS) return;
+    minimapDrawnAt = now;
+  } else if (++minimapFrame % MINIMAP_EVERY !== 0) return;
   const w = minimapCanvas.width;
   const h = minimapCanvas.height;
   const radius = Math.min(w, h) / 2;

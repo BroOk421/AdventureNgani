@@ -165,6 +165,31 @@ function birdShadowFrame(sheet, frame, fw, fh) {
   return arr[frame];
 }
 
+// The same silhouette, already soft (blurred once, at 2x, with room round
+// it) — per frame of each sheet. Performance: drawBirdShadows() used to set
+// ctx.filter = "blur(1.5px)" on the MAIN canvas and draw every bird's
+// shadow through it, every frame. A canvas blur filter is one of the most
+// expensive things a phone can be asked to do (measured: the birds alone
+// took the sunny-day frame rate from ~29 down to ~10). Now the blur is done
+// once per frame picture and the shadow is just stamped.
+const BIRD_SHADOW_PAD = 3; // art px of room for the blur
+const birdSoftShadowCache = new Map(); // sheet -> [soft canvases]
+function birdSoftShadowFrame(sheet, frame, fw, fh) {
+  let arr = birdSoftShadowCache.get(sheet);
+  if (!arr) { arr = []; birdSoftShadowCache.set(sheet, arr); }
+  if (!arr[frame]) {
+    const R = 2, P = BIRD_SHADOW_PAD;
+    const c = document.createElement("canvas");
+    c.width = (fw + P * 2) * R; c.height = (fh + P * 2) * R;
+    const g = c.getContext("2d");
+    g.filter = "blur(" + (1.5 * R) + "px)";
+    g.drawImage(birdShadowFrame(sheet, frame, fw, fh), P * R, P * R, fw * R, fh * R);
+    g.filter = "none";
+    arr[frame] = c;
+  }
+  return arr[frame];
+}
+
 // On the ground, under trees/houses/characters — called before
 // renderWorldObjectsSorted() (js/camera.js).
 function drawBirdShadows() {
@@ -175,7 +200,7 @@ function drawBirdShadows() {
   ctx.imageSmoothingEnabled = false;
   ctx.globalCompositeOperation = "source-over";
   ctx.globalAlpha = a;
-  ctx.filter = "blur(1.5px)";
+  ctx.imageSmoothingEnabled = true; // it's a soft shadow
   for (const f of birdFlocks) {
     for (const b of f.birds) {
       const sheet = birdSheet(b.id, f.dir);
@@ -186,10 +211,10 @@ function drawBirdShadows() {
       const w = fw * s, h = fh * s * 0.6; // squashed — it lies flat on the ground
       const sx = (p.x - camX) * zoom - w / 2, sy = (p.gy - camY) * zoom - h / 2;
       if (sx > view.width || sy > view.height || sx + w < 0 || sy + h < 0) continue;
-      ctx.drawImage(birdShadowFrame(sheet, b.frame, fw, fh), sx, sy, w, h);
+      const px = BIRD_SHADOW_PAD * (w / fw), py = BIRD_SHADOW_PAD * (h / fh); // the soft canvas's padding, at this size
+      ctx.drawImage(birdSoftShadowFrame(sheet, b.frame, fw, fh), sx - px, sy - py, w + px * 2, h + py * 2);
     }
   }
-  ctx.filter = "none";
   ctx.restore();
 }
 

@@ -6540,3 +6540,32 @@ browser can't show a stale cave texture.
 - js/save.js: phones autosave every 10 s (was 2 s, a regular hitch) plus on
   visibilitychange (hidden) and pagehide; the desktop keeps 2 s.
   index.html -> ?v=20261057a (+ js/renderwindow.js).
+
+## Phones: what was really slow outdoors; View 10 / 16 / 20 / Full
+
+From the user's recording (outdoors 12-19 fps, caves 33-39): the outdoor
+cost was not the number of objects but full-screen / per-pixel work. Fixed
+(phone only, isMobileMode()):
+- js/weatherfx.js: snow flakes and rain splats are cached sprites stamped
+  with drawImage (snowFlakeSprite(), rainSplatSprite()) instead of one big
+  arc path per frame.
+- js/birds.js: bird shadows use a pre-blurred frame per sheet/frame
+  (birdSoftShadowFrame()) — no ctx.filter blur per frame.
+- js/chunks.js: the base ground (worldCanvas) is baked into chunk stack A
+  (groundBaseInChunks(), drawWorldBaseRegion()), so js/camera.js skips the
+  separate full-screen worldCanvas blit.
+- js/camera.js: sky tint + night blue tint merged into one fill
+  (skyAndNightTint()); the light buffer clears / flushes only the area lit
+  this frame (sceneLightRect, growSceneLightRect()); each lamp's finished
+  light (with its cut-outs) is cached (lampLightCache, addSceneLight()'s
+  `cache` arg) and reused while nothing near it changes; the moving
+  relight occluders (townsfolk, animals) are collected once a frame
+  (relightMovingList, `k` = depth on each entry).
+- js/hud.js: HUD text/bars only written when they change (setHudText(),
+  half-percent bar steps); the minimap redraws every 120 ms on phones.
+- Settings > View cycles 10x10 -> 16x16 -> 20x20 -> Full
+  (MOBILE_RENDER_TILES 10/16/20/0, localStorage "agn-view-tiles"; default
+  16). Full = the screen + CULL_MARGIN, now 4 tiles (js/culling.js).
+- Measured (headless, phone size, fill-bound like the phone): wild snow
+  night 10.8 -> ~22 fps, wild sunny day with birds ~6 -> ~30, town night
+  ~7.5 -> ~15 (16x16) / ~18 (10x10), caves ~40. index.html -> ?v=20261058a.

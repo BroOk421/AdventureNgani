@@ -881,7 +881,7 @@ function citizenRelightOccluders(feetY) {
     if (!sheet || !sheet.width) continue;
     const f = citizenDrawFeet(c);
     const px = (f.x - camX) * zoom, py = (citizenCentreY(f.y) - camY) * zoom;
-    out.push({ icon: citizenFrameCanvas(sheet, c.frame), x: px - size / 2, y: py - size / 2, w: size, h: size, alpha: 1 });
+    out.push({ icon: citizenFrameCanvas(sheet, c.frame), x: px - size / 2, y: py - size / 2, w: size, h: size, alpha: 1, k: citizenSortY(c) });
   }
   return out;
 }

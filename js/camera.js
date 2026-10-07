@@ -435,6 +435,7 @@ const sceneLightTmpCtx = sceneLightTmp.getContext("2d");
 const sceneLightCapCanvas = document.createElement("canvas");
 const sceneLightCapCtx = sceneLightCapCanvas.getContext("2d");
 let sceneLightsUsed = false;
+let sceneLightsCleanOnce = false; // the first frame clears both buffers whole
 let sceneLightMaxStrength = 0;
 
 /* Per request ("kapag nag merge is lumiliit... kapag nagtamaan di mo
@@ -460,23 +461,49 @@ let sceneLightMaxStrength = 0;
 const SCENE_LIGHT_BRIGHTNESS = 0.9;
 const SCENE_LIGHT_CAP_RGB = [250, 193, 120]; // a lamp's core, pre-multiplied (inner 0.95 over mid 0.60 — buildPostGlowSprite())
 
+// Phones: the light buffers are only touched where lights actually went this
+// frame (sceneLightRect, buffer px) — cleared there next frame and added to
+// the scene only there, instead of two whole buffers cleared and a whole
+// screen blended in every frame (outside the lights the buffer is black, which
+// adds nothing). Same picture; at night most of the screen has no light.
+let sceneLightRect = null, sceneLightPrevRect = null;
+function growSceneLightRect(x, y, w, h) {
+  const r = sceneLightRect;
+  if (!r) { sceneLightRect = { x0: x, y0: y, x1: x + w, y1: y + h }; return; }
+  if (x < r.x0) r.x0 = x; if (y < r.y0) r.y0 = y;
+  if (x + w > r.x1) r.x1 = x + w; if (y + h > r.y1) r.y1 = y + h;
+}
 function beginSceneLights() {
   const w = Math.max(1, Math.ceil(view.width * SCENE_LIGHT_SCALE));
   const h = Math.max(1, Math.ceil(view.height * SCENE_LIGHT_SCALE));
+  let resized = false;
   if (sceneLightCanvas.width !== w || sceneLightCanvas.height !== h) {
     sceneLightCanvas.width = w;
     sceneLightCanvas.height = h;
+    resized = true;
   }
-  sceneLightCtx.globalCompositeOperation = "source-over";
-  sceneLightCtx.fillStyle = "#000";
-  sceneLightCtx.fillRect(0, 0, w, h);
   if (sceneLightCapCanvas.width !== w || sceneLightCapCanvas.height !== h) {
     sceneLightCapCanvas.width = w;
     sceneLightCapCanvas.height = h;
+    resized = true;
   }
+  const phone = isMobileMode();
+  const prev = sceneLightRect || sceneLightPrevRect; // what last frame touched (flush may not have run)
+  sceneLightPrevRect = null;
+  sceneLightRect = null;
+  let cx = 0, cy = 0, cw = w, ch = h;
+  if (phone && !resized && sceneLightsCleanOnce) {
+    if (!prev) { sceneLightsUsed = false; sceneLightMaxStrength = 0; return; } // nothing was lit: both buffers are still black
+    cx = Math.max(0, Math.floor(prev.x0) - 1); cy = Math.max(0, Math.floor(prev.y0) - 1);
+    cw = Math.min(w, Math.ceil(prev.x1) + 1) - cx; ch = Math.min(h, Math.ceil(prev.y1) + 1) - cy;
+  }
+  sceneLightsCleanOnce = true;
+  sceneLightCtx.globalCompositeOperation = "source-over";
+  sceneLightCtx.fillStyle = "#000";
+  if (cw > 0 && ch > 0) sceneLightCtx.fillRect(cx, cy, cw, ch);
   sceneLightCapCtx.globalCompositeOperation = "source-over";
   sceneLightCapCtx.fillStyle = "#000";
-  sceneLightCapCtx.fillRect(0, 0, w, h);
+  if (cw > 0 && ch > 0) sceneLightCapCtx.fillRect(cx, cy, cw, ch);
   sceneLightsUsed = false;
   sceneLightMaxStrength = 0;
 }
@@ -485,13 +512,44 @@ function beginSceneLights() {
 // strength of 0..1.
 // `peakRGB` = the light's own brightest colour (its centre, already
 // multiplied by its alpha there) — defaults to a lamp's core.
-function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB, cutouts) {
+// Phones: a lamp with something in front of it (cut out of its light) is
+// composited once and kept (lampLightCache), keyed by everything that
+// changes the picture — the lamp's shadowed pool, its strength, and each
+// cut-out's picture + position relative to the lamp. A still scene reuses
+// it every frame (one blit) instead of 5 big scratch-canvas operations per
+// lamp per frame.
+const lampLightCache = new Map(); // key -> { sig, canvas }
+const lightIconIds = new WeakMap(); let lightIconNext = 1;
+function lightIconId(icon) { let id = lightIconIds.get(icon); if (!id) { id = lightIconNext++; lightIconIds.set(icon, id); } return id; }
+function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB, cutouts, cache) {
   if (!src || strength <= 0.005 || dw <= 0 || dh <= 0) return;
   const S = SCENE_LIGHT_SCALE;
   const x = Math.floor(dx * S), y = Math.floor(dy * S);
   const w = Math.ceil(dw * S) + 2, h = Math.ceil(dh * S) + 2;
   if (x + w < 0 || y + h < 0 || x > sceneLightCanvas.width || y > sceneLightCanvas.height) return;
   const pk0 = peakRGB || SCENE_LIGHT_CAP_RGB, st0 = Math.min(1, strength);
+  const phone = isMobileMode();
+  if (phone && cutouts && cutouts.length) { // only cut-outs that actually overlap this light
+    const keep = [];
+    for (const o of cutouts) if (!(o.x * S - x > w || (o.x + o.w) * S - x < 0 || o.y * S - y > h || (o.y + o.h) * S - y < 0)) keep.push(o);
+    cutouts = keep;
+  }
+  let cacheEntry = null, cacheSig = null;
+  if (phone && cache && cutouts && cutouts.length) {
+    cacheSig = cache.srcSig + "|" + w + "x" + h + "|" + st0.toFixed(3) + "|" + ((dx * S - x) * 4 | 0) + "," + ((dy * S - y) * 4 | 0);
+    for (const o of cutouts) cacheSig += "|" + lightIconId(o.icon) + "@" + Math.round(o.x * S - x) + "," + Math.round(o.y * S - y) + "," + Math.round(o.w * S) + "," + Math.round(o.h * S) + "," + (o.alpha == null ? 1 : o.alpha);
+    cacheEntry = lampLightCache.get(cache.key);
+    if (cacheEntry && cacheEntry.sig === cacheSig) {
+      sceneLightCtx.globalCompositeOperation = "lighter";
+      sceneLightCtx.drawImage(cacheEntry.canvas, 0, 0, w, h, x, y, w, h);
+      sceneLightCapCtx.globalCompositeOperation = "lighten";
+      sceneLightCapCtx.fillStyle = "rgb(" + Math.round(pk0[0] * st0) + "," + Math.round(pk0[1] * st0) + "," + Math.round(pk0[2] * st0) + ")";
+      sceneLightCapCtx.fillRect(x, y, w, h);
+      sceneLightsUsed = true; growSceneLightRect(x, y, w, h);
+      sceneLightMaxStrength = Math.max(sceneLightMaxStrength, st0);
+      return;
+    }
+  }
   if (!cutouts || !cutouts.length) {
     // Performance: the buffer is opaque black and lights ADD, so drawing the
     // light straight in at globalAlpha = strength gives exactly what the
@@ -504,7 +562,7 @@ function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB, cutouts) {
     sceneLightCapCtx.globalCompositeOperation = "lighten";
     sceneLightCapCtx.fillStyle = "rgb(" + Math.round(pk0[0] * st0) + "," + Math.round(pk0[1] * st0) + "," + Math.round(pk0[2] * st0) + ")";
     sceneLightCapCtx.fillRect(x, y, w, h);
-    sceneLightsUsed = true;
+    sceneLightsUsed = true; growSceneLightRect(x, y, w, h);
     sceneLightMaxStrength = Math.max(sceneLightMaxStrength, st0);
     return;
   }
@@ -545,27 +603,48 @@ function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB, cutouts) {
   //    candle's centre, a candle under a lamp at the lamp's.
   sceneLightCtx.globalCompositeOperation = "lighter";
   sceneLightCtx.drawImage(sceneLightTmp, 0, 0, w, h, x, y, w, h);
+  if (cacheSig) { // keep this lamp's finished light for the next frames (phones)
+    if (!cacheEntry) { cacheEntry = { sig: null, canvas: document.createElement("canvas") }; lampLightCache.set(cache.key, cacheEntry); }
+    const cv = cacheEntry.canvas;
+    if (cv.width < w || cv.height < h) { cv.width = Math.max(cv.width, w); cv.height = Math.max(cv.height, h); }
+    const cg = cv.getContext("2d");
+    cg.globalCompositeOperation = "copy";
+    cg.drawImage(sceneLightTmp, 0, 0, w, h, 0, 0, w, h);
+    cg.globalCompositeOperation = "source-over";
+    cacheEntry.sig = cacheSig;
+    if (lampLightCache.size > 48) lampLightCache.delete(lampLightCache.keys().next().value);
+  }
   const pk = peakRGB || SCENE_LIGHT_CAP_RGB, st = Math.min(1, strength);
   sceneLightCapCtx.globalCompositeOperation = "lighten";
   sceneLightCapCtx.fillStyle = "rgb(" + Math.round(pk[0] * st) + "," + Math.round(pk[1] * st) + "," + Math.round(pk[2] * st) + ")";
   sceneLightCapCtx.fillRect(x, y, w, h);
-  sceneLightsUsed = true;
+  sceneLightsUsed = true; growSceneLightRect(x, y, w, h);
   sceneLightMaxStrength = Math.max(sceneLightMaxStrength, Math.min(1, strength));
 }
 
 // Adds the merged lights to the scene, once.
 function flushSceneLights() {
   if (!sceneLightsUsed) return;
+  const W = sceneLightCanvas.width, H = sceneLightCanvas.height;
+  // Phones: only the part of the buffer this frame's lights touched (+1px for
+  // the smoothing); everything else in it is black and adds nothing.
+  let x0 = 0, y0 = 0, x1 = W, y1 = H;
+  const r = isMobileMode() && sceneLightRect;
+  if (r) {
+    x0 = Math.max(0, Math.floor(r.x0) - 1); y0 = Math.max(0, Math.floor(r.y0) - 1);
+    x1 = Math.min(W, Math.ceil(r.x1) + 1); y1 = Math.min(H, Math.ceil(r.y1) + 1);
+    if (x1 <= x0 || y1 <= y0) { sceneLightsUsed = false; return; }
+  }
   // Clip the summed lights to the per-pixel cap (per-channel min).
   sceneLightCtx.globalCompositeOperation = "darken";
-  sceneLightCtx.drawImage(sceneLightCapCanvas, 0, 0);
+  sceneLightCtx.drawImage(sceneLightCapCanvas, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
   sceneLightCtx.globalCompositeOperation = "source-over";
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   ctx.globalAlpha = SCENE_LIGHT_BRIGHTNESS; // additive, so this scales how much light is added
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(sceneLightCanvas, 0, 0, sceneLightCanvas.width, sceneLightCanvas.height,
-    0, 0, sceneLightCanvas.width / SCENE_LIGHT_SCALE, sceneLightCanvas.height / SCENE_LIGHT_SCALE);
+  const k = 1 / SCENE_LIGHT_SCALE;
+  ctx.drawImage(sceneLightCanvas, x0, y0, x1 - x0, y1 - y0, x0 * k, y0 * k, (x1 - x0) * k, (y1 - y0) * k);
   ctx.restore();
   sceneLightsUsed = false;
 }
@@ -1307,6 +1386,7 @@ const relightCanvas = document.createElement("canvas");
    own call (see-through fading, the seat) still runs the full version. */
 let relightFrameId = 0;          // bumped at the start of every render()
 let relightStaticFrame = -1, relightStaticList = null;
+let relightMovingFrame = -1, relightMovingList = [];
 function relightStaticOccludersMobile() {
   if (relightStaticFrame === relightFrameId && relightStaticList) return relightStaticList;
   const out = [];
@@ -1366,8 +1446,12 @@ function relightOccluders(feetY, isPlayer) {
   const seated = isPlayer && player.sitting;
   if (!isPlayer && player.scene !== "inside" && isMobileMode()) {
     for (const o of relightStaticOccludersMobile()) if (o.k > feetY) out.push(o);
-    for (const o of citizenRelightOccluders(feetY)) out.push(o);
-    for (const o of animalRelightOccluders(feetY)) out.push(o);
+    // townsfolk and animals: collected once a frame too (each carries its own depth `k`)
+    if (relightMovingFrame !== relightFrameId) {
+      relightMovingList = citizenRelightOccluders(-Infinity).concat(animalRelightOccluders(-Infinity));
+      relightMovingFrame = relightFrameId;
+    }
+    for (const o of relightMovingList) if (o.k > feetY) out.push(o);
     return out;
   }
   if (player.scene === "inside") {
@@ -2503,7 +2587,8 @@ function drawPostLightGlows(camX, camY) {
     // light. A lamp in front of the tree still lights it, as before.
     const cut = relightOccluders(itemSortY(type, col, row), false).filter((o) =>
       o.x < sx + size && o.x + o.w > sx && o.y < sy + size && o.y + o.h > sy);
-    addSceneLight(getShadowedPostGlow(key, wx, wy), sx, sy, size, size, strength, undefined, cut); // merged with every other light, not stacked
+    const pool = getShadowedPostGlow(key, wx, wy), pe = postShadowCache.get(key);
+    addSceneLight(pool, sx, sy, size, size, strength, undefined, cut, { key, srcSig: (pe && pe.sig) + "|" + size.toFixed(1) }); // merged with every other light, not stacked
   }
 
   // Drop cached lights for lamps that were removed or are off-screen, so
@@ -3978,6 +4063,23 @@ function setVignetteBlur(on) {
 // obvious cool/moonlit cast rather than just losing brightness.
 const NIGHT_BLUE_TINT = "rgba(52,86,200,0.2)"; // per request: night reads blue, like Stardew Valley
 
+// The sky tint with the night blue cast laid over it, as one rgba colour:
+// a1/c1 then a2/c2 over a scene S gives S(1-a1)(1-a2) + c1 a1 (1-a2) + c2 a2,
+// i.e. alpha A = 1-(1-a1)(1-a2) and colour (c1 a1 (1-a2) + c2 a2) / A.
+const RGBA_RE = /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/;
+function skyAndNightTint(skyColor) {
+  const nightFactor = 1 - getDayFactor();
+  if (nightFactor <= 0) return skyColor;
+  const m1 = RGBA_RE.exec(skyColor), m2 = RGBA_RE.exec(NIGHT_BLUE_TINT);
+  if (!m1 || !m2) return skyColor;
+  const a1 = m1[4] === undefined ? 1 : +m1[4];
+  const a2 = (m2[4] === undefined ? 1 : +m2[4]) * nightFactor;
+  const A = 1 - (1 - a1) * (1 - a2);
+  if (A <= 0) return skyColor;
+  const mix = (i) => Math.round((+m1[i] * a1 * (1 - a2) + +m2[i] * a2) / A);
+  return "rgba(" + mix(1) + "," + mix(2) + "," + mix(3) + "," + A.toFixed(4) + ")";
+}
+
 function drawNightBlueTint() {
   const nightFactor = 1 - getDayFactor(); // 0 in full day, 1 in full night, easing through twilight same as everything else
   if (nightFactor <= 0) return;
@@ -4027,7 +4129,9 @@ function render() {
   camY = Math.round(camY * zoom) / zoom;
 
   ctx.clearRect(0, 0, vw, vh);
-  ctx.drawImage(worldCanvas, camX, camY, viewWorldW, viewWorldH, 0, 0, vw, vh);
+  // Phones: the base ground is inside the stack-A chunks (js/chunks.js
+  // groundBaseInChunks()), drawn by drawSnowGroundFill() right below.
+  if (!(typeof groundBaseInChunks === "function" && groundBaseInChunks())) ctx.drawImage(worldCanvas, camX, camY, viewWorldW, viewWorldH, 0, 0, vw, vh);
   drawSnowGroundFill(); // while it snows, the grass fill shows as snow (js/snowground.js)
 
   drawDirtLayer();       // 1 — bare earth, the bottom of the stack
@@ -4074,7 +4178,11 @@ function render() {
   // interpolated from js/daynight.js's keyframes (deep blue at night, warm
   // glow at sunrise/sunset, clear through the day). Drawn last so it sits
   // over the world and the character alike, like ambient light.
-  ctx.fillStyle = getSkyOverlayColor();
+  // Phones: the sky tint and the night's blue cast (drawNightBlueTint(),
+  // below) are folded into ONE fill — two flat colours laid over each other
+  // are exactly one flat colour (skyAndNightTint()), and it's one less whole
+  // screen of pixels to paint every frame.
+  ctx.fillStyle = isMobileMode() ? skyAndNightTint(getSkyOverlayColor()) : getSkyOverlayColor();
   ctx.fillRect(0, 0, vw, vh);
 
   // Sun rays/god rays go on AFTER the sky tint: they're light being added
@@ -4085,7 +4193,7 @@ function render() {
 
   drawMinimap(); // top-right overview — a separate <canvas> (index.html), not part of the main view/sky tint above (js/hud.js)
 
-  drawNightBlueTint(); // extra blue cast at night, on top of the sky tint above — see above
+  if (!isMobileMode()) drawNightBlueTint(); // extra blue cast at night, on top of the sky tint above (phones: already in it)
   if (typeof treasureLights === "function") treasureLights(); // the crystals' blue glow (js/treasure.js)
   drawPostLightGlows(camX, camY); // lamps join the candles already collected in the shared light buffer
   flushSceneLights();             // ...and every light lands at once, merged instead of stacked
