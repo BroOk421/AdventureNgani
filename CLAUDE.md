@@ -6580,3 +6580,27 @@ cap that doesn't divide the screen's refresh rate (90 on a 120 Hz screen)
 really gives 90. 90/120 only show on a phone whose screen runs that fast
 (MainActivity already asks for its highest refresh rate). index.html ->
 ?v=20261059a.
+
+## WebGL renderer on phones (js/webgl2d.js)
+
+Per request ("WebGL na"). js/webgl2d.js (loaded right after config.js,
+before camera.js) makes the main canvas (#view) answer getContext("2d")
+with GL2DContext: a WebGL2 context that behaves like a 2D one, so no
+drawing code changed. drawImage / fillRect etc. are collected into one
+vertex buffer and drawn in a few batches (up to 16 textures per draw);
+pictures are uploaded to the GPU once. Composite ops become blend modes
+(source-over, lighter, screen, multiply, darken, lighten, destination-out
+/-in, source-atop, destination-over, copy; the rare others fall back to
+source-over); paths (stencil fill / stroke), clip (stencil), gradients,
+patterns and text are handled too. Every other canvas stays a normal 2D
+canvas; any drawing call on one bumps its __glv so it's re-uploaded when
+drawn here. Lost GPU context is rebuilt.
+- On by default on phones; Settings > Renderer switches WebGL / Canvas
+  (localStorage "agn-renderer", saves and reloads). ?gl=0 / ?gl=1 force it.
+  The desktop keeps the 2D canvas. The phone FPS readout says which is on.
+- Parity (same frozen frame drawn both ways, pixel diff): mean 0.07-1.0
+  per channel in town day/night, volcano, rain, cave — only half-pixel
+  edge differences.
+- Speed can't be measured here: the test browser has no GPU (WebGL runs in
+  software there, so it is slower than the canvas in tests). Must be
+  compared on the phone with the FPS readout. index.html -> ?v=20261060a.
