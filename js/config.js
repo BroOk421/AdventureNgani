@@ -567,6 +567,16 @@ const MOBILE_ZOOM = 2.7; // per request: a closer phone camera (was 2)
 // the work, the phone heating up and slowing itself down, then lagging. 60 is
 // smooth and steady; set to 0 for no cap.
 const MOBILE_MAX_FPS = 60;
+// Phone render distance — per request ("16x16 na tiles lang na render center
+// jan yung character"): only what's inside a square this many tiles across,
+// centred on the character, is drawn (objects, trees, houses, people,
+// animals, mobs, lamps and their light...). Things pop in as you walk up to
+// them and disappear as you walk away. The ground itself (grass, dirt, paths,
+// water) still fills the whole screen — it's drawn in big pre-baked pieces,
+// which is cheap. 0 = no limit (draw everything on screen). Settings > View
+// on the phone switches it on/off (js/mobile.js), see js/renderwindow.js.
+let MOBILE_RENDER_TILES = 16;
+try { if (localStorage.getItem("agn-view-tiles") === "0") MOBILE_RENDER_TILES = 0; } catch (e) { /* private mode */ }
 // Phone walk/run animation speed, x normal — slowed less than the movement
 // so the steps don't look like slow motion, but enough that the feet don't
 // slide. (Idle is not affected.)

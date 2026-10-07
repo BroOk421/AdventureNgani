@@ -396,10 +396,19 @@ const snowFlakes = [];
    and out of a house — it never depended on where the camera is.
    Two rows: a BACK row drawn behind the characters/trees and a FRONT row
    drawn over them (drawWeatherBackFX() / drawWeatherOverlayFX()). */
+// Performance: getBoundingClientRect() forces the browser to lay the page out
+// again — it was called for every snowflake / raindrop. The size only changes
+// when the window does, so it's read once and kept until a resize.
+let screenCssSizeCache = null;
 function screenCssSize() {
+  if (screenCssSizeCache) return screenCssSizeCache;
   const r = view.getBoundingClientRect();
-  return { w: r.width || window.innerWidth, h: r.height || window.innerHeight };
+  screenCssSizeCache = { w: r.width || window.innerWidth, h: r.height || window.innerHeight };
+  return screenCssSizeCache;
 }
+window.addEventListener("resize", () => { screenCssSizeCache = null; });
+window.addEventListener("orientationchange", () => { screenCssSizeCache = null; });
+if (window.visualViewport) window.visualViewport.addEventListener("resize", () => { screenCssSizeCache = null; });
 
 function spawnSnowFlake(atInit, row) {
   const sz = screenCssSize();

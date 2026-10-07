@@ -6507,3 +6507,36 @@ browser can't show a stale cave texture.
   over 15 s (`weatherWeight(name)`), used by js/weatherfx.js (rain/snow
   density + alpha, clouds, sun rays, lightning) and js/snowground.js (the
   ground turns halfway through the fade).
+
+
+## Phones: 16x16-tile render window; lighter autosave / weather / NPC candles
+
+- js/renderwindow.js (new, after treasure.js): outdoors on a phone only what
+  reaches into a square MOBILE_RENDER_TILES (js/config.js, 16) tiles across,
+  centred on the character's feet, is drawn — placed objects, wild grass, tall
+  flowers, bridges, lamps + their light pools, tree ground shadows,
+  townsfolk, customers, Maria, farm / wild animals, mobs and drops, crops,
+  crystals, chests, butterflies, fireflies, and the night relights. Things
+  pop back the moment they're inside it; nothing stops living. The ground
+  chunks, weather, clouds and birds still cover the whole screen. Hooks:
+  rectInView() (so itemOffscreen() / mobOnScreen() follow it), wrappers on
+  drawCitizen / drawCustomer / drawAnimal / drawWildAnimal / drawNPC /
+  drawMaskedRelight / drawCrop / drawCrystal / drawChest and the critter
+  draws; js/camera.js narrows renderWorldObjectsSorted()'s row/col ranges
+  (window -2..+10 rows, +-6 cols for tall/wide art), drawBridgeComponent(),
+  lampEntries(), relightStaticOccludersMobile() and drawTreeGroundShadows().
+  Indoors and on the desktop nothing changes. Settings > View on the phone
+  toggles 16x16 / Full (localStorage "agn-view-tiles").
+  - At MOBILE_ZOOM 2.7 a landscape phone shows ~20x9 tiles, so 16x16 only
+    hides the outer ~2 columns each side; most of the saving is not working
+    on what's off screen. Measured in headless Chrome (same page, frames
+    alternating on/off while walking): render() 23% lighter at night, 42% by
+    day; draw calls 15-28% fewer. Lower MOBILE_RENDER_TILES to hide more.
+- js/camera.js drawCharacterGlow(): on phones a walking NPC's candle (cache
+  miss every frame) reuses the one built a frame or two ago a few px back
+  (recentNpcCandles, NPC_CANDLE_REUSE_FRAMES 2) — rebuilt every 3rd frame.
+- js/weatherfx.js screenCssSize(): cached until a resize (it called
+  getBoundingClientRect() — a forced layout — for every flake / drop).
+- js/save.js: phones autosave every 10 s (was 2 s, a regular hitch) plus on
+  visibilitychange (hidden) and pagehide; the desktop keeps 2 s.
+  index.html -> ?v=20261057a (+ js/renderwindow.js).

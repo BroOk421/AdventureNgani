@@ -233,7 +233,7 @@ if (MOBILE_ON) {
   setInterval(() => { const q = col.querySelector(".qpts"); if (q && typeof QUESTS !== "undefined") { const n = QUESTS.filter((x) => (questActive(x.id) && x.turnIn && questObjectivesMet(x))).length; q.textContent = n ? "?" : ""; } }, 600);
   setInterval(() => { const p = col.querySelector(".pts:not(.qpts)"); if (p && typeof skillPointsLeft === "function") { const n = skillPointsLeft(); p.textContent = n > 0 ? n : ""; } }, 500);
   const settings = add(`<div id="mb-settings" class="mb">
-    <button data-s="map">Map</button><button data-s="save">Save</button><button data-s="export">Export</button><button data-s="import">Import</button><button data-s="fps">FPS</button><button data-s="quality" id="mb-quality">Quality: ${MOBILE_RENDER_SCALE < 1 ? "Smooth" : "Sharp"}</button></div>`);
+    <button data-s="map">Map</button><button data-s="save">Save</button><button data-s="export">Export</button><button data-s="import">Import</button><button data-s="fps">FPS</button><button data-s="quality" id="mb-quality">Quality: ${MOBILE_RENDER_SCALE < 1 ? "Smooth" : "Sharp"}</button><button data-s="view" id="mb-view">View: ${typeof MOBILE_RENDER_TILES !== "undefined" && MOBILE_RENDER_TILES > 0 ? MOBILE_RENDER_TILES + "x" + MOBILE_RENDER_TILES : "Full"}</button></div>`);
   const clickToolbar = (re) => { for (const b of document.querySelectorAll("#top-toolbar button")) if (re.test(b.textContent)) { b.click(); return true; } return false; };
   col.addEventListener("pointerdown", (e) => {
     const b = e.target.closest("button"); if (!b) return;
@@ -259,6 +259,12 @@ if (MOBILE_ON) {
       try { localStorage.setItem("agn-render-scale", String(MOBILE_RENDER_SCALE)); } catch (e) { /* ignore */ }
       b.textContent = "Quality: " + (MOBILE_RENDER_SCALE < 1 ? "Smooth" : "Sharp");
       resizeCanvas();
+    }
+    else if (s === "view") {
+      // Settings > View: the render window (js/renderwindow.js) — 16x16 tiles round you, or the full screen
+      MOBILE_RENDER_TILES = MOBILE_RENDER_TILES > 0 ? 0 : 16;
+      try { localStorage.setItem("agn-view-tiles", String(MOBILE_RENDER_TILES)); } catch (e) { /* ignore */ }
+      b.textContent = "View: " + (MOBILE_RENDER_TILES > 0 ? MOBILE_RENDER_TILES + "x" + MOBILE_RENDER_TILES : "Full");
     }
     settings.classList.remove("open");
   });

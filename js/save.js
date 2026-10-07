@@ -789,5 +789,13 @@ document.getElementById("import-file-input").addEventListener("change", (e) => {
 
 // Autosave: periodically (catches player movement) and right before the
 // tab/window closes or reloads (catches anything since the last tick).
-setInterval(saveGame, 2000);
+// Phones: every 10 s instead of every 2 s. Building + writing the whole save
+// takes long enough on a phone to show as a hitch, and doing it every 2 s
+// was a regular stutter. Nothing is lost: it also saves whenever the app is
+// put in the background / closed (visibilitychange, pagehide), and after
+// the actions that already save on their own (placing, buying...).
+setInterval(() => { if (!(typeof isMobileMode === "function" && isMobileMode())) saveGame(); }, 2000);
+setInterval(() => { if (typeof isMobileMode === "function" && isMobileMode()) saveGame(); }, 10000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveGame(); });
+window.addEventListener("pagehide", saveGame);
 window.addEventListener("beforeunload", saveGame);

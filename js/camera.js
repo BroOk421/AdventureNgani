@@ -1014,6 +1014,21 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
     addSceneLight(cached, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
     return;
   }
+  // Phones: someone ELSE walking (a townsperson, Maria) missed the cache
+  // every single frame — a full shadow projection per walker per frame, the
+  // biggest night-time spikes. Their candle built a frame or two ago, a few
+  // px back, is reused instead (moved along with them); it's rebuilt every
+  // NPC_CANDLE_REUSE_FRAMES + 1 frames. The shadows trail by ~30 ms at most.
+  if (phone && !isPlayerLight) {
+    for (const r of recentNpcCandles) {
+      if (r.d !== d || relightFrameId - r.frame > NPC_CANDLE_REUSE_FRAMES) continue;
+      if (Math.abs(r.x - worldX) > 4 || Math.abs(r.y - worldY) > 4) continue;
+      if (candleCache.get(r.key) !== r.canvas) continue; // its canvas was recycled meanwhile
+      r.x = worldX; r.y = worldY;
+      addSceneLight(r.canvas, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
+      return;
+    }
+  }
 
   if (occluders.length) {
     glowMaskCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1123,8 +1138,14 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   kg.clearRect(0, 0, d, d);
   kg.drawImage(glowCanvas, 0, 0);
   candleCache.set(ckey, keep);
+  if (phone && !isPlayerLight) {
+    for (let i = recentNpcCandles.length - 1; i >= 0; i--) if (relightFrameId - recentNpcCandles[i].frame > NPC_CANDLE_REUSE_FRAMES) recentNpcCandles.splice(i, 1);
+    recentNpcCandles.push({ x: worldX, y: worldY, d, frame: relightFrameId, key: ckey, canvas: keep });
+  }
 }
 const CANDLE_CACHE_MAX = 24;
+const NPC_CANDLE_REUSE_FRAMES = 2;  // phones: a walking NPC's candle is rebuilt every 3rd frame
+const recentNpcCandles = [];        // [{ x, y, d, frame, key, canvas }] — see drawCharacterGlow()
 // The counter pieces (bartender*) in the room, as screen-space cutouts for
 // addSceneLight(): no candle or lamp lights the counter top (see
 // collectLightOccluders()). Same rects relightOccluders() uses indoors.
@@ -1297,6 +1318,7 @@ function relightStaticOccludersMobile() {
     if (!list) continue;
     for (const [col, type] of list) {
       if (col < vc0 || col > vc1) continue;
+      if (typeof renderWin !== "undefined" && renderWin && itemOffscreen(type, col, row)) continue; // hidden (render window) — nothing to cut out
       const def = itemDefs[type];
       const swap = nightSwapFor(type);
       const showNight = swap && swap.night > 0.5;
@@ -2438,7 +2460,16 @@ function lampEntries() {
   const r0 = Math.floor(camY / TILE) - pad, r1 = Math.ceil((camY + view.height / zoom) / TILE) + pad;
   const c0 = Math.floor(camX / TILE) - pad, c1 = Math.ceil((camX + view.width / zoom) / TILE) + pad;
   const out = [];
-  for (let r = r0; r <= r1; r++) { const a = rows.get(r); if (a) for (const e of a) if (e[0] >= c0 && e[0] <= c1) out.push([e[2], e[1]]); }
+  const win = typeof renderWin !== "undefined" && renderWin; // js/renderwindow.js
+  for (let r = r0; r <= r1; r++) {
+    const a = rows.get(r);
+    if (!a) continue;
+    for (const e of a) {
+      if (e[0] < c0 || e[0] > c1) continue;
+      if (win && itemOffscreen(e[1], e[0], r)) continue; // the lamp isn't drawn, so neither is its light
+      out.push([e[2], e[1]]);
+    }
+  }
   return out;
 }
 
@@ -2582,8 +2613,10 @@ function drawTreeGroundShadows() {
   ctx.save();
   ctx.globalAlpha = day;
   ctx.imageSmoothingEnabled = false;
+  const win = typeof renderWin !== "undefined" && renderWin; // js/renderwindow.js
   forEachTileInView(objectLayer, (type, col, row) => {
     if (!/^tree/.test(type)) return;
+    if (win && itemOffscreen(type, col, row)) return; // the tree isn't drawn, so no shadow either
     const art = treeShadowArt[TREE_SHADOW_FOR[type] || "ellipse_small_a"];
     if (!art || !art.width) return;
     // moves with the tree's own animation (wind lean, chop shake — js/plantfx.js)
@@ -2870,8 +2903,17 @@ function renderWorldObjectsSorted() {
     drawables.push({ sortY, bush: /^bush/.test(type) && sortY !== -Infinity, draw: () => drawObjectLayerItem(type, col, row) });
   };
   // phones: only the rows/cols round the screen (row buckets); the desktop walks the layer as before
-  const vr0 = Math.floor(camY / TILE) - 3, vr1 = Math.ceil((camY + view.height / zoom) / TILE) + 14;
-  const vc0 = Math.floor(camX / TILE) - 12, vc1 = Math.ceil((camX + view.width / zoom) / TILE) + 12;
+  let vr0 = Math.floor(camY / TILE) - 3, vr1 = Math.ceil((camY + view.height / zoom) / TILE) + 14;
+  let vc0 = Math.floor(camX / TILE) - 12, vc1 = Math.ceil((camX + view.width / zoom) / TILE) + 12;
+  // Phones: only round the render window (js/renderwindow.js) — a few rows
+  // below it for tall art (a tree whose base is further down still reaching
+  // up into it), a few columns either side for wide art (houses). The exact
+  // test is itemOffscreen() on each item's art.
+  const rw = typeof renderWindowTiles === "function" ? renderWindowTiles() : null;
+  if (rw) {
+    vr0 = Math.max(vr0, rw.r0 - 2); vr1 = Math.min(vr1, rw.r1 + 10);
+    vc0 = Math.max(vc0, rw.c0 - 6); vc1 = Math.min(vc1, rw.c1 + 6);
+  }
   if (isMobileMode()) {
     const drawRows = layerRows(objectLayer, "drawObj", () => true);
     for (let r = vr0; r <= vr1; r++) { const a = drawRows.get(r); if (a) for (const e of a) if (e[0] >= vc0 && e[0] <= vc1) objBody(e[1], e[2]); }
@@ -3023,7 +3065,12 @@ function drawBridgeComponent(comp) {
   if (isMobileMode()) {
     const c0 = Math.floor(camX / TILE) - 2, c1 = Math.ceil((camX + view.width / zoom) / TILE) + 2;
     const r0 = Math.floor(camY / TILE) - 2, r1 = Math.ceil((camY + view.height / zoom) / TILE) + 4;
-    for (const [col, row, type] of comp.tiles) if (col >= c0 && col <= c1 && row >= r0 && row <= r1) drawGroundItemAt(type, col, row);
+    const rw = typeof renderWindowTiles === "function" ? renderWindowTiles() : null; // the render window (js/renderwindow.js)
+    for (const [col, row, type] of comp.tiles) {
+      if (col < c0 || col > c1 || row < r0 || row > r1) continue;
+      if (rw && (col < rw.c0 || col > rw.c1 || row < rw.r0 || row > rw.r1)) continue;
+      drawGroundItemAt(type, col, row);
+    }
     return;
   }
   for (const [col, row, type] of comp.tiles) drawGroundItemAt(type, col, row);
