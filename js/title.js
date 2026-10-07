@@ -42,7 +42,7 @@ const TITLE_STRINGS = {
     imported: "Imported into slot", importBad: "That file isn't a save file", storageFull: "Not enough space — delete a slot or export it first",
     settingsTitle: "Settings", graphics: "Graphics", audio: "Music", language: "Language", controls: "Controls",
     renderer: "Renderer", quality: "Quality", sharp: "Sharp", smooth: "Smooth", fps: "FPS limit", view: "View distance", full: "Full",
-    music: "Music", volume: "Volume", on: "On", off: "Off", phoneOnly: "phone only", restart: "Restarts the game screen",
+    sun: "Sun & shadows", sunNote: "Long shadows and warm light outside", music: "Music", volume: "Volume", on: "On", off: "Off", phoneOnly: "phone only", restart: "Restarts the game screen",
     exitMsg: "You can close this tab now.", lv: "Lv", gold: "gold", saved: "Saved", quest: "Quest", active: "last played",
     mainMenu: "Main Menu", inside: "inside", langNote: "Menus and buttons. The story text stays in English for now.",
     tips: [["WASD / Arrows", "Move (Shift = run)"], ["E", "Pick up / put down"], ["F", "Attack / use tool"], ["B / G / P", "Bag / Equipment / Profile"],
@@ -56,7 +56,7 @@ const TITLE_STRINGS = {
     imported: "Na-import sa slot", importBad: "Hindi save file ang file na iyan", storageFull: "Kulang ang space — magbura o mag-export muna ng slot",
     settingsTitle: "Settings", graphics: "Graphics", audio: "Musika", language: "Wika", controls: "Kontrol",
     renderer: "Renderer", quality: "Kalidad", sharp: "Malinaw", smooth: "Magaan", fps: "FPS limit", view: "Layo ng tanaw", full: "Buo",
-    music: "Musika", volume: "Lakas", on: "On", off: "Off", phoneOnly: "sa phone lang", restart: "Magre-restart ang screen",
+    sun: "Araw at anino", sunNote: "Mahahabang anino at mainit na liwanag sa labas", music: "Musika", volume: "Lakas", on: "On", off: "Off", phoneOnly: "sa phone lang", restart: "Magre-restart ang screen",
     exitMsg: "Puwede mo nang isara ang tab na ito.", lv: "Lv", gold: "gold", saved: "Na-save", quest: "Quest", active: "huling nilaro",
     mainMenu: "Main Menu", inside: "sa loob", langNote: "Mga menu at button. English pa rin muna ang kuwento sa laro.",
     tips: [["WASD / Arrows", "Lakad (Shift = takbo)"], ["E", "Pulot / lapag"], ["F", "Atake / gamitin ang tool"], ["B / G / P", "Bag / Gamit / Profile"],
@@ -167,10 +167,10 @@ const TITLE_H = 360;
 const TITLE_ART = {};
 let titleLayers = null; // layers.json
 function titleLoadArt(done) {
-  const names = ["everest", "range", "hills", "town", "fore_left", "fore_right", "cloud1", "cloud2", "cloud3", "cloud4", "cloud5", "cloud6"];
+  const names = ["everest", "range", "hills", "town", "town_front", "fore_left", "fore_right", "cloud1", "cloud2", "cloud3", "cloud4", "cloud5", "cloud6"];
   let left = names.length + 1;
   const fin = () => { if (--left === 0) done(); };
-  for (const n of names) { const im = new Image(); im.onload = fin; im.onerror = fin; im.src = "assets/title/" + n + ".png?v=2"; TITLE_ART[n] = im; }
+  for (const n of names) { const im = new Image(); im.onload = fin; im.onerror = fin; im.src = "assets/title/" + n + ".png?v=3"; TITLE_ART[n] = im; }
   fetch("assets/title/layers.json?v=2").then((r) => r.json()).then((j) => {
     titleLayers = j;
     // the townsfolk walking along the road (half-size walk strips, tools/build_title_art.py)
@@ -373,6 +373,8 @@ function TitleScene(canvas) {
         const fr = w.wait > 0 ? 0 : Math.floor(w.f) % 6;
         g.drawImage(im, fr * 32, 0, 32, 32, sx - 16, sy - 24, 32, 32);
       }
+      // the trees in front of the road go over the walkers
+      if (TITLE_ART.town_front && TITLE_ART.town_front.width) g.drawImage(TITLE_ART.town_front, tw.x, tw.y);
       // lamps still lit at dawn
       for (const [lx, ly] of titleLayers.lamps) {
         const x = tw.x + lx, y = tw.y + ly, f = 0.8 + 0.2 * Math.sin(time * 9 + lx);
@@ -671,6 +673,7 @@ function renderSettingsPanel() {
     const glOn = typeof GL2D !== "undefined" && GL2D.active;
     const rend = getPref("agn-renderer", "") || (glOn ? "webgl" : "canvas");
     h += `<div class="agn-row"><div class="l">${tt("renderer")}<small>${tt("restart")}</small></div>${seg("renderer", [["webgl", "WebGL"], ["canvas", "Canvas"]], rend)}</div>`;
+    h += `<div class="agn-row"><div class="l">${tt("sun")}<small>${tt("sunNote")}</small></div>${seg("sun", [["1", tt("on")], ["0", tt("off")]], getPref("agn-sun", "1") === "0" ? "0" : "1")}</div>`;
     h += `<div class="agn-row"><div class="l">${tt("quality")}${note}</div>${seg("quality", [["1", tt("sharp")], ["0.5", tt("smooth")]], getPref("agn-render-scale", "1") === "0.5" ? "0.5" : "1")}</div>`;
     h += `<div class="agn-row"><div class="l">${tt("fps")}${note}</div>${seg("fps", [[30, "30"], [60, "60"], [90, "90"], [120, "120"]], getPref("agn-max-fps", "60"))}</div>`;
     h += `<div class="agn-row"><div class="l">${tt("view")}${note}</div>${seg("view", [[16, "16×16"], [20, "20×20"], [0, tt("full")]], getPref("agn-view-tiles", "16"))}</div>`;
@@ -703,6 +706,7 @@ function onSettingsClick(e) {
     if (typeof MOBILE_RENDER_SCALE !== "undefined") { MOBILE_RENDER_SCALE = +v; if (typeof resizeCanvas === "function" && titleStarted) resizeCanvas(); }
   } else if (a === "fps") { setPref("agn-max-fps", v); if (typeof MOBILE_MAX_FPS !== "undefined") MOBILE_MAX_FPS = +v; }
   else if (a === "view") { setPref("agn-view-tiles", v); if (typeof MOBILE_RENDER_TILES !== "undefined") MOBILE_RENDER_TILES = +v; }
+  else if (a === "sun") { setPref("agn-sun", v); if (typeof setSunlight === "function") setSunlight(v === "1"); }
   else if (a === "music") { if (typeof Music !== "undefined") Music.setEnabled(v === "1"); }
   else if (a === "lang") { titleLang = v; setPref("agn-lang", v); titleRefreshPlayLabel(); if (typeof applyMenuLanguage === "function") applyMenuLanguage(); }
   renderSettingsPanel();

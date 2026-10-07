@@ -28,7 +28,13 @@ ROAD = (24, 25)                 # the main street rows
 LANE = (40, 41)                 # the back lane (the south row's doors)
 PASS = (23, 26)                 # the west / east gaps in the tree line
 SEED = int(sys.argv[1]) if len(sys.argv) > 1 else 7
-VERSION = "small-v2"   # v2: brick streets, cobblestone plaza / door paths
+VERSION = "small-v3"   # v2: brick streets, cobblestone plaza / door paths; v3: shops-only market town + a south road to the homes town
+HOMES_VERSION = "homes-v1"
+# Per request ("kapag yung mga bahay naman sa town is di magkasya or siksik na
+# sila gawa ka pa isang town ... pagsamahin mo sa isang town yung blacksmith,
+# grocery, at iba pang may nagbebenta tavern sama mo tapos yung iba sa kabilang
+# town na"): the town (market) has only the tavern and the shops; the homes go
+# to a second town (js/town2Map.data.js, TOWN2_MAP) south of it.
 
 # footprint relative to the anchor (bottom-centre = the door): (left, right, up)
 FOOT = {
@@ -37,20 +43,23 @@ FOOT = {
     "equipShop": (3, 3, 8), "potionShop": (3, 3, 8), "blacksmithShop": (3, 3, 8), "furnitureShop": (3, 3, 8),
     "groceryStore": (7, 7, 8), "guardHouse": (7, 7, 8),
 }
-REQUIRED = ["tavern", "groceryStore", "equipShop", "potionShop", "blacksmithShop", "furnitureShop", "townCabin",
-            "cottageLog", "cottagePlaster", "cottageBrick", "cottagePlaster", "cottageBrick"]
-OPTIONAL = ["abandonHouse", "guardHouse", "cottageLog"]
+MODES = {
+    "market": (["tavern", "groceryStore", "equipShop", "potionShop", "blacksmithShop", "furnitureShop"], []),
+    "homes": (["townCabin", "cottageLog", "cottagePlaster", "cottageBrick", "cottagePlaster", "cottageBrick", "abandonHouse", "guardHouse"], ["cottageLog"]),
+}
 
 
-def generate(seed):
+def generate(seed, mode="market"):
+    REQUIRED, OPTIONAL = MODES[mode]
+    market = mode == "market"
     rng = random.Random(seed)
     items = {}                      # (c, r, layer) -> type
     def put(c, r, t, layer="o"): items[(c, r, layer)] = t
 
     # ---------- the north cliff ----------
-    plateau = {(c, r) for c in range(W) for r in range(CLIFF_TOP + 1)}
+    plateau = {(c, r) for c in range(W) for r in range(CLIFF_TOP + 1)} if market else set()
     walls = {}
-    for c in range(W):
+    for c in (range(W) if market else []):
         for i, t in enumerate(["TopWallMountain4", "CenterWallMountain4", "CenterWallMountain4", "BottomWallMountain3"]):
             walls[(c, CLIFF_TOP + 1 + i)] = t
     for (c, r), t in walls.items(): put(c, r, "terrainMountain" + t, "g")
@@ -63,7 +72,8 @@ def generate(seed):
         elif not E: t = "CenterMountain" + ("6" if r % 2 else "12")
         else: t = rng.choice(["CenterMountain9", "CenterMountain9", "CenterMountain4", "CenterMountain10"])
         put(c, r, "terrainMountain" + t, "g")
-    PG = plateau_grass({p for p in plateau if p[1] <= CLIFF_TOP - 1}, set(), seed=seed, coverage=0.8, margin=1, blobs=20)
+    PG = plateau_grass({p for p in plateau if p[1] <= CLIFF_TOP - 1}, set(), seed=seed, coverage=0.8, margin=1, blobs=20) if market else {}
+    TOP = CLIFF_WALL if market else 0   # the homes town has no cliff: open ground from the top
     for (c, r), t in PG.items(): put(c, r, t, "g")
 
     # ---------- streets and lots ----------
@@ -75,7 +85,7 @@ def generate(seed):
     hard = set(plateau) | set(walls)
     D = set()
     for r in range(ROAD[0], ROAD[1] + 1):
-        for c in range(W): D.add((c, r))
+        for c in (range(W) if market else range(3, W - 3)): D.add((c, r))
     for r in range(LANE[0], LANE[1] + 1):
         for c in range(3, W - 3): D.add((c, r))
     foot_cells, margin_cells = set(), set()
@@ -86,26 +96,30 @@ def generate(seed):
     def width(t): return FOOT[t][0] + FOOT[t][1] + 1
 
     req = REQUIRED[:]; rng.shuffle(req)
-    north, south = ["tavern"], []
+    first = "tavern" if market else "townCabin"
+    north, south = [first], []
     for t in req:
-        if t == "tavern": continue
+        if t == first: continue
         (north if rng.random() < 0.5 else south).append(t)
     # balance the two rows by width
     def wsum(l): return sum(width(t) + 2 for t in l if t in FOOT)
     while wsum(north) > wsum(south) + 10 and len(north) > 1:
-        t = next(x for x in north if x != "tavern"); north.remove(t); south.append(t)
+        t = next(x for x in north if x != first); north.remove(t); south.append(t)
     while wsum(south) > wsum(north) + 10:
         t = south.pop(); north.append(t)
     rng.shuffle(north); rng.shuffle(south)
-    north.insert(rng.randint(0, len(north)), "#cave")
-    north.insert(rng.randint(0, len(north)), "#portal")
+    if market:
+        north.insert(rng.randint(0, len(north)), "#cave")
+        north.insert(rng.randint(0, len(north)), "#portal")
+    else:
+        north.insert(rng.randint(1, max(1, len(north) - 1)), "#north")
     for _ in range(2): south.insert(rng.randint(0, len(south)), "#lane")
     opt = OPTIONAL[:]; rng.shuffle(opt)
 
-    cave_c = portal = None
+    cave_c = portal = north_c = None
     lanes = []
     def lay_row(seq, anchor_row, front_row, extra):
-        nonlocal cave_c, portal
+        nonlocal cave_c, portal, north_c
         c = 4 + rng.randint(0, 2)
         placed = []
         queue = list(seq) + [("opt", t) for t in extra]
@@ -117,6 +131,12 @@ def generate(seed):
                 if c + wdt > W - 4: return None
                 cave_c = c + 1
                 for r in range(CLIFF_WALL + 1, ROAD[0]): D.add((cave_c, r))
+                c += wdt + rng.randint(1, 2); continue
+            if t == "#north":  # the road in from the market town (north edge)
+                wdt = 4
+                if c + wdt > W - 4: return None
+                north_c = c + 1
+                for r in range(0, ROAD[0]): D.add((north_c, r)); D.add((north_c + 1, r))
                 c += wdt + rng.randint(1, 2); continue
             if t == "#portal":
                 wdt = 5
@@ -144,11 +164,13 @@ def generate(seed):
             for r in range(anchor_row + 1, front_row + 1): D.add((bc, r))
             buildings.append({"type": t, "col": bc, "row": anchor_row})
             placed.append(t)
-            c += wdt + rng.randint(1, 3)
+            c += wdt + (rng.randint(3, 7) if market else rng.randint(1, 3))
         return placed
     if lay_row(north, ROAD[0] - 2, ROAD[0] - 1, opt[:1]) is None: return None
     if lay_row(south, LANE[0] - 1, LANE[0] - 1, opt[1:]) is None: return None
-    if cave_c is None or portal is None or len(lanes) < 2: return None
+    if market and (cave_c is None or portal is None): return None
+    if not market and north_c is None: return None
+    if len(lanes) < 2: return None
     # the lane's ends join the connectors only: trim it to the outermost connectors
     lo, hi = min(lanes), max(lanes) + 1
     D = {p for p in D if not (LANE[0] <= p[1] <= LANE[1] and (p[0] < lo or p[0] > hi)) or any(b["col"] == p[0] for b in buildings)}
@@ -156,19 +178,26 @@ def generate(seed):
         if b["row"] == LANE[0] - 1:
             x0, x1 = sorted((b["col"], min(max(b["col"], lo), hi)))
             for x in range(x0, x1 + 1): D.add((x, LANE[0]))
-    # the plaza: across the street from the tavern
-    tav = next(b for b in buildings if b["type"] == "tavern")
+    # the market town's road south to the homes town: from the back lane to the bottom edge
+    south_c = None
+    if market:
+        south_c = (lo + hi) // 2
+        for r in range(LANE[1] + 1, H): D.add((south_c, r)); D.add((south_c + 1, r))
+    # the plaza: across the street from the tavern (homes: the north building nearest the middle)
+    if market: tav = next(b for b in buildings if b["type"] == "tavern")
+    else: tav = min((b for b in buildings if b["row"] == ROAD[0] - 2), key=lambda b: abs(b["col"] - W // 2))
     pc = tav["col"]
     plaza = {(c, r) for c in range(pc - 4, pc + 5) for r in range(ROAD[1] + 1, ROAD[1] + 4)
              if (c, r) not in foot_cells and (c, r) not in margin_cells}
     D |= plaza
-    put(cave_c, CLIFF_WALL, "caveEntrance")
-    put(portal[0], portal[1], "warpPortal")
-    for dc, dr, t in [(-2, -1, "stoneBig"), (2, -1, "stoneMedium"), (-2, 1, "stoneSmall"), (2, 1, "pcRocks02"), (-1, -4, "stoneSmall"), (1, -4, "pcRocks01")]:
-        if (portal[0] + dc, portal[1] + dr) not in D: put(portal[0] + dc, portal[1] + dr, t)
+    if market:
+        put(cave_c, CLIFF_WALL, "caveEntrance")
+        put(portal[0], portal[1], "warpPortal")
+        for dc, dr, t in [(-2, -1, "stoneBig"), (2, -1, "stoneMedium"), (-2, 1, "stoneSmall"), (2, 1, "pcRocks02"), (-1, -4, "stoneSmall"), (1, -4, "pcRocks01")]:
+            if (portal[0] + dc, portal[1] + dr) not in D: put(portal[0] + dc, portal[1] + dr, t)
 
     # ---------- dirt + grass edges (the world builders' corner rule) ----------
-    D = {p for p in D if 0 <= p[0] < W and CLIFF_WALL < p[1] < H}
+    D = {p for p in D if 0 <= p[0] < W and (TOP < p[1] < H if market else 0 <= p[1] < H)}
     def corner_dirt(vc, vr): return any((vc - dc, vr - dr) in D for dc in (0, 1) for dr in (0, 1))
     for _ in range(10):
         bad = []
@@ -184,7 +213,7 @@ def generate(seed):
     dirt_or_edge = set()
     edge_piece, gap_cells = {}, set()
     for (c, r) in {(c + a, r + b) for (c, r) in D for a in (-1, 0, 1) for b in (-1, 0, 1)}:
-        if not (0 <= c < W and CLIFF_WALL < r < H): continue
+        if not (0 <= c < W and (TOP < r < H if market else 0 <= r < H)): continue
         g = tuple(int(not corner_dirt(*v)) for v in [(c, r), (c + 1, r), (c, r + 1), (c + 1, r + 1)])
         if g == (1, 1, 1, 1): continue
         dirt_or_edge.add((c, r))
@@ -199,6 +228,8 @@ def generate(seed):
     def brick_cell(c, r):
         if ROAD[0] <= r <= ROAD[1]: return True
         if LANE[0] <= r <= LANE[1] and lo <= c <= hi + 1: return True
+        if south_c is not None and r > LANE[1] and c in (south_c, south_c + 1): return True
+        if north_c is not None and r < ROAD[0] and c in (north_c, north_c + 1): return True
         return ROAD[1] < r < LANE[0] and any(c in (x, x + 1) for x in lanes)
     pr = random.Random(seed * 31 + 5)
     mat = {}
@@ -212,7 +243,7 @@ def generate(seed):
         nb = [mat.get((p[0] + a, p[1] + b)) for a in (-1, 0, 1) for b in (-1, 0, 1)]
         mat[p] = "Bricks" if nb.count("Bricks") >= nb.count("Cobble") else "Cobble"
     for (c, r), m in mat.items():
-        if not (0 <= c < W and CLIFF_WALL < r < H): continue
+        if not (0 <= c < W and (TOP < r < H if market else 0 <= r < H)): continue
         n = pr.randint(1, 6)
         put(c, r, "terrain" + m + ("EnterBricks" if m == "Bricks" else "EnterCobble") + str(n), "g")
     for (c, r), piece in edge_piece.items():
@@ -231,8 +262,8 @@ def generate(seed):
         return all(0 <= c < W and 0 <= r < H and (c, r) not in occ for c in range(c0, c1 + 1) for r in range(r0, r1 + 1))
     keep_clear = foot_cells | margin_cells | fronts       # a tall tree's crown must not hang over a house or a doorstep
     def canopy_ok(c, r, big=False):
-        w = 3 if big else 2
-        return not any((x, y) in keep_clear for x in range(c - w, c + w + 1) for y in range(r - 6, r + 1))
+        w = 4 if big else 3
+        return not any((x, y) in keep_clear for x in range(c - w, c + w + 1) for y in range(r - (10 if big else 8), r + 1))
     def take(c0, c1, r0, r1):
         for c in range(c0, c1 + 1):
             for r in range(r0, r1 + 1): occ.add((c, r))
@@ -266,9 +297,15 @@ def generate(seed):
     LOW = ["bushBigGreen", "bushMediumGreen", "bushBigLightGreen", "bushSmallGreen", "treeTinyGreen"]
     for c in range(1, W - 1, 2):              # along the bottom: low bushes / tiny trees (they'd hide the back lane's doors)
         r = H - 1
+        if south_c is not None and south_c - 2 <= c <= south_c + 3: continue
         if free(c, c, r, r): put(c, r, rng.choice(LOW)); take(c, c, r, r)
-    for r in range(CLIFF_WALL + 3, H - 2, 3):
-        if PASS[0] - 2 <= r <= PASS[1] + 2: continue
+    if not market:                            # along the top: trees, a gap for the road in
+        for c in range(1, W - 1, 3):
+            if north_c - 3 <= c <= north_c + 4: continue
+            r = 2 + rng.randint(0, 1)
+            if free(c, c, r, r) and canopy_ok(c, r): put(c, r, rng.choice(TREES)); take(c - 1, c + 1, r - 2, r)
+    for r in range(TOP + 3, H - 2, 3):
+        if market and PASS[0] - 2 <= r <= PASS[1] + 2: continue
         for c in (1 + rng.randint(0, 1), W - 2 - rng.randint(0, 1)):
             if free(c, c, r, r) and canopy_ok(c, r): put(c, r, rng.choice(TREES)); take(c - 1, c + 1, r - 2, r)
             elif free(c, c, r, r): put(c, r, rng.choice(LOW)); take(c, c, r, r)
@@ -277,7 +314,7 @@ def generate(seed):
         r_ = random.Random(seed2); n = 0
         for _ in range(count * 60):
             if n >= count: break
-            c, r = r_.randint(3, W - 4), r_.randint(CLIFF_WALL + 2, H - 4); t = r_.choice(types)
+            c, r = r_.randint(3, W - 4), r_.randint(TOP + 2, H - 4); t = r_.choice(types)
             up = 2 if tall else 0
             if tall and not canopy_ok(c, r, t == "treeBigOrange"): continue
             if free(c - spacing, c + spacing, r - up, r + 1):
@@ -287,7 +324,7 @@ def generate(seed):
     scatter(["stoneSmall", "stoneXS", "stoneMedium", "stoneDecor1", "stoneDecor2"], 14, False, seed + 5, 0)
     scatter(["bushMushroom1", "bushMushroom2", "decoFlower1", "decoFlower2"], 18, False, seed + 6, 0)
     for i in range(30):
-        r_ = random.Random(seed * 11 + i); cx, cy = r_.randint(3, W - 4), r_.randint(CLIFF_WALL + 2, H - 3)
+        r_ = random.Random(seed * 11 + i); cx, cy = r_.randint(3, W - 4), r_.randint(TOP + 2, H - 3)
         for _ in range(4):
             c, r = cx + r_.randint(-2, 2), cy + r_.randint(-1, 1)
             if (c, r) not in occ and 0 <= c < W and 0 <= r < H:
@@ -307,7 +344,13 @@ def generate(seed):
     for i, v in enumerate(fill):
         if v: b[i >> 3] |= 1 << (i & 7)
     mid = (ROAD[0] + ROAD[1]) // 2
+    if not market:
+        return {"cols": W, "rows": H, "layoutVersion": HOMES_VERSION + "-" + str(seed),
+                "northPass": [north_c, north_c + 1], "spawnNorth": [north_c, 3], "centre": [pc, mid + 2],
+                "buildings": buildings, "placedItems": placed,
+                "groundFill": {"cols": COLS, "rows": ROWS, "bits": base64.b64encode(bytes(b)).decode()}}
     return {"cols": W, "rows": H, "layoutVersion": VERSION + "-" + str(seed),
+            "southPass": [south_c, south_c + 1], "spawnSouth": [south_c, H - 4],
             "westPass": [ROAD[0] - 1, ROAD[1] + 1], "eastPass": [ROAD[0] - 1, ROAD[1] + 1],
             "spawnWest": [3, mid], "spawnEast": [W - 4, mid], "centre": [pc, mid + 2],
             "portal": {"col": portal[0], "row": portal[1]}, "cave": {"col": cave_c, "row": CLIFF_WALL},
@@ -315,16 +358,19 @@ def generate(seed):
             "groundFill": {"cols": COLS, "rows": ROWS, "bits": base64.b64encode(bytes(b)).decode()}}
 
 
-seed = SEED
-for attempt in range(200):
-    town = generate(seed)
-    if town and len(town["buildings"]) >= len(REQUIRED) + 1: break
-    seed += 1
-else:
-    town = generate(SEED)
-assert town, "no layout found"
-with open(os.path.join(ROOT, "js", "townMap.data.js"), "w", newline="\n") as f:
-    f.write('"use strict";\n// Generated by tools/build_town_small.py — the town at 80x46 (same size as every map).\n')
-    f.write("const TOWN_MAP = " + json.dumps(town, separators=(",", ":")) + ";\n")
-print("seed", seed, "buildings", [(b["type"], b["col"], b["row"]) for b in town["buildings"]], "items", len(town["placedItems"]),
-      "portal", town["portal"], "cave", town["cave"], "centre", town["centre"])
+def build(mode, seed0, fname, const, note):
+    REQ = MODES[mode][0]
+    seed = seed0
+    for attempt in range(400):
+        town = generate(seed, mode)
+        if town and len(town["buildings"]) >= len(REQ): break
+        seed += 1
+    assert town, "no layout found"
+    with open(os.path.join(ROOT, "js", fname), "w", newline="\n") as f:
+        f.write('"use strict";\n// Generated by tools/build_town_small.py — ' + note + '\n')
+        f.write("const " + const + " = " + json.dumps(town, separators=(",", ":")) + ";\n")
+    print(mode, "seed", seed, "buildings", [(b["type"], b["col"], b["row"]) for b in town["buildings"]], "items", len(town["placedItems"]))
+    return town
+
+build("market", SEED, "townMap.data.js", "TOWN_MAP", "the town (tavern + shops) at 80x46.")
+build("homes", SEED + 100, "town2Map.data.js", "TOWN2_MAP", "the homes town south of the market town, 80x46.")

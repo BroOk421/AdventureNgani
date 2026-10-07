@@ -28,7 +28,7 @@
 ================================================================= */
 
 let currentWorld = "main";
-const worldStore = { main: null, wild: null, east1: null, east2: null, east3: null, east4: null, east5: null, east6: null };
+const worldStore = { main: null, town2: null, wild: null, east1: null, east2: null, east3: null, east4: null, east5: null, east6: null };
 // Every world besides the town: its own size and default layout. The east
 // worlds (js/eastWorlds.data.js, tools/build_east_worlds.py) chain off the
 // town's EAST edge: town -> east1 -> east2, each with its own mobs (js/mines.js).
@@ -44,20 +44,36 @@ const WORLD_DEFS = {
   east7: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east7 || null : null, // the Volcano (tools/build_east_worlds.py)
   east8: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.east8 || null : null, // the Azure Coast
   forest: typeof EAST_WORLDS !== "undefined" ? EAST_WORLDS.forest || null : null, // the Greenwood, west of the wild world (js/forest.js)
+  // the homes town, south of the town (js/town2Map.data.js, tools/build_town_small.py) — per request the
+  // town keeps the tavern and the shops, every other house moved here
+  town2: typeof TOWN2_MAP !== "undefined" ? TOWN2_MAP : null,
 };
 const EXTRA_WORLDS = Object.keys(WORLD_DEFS).filter((w) => WORLD_DEFS[w]);
 const WILD_COLS = WILD_WORLD_DEFAULT.cols, WILD_ROWS = WILD_WORLD_DEFAULT.rows;
 const WILD_PASS_ROWS = WILD_WORLD_DEFAULT.pass || [24, 28];
-const MAIN_PORTAL = { cols: [0, 1], rows: [39, 41], spawn: { col: 3, row: 40 } };
+// The town (js/townMap.data.js, tools/build_town_small.py) is 80x46 like every other map now.
+const TOWN_LAYOUT_VERSION = typeof TOWN_MAP !== "undefined" ? TOWN_MAP.layoutVersion : "big";
+const TOWN_COLS = typeof TOWN_MAP !== "undefined" ? TOWN_MAP.cols : COLS, TOWN_ROWS = typeof TOWN_MAP !== "undefined" ? TOWN_MAP.rows : ROWS;
+const MAIN_PORTAL = typeof TOWN_MAP !== "undefined"
+  ? { cols: [0, 1], rows: TOWN_MAP.westPass, spawn: { col: TOWN_MAP.spawnWest[0], row: TOWN_MAP.spawnWest[1] } }
+  : { cols: [0, 1], rows: [39, 41], spawn: { col: 3, row: 40 } };
 const WILD_SPAWN = WILD_WORLD_DEFAULT.spawn || [WILD_COLS - 6, 26];
 const WILD_PORTAL = { cols: [WILD_COLS - 2, WILD_COLS - 1], rows: WILD_PASS_ROWS, spawn: { col: WILD_SPAWN[0], row: WILD_SPAWN[1] } };
 // Where the townsfolk hang around — the village, not wherever the player happens to be (js/citizens.js).
-const TOWN_CENTRE_TILE = { col: 90, row: 63 };
+const TOWN_CENTRE_TILE = typeof TOWN_MAP !== "undefined" ? { col: TOWN_MAP.centre[0], row: TOWN_MAP.centre[1] } : { col: 90, row: 63 };
 
-function worldW() { return currentWorld !== "main" && WORLD_DEFS[currentWorld] ? WORLD_DEFS[currentWorld].cols * TILE : MAP_W; }
-function worldH() { return currentWorld !== "main" && WORLD_DEFS[currentWorld] ? WORLD_DEFS[currentWorld].rows * TILE : MAP_H; }
+function worldW() { return currentWorld !== "main" && WORLD_DEFS[currentWorld] ? WORLD_DEFS[currentWorld].cols * TILE : TOWN_COLS * TILE; }
+function worldH() { return currentWorld !== "main" && WORLD_DEFS[currentWorld] ? WORLD_DEFS[currentWorld].rows * TILE : TOWN_ROWS * TILE; }
 // The town's east edge -> east1's west pass (rows 63-65, by the village).
-const MAIN_EAST_PORTAL = { cols: [186, 187], rows: [63, 65], spawn: { col: 184, row: 64 } };
+const MAIN_EAST_PORTAL = typeof TOWN_MAP !== "undefined"
+  ? { cols: [TOWN_COLS - 2, TOWN_COLS - 1], rows: TOWN_MAP.eastPass, spawn: { col: TOWN_MAP.spawnEast[0], row: TOWN_MAP.spawnEast[1] } }
+  : { cols: [186, 187], rows: [63, 65], spawn: { col: 184, row: 64 } };
+
+// The town's south road <-> the homes town's north road.
+const MAIN_SOUTH_PORTAL = typeof TOWN_MAP !== "undefined" && TOWN_MAP.southPass
+  ? { cols: [TOWN_MAP.southPass[0] - 1, TOWN_MAP.southPass[1] + 1], rows: [TOWN_ROWS - 2, TOWN_ROWS - 1] } : null;
+const TOWN2_NORTH_PORTAL = typeof TOWN2_MAP !== "undefined"
+  ? { cols: [TOWN2_MAP.northPass[0] - 1, TOWN2_MAP.northPass[1] + 1], rows: [0, 1] } : null;
 
 function packCurrentWorld() {
   return {
@@ -101,8 +117,53 @@ function switchWorld(target, spawn, facing, quiet) {
    in front of the player's House there. Called once from start() (main.js),
    after the town has been loaded and its people placed. */
 function startInDefaultWorld() {
+  if (resumeWhereLeft()) return;
   switchWorld("wild", null, null, true);
   if (!placePlayerAtHomeDoor()) placePlayerOnTile(WILD_SPAWN[0], WILD_SPAWN[1], "left"); // no House there -> by the pass
+}
+
+/* ---------------- carry on where you left off ----------------
+   Per request ("kung san siya nakapwesto tapos nag exit dapat kapag bukas
+   ulit nandun siya"): the save keeps the world, the spot, and the room /
+   cave you were in (`resume`); opening the game puts you back there. If
+   that place is gone (the town was rebuilt, the room no longer exists, the
+   spot is now blocked) you start at your House as before. */
+let pendingResume = null;
+function resumeWhereLeft() {
+  const r = pendingResume;
+  pendingResume = null;
+  if (!r || typeof r.x !== "number" || typeof r.y !== "number") return false;
+  if (r.world !== "main" && !WORLD_DEFS[r.world]) return false;
+  if (r.world === "main" && r.town !== TOWN_LAYOUT_VERSION) return false; // the town was rebuilt since
+  if (r.world !== "main" && (r.lv || null) !== ((WORLD_DEFS[r.world] && WORLD_DEFS[r.world].layoutVersion) || null)) return false; // that map was rebuilt
+  const out = r.outside && typeof r.outside.x === "number" ? r.outside : (r.scene === "inside" ? null : { x: r.x, y: r.y });
+  if (r.world !== currentWorld) switchWorld(r.world, null, null, true);
+  const okOutside = (o) => o && o.x > 0 && o.y > 0 && o.x < worldW() && o.y < worldH() &&
+    !(typeof isBodyBlockedAt === "function" && isBodyBlockedAt(o.x, o.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE));
+  if (r.scene === "inside" && r.room) {
+    let room = null;
+    try { room = getOrCreateInteriorRoom(r.room); } catch (e) { room = null; }
+    if (room) {
+      player.scene = "inside";
+      player.activeRoomId = r.room;
+      player.activeInteriorType = r.type || null;
+      player.outsideReturn = out && okOutside(out) ? { x: out.x, y: out.y } : null;
+      if (!player.outsideReturn) { // no safe way back out recorded: the door of the House, or the pass
+        const sx = player.x, sy = player.y;
+        if (!placePlayerAtHomeDoor()) placePlayerOnTile(WILD_SPAWN[0], WILD_SPAWN[1], "left");
+        player.outsideReturn = { x: player.x, y: player.y }; player.x = sx; player.y = sy;
+      }
+      player.x = r.x; player.y = r.y;
+      player.facing = r.facing || "down";
+      return true;
+    }
+  }
+  if (!okOutside(out)) { switchWorld("wild", null, null, true); return false; }
+  player.scene = "outside";
+  player.x = out.x; player.y = out.y;
+  player.facing = r.facing || "down";
+  player.elevated = !!r.elevated;
+  return true;
 }
 
 // The minimap shows the outdoor map — inside a room it stays on screen but goes black (per request,
@@ -133,6 +194,14 @@ function checkWorldPortals() {
   } else if (currentWorld === "wild" && inZone(WILD_PORTAL) && (keys["d"] || keys["arrowright"])) {
     worldPortalCooldown = performance.now() + 1500;
     beginSceneFade(() => switchWorld("main", MAIN_PORTAL.spawn, "right"));
+  } else if (currentWorld === "main" && WORLD_DEFS.town2 && TOWN_MAP.southPass && inZone(MAIN_SOUTH_PORTAL) && (keys["s"] || keys["arrowdown"])) {
+    worldPortalCooldown = performance.now() + 1500;
+    const sp = WORLD_DEFS.town2.spawnNorth;
+    beginSceneFade(() => switchWorld("town2", { col: sp[0], row: sp[1] }, "down"));
+  } else if (currentWorld === "town2" && inZone(TOWN2_NORTH_PORTAL) && (keys["w"] || keys["arrowup"])) {
+    worldPortalCooldown = performance.now() + 1500;
+    const sp = TOWN_MAP.spawnSouth;
+    beginSceneFade(() => switchWorld("main", { col: sp[0], row: sp[1] }, "up"));
   } else if (currentWorld === "main" && WORLD_DEFS.east1 && inZone(MAIN_EAST_PORTAL) && (keys["d"] || keys["arrowright"])) {
     worldPortalCooldown = performance.now() + 1500;
     const sw = WORLD_DEFS.east1.spawnWest;
@@ -206,7 +275,7 @@ function mainWorldOnly(fn, empty) {
   return function () { return currentWorld === "main" ? fn.apply(this, arguments) : empty; };
 }
 updateCitizens = mainWorldOnly(updateCitizens);
-updateAnimals = mainWorldOnly(updateAnimals);
+updateAnimals = function () { if (animals.length) animals.length = 0; }; // per request: no farm animals in the town (the Greenwood has its own)
 updateCustomers = mainWorldOnly(updateCustomers);
 updateNPC = mainWorldOnly(updateNPC);
 updateWaiterJob = mainWorldOnly(updateWaiterJob);
@@ -215,7 +284,7 @@ citizenDrawables = mainWorldOnly(citizenDrawables, []);
 citizenTownCentre = function () {
   return { x: (TOWN_CENTRE_TILE.col + 0.5) * TILE, y: (TOWN_CENTRE_TILE.row + 0.5) * TILE };
 };
-animalDrawables = mainWorldOnly(animalDrawables, []);
+animalDrawables = function () { return []; };
 customerDrawables = mainWorldOnly(customerDrawables, []);
 if (typeof citizenRelightList === "function") citizenRelightList = mainWorldOnly(citizenRelightList, []);
 
@@ -328,6 +397,12 @@ function addMissingWildPlaces(store) {
   const buildBase = buildSaveData;
   buildSaveData = function () {
     const d = buildBase();
+    const inside = player.scene === "inside";
+    d.resume = { world: currentWorld, town: TOWN_LAYOUT_VERSION, lv: (WORLD_DEFS[currentWorld] && WORLD_DEFS[currentWorld].layoutVersion) || null, scene: inside ? "inside" : "outside",
+      room: inside ? player.activeRoomId : null, type: inside ? player.activeInteriorType : null,
+      x: player.sitting ? player.sitPreX : player.x, y: player.sitting ? player.sitPreY : player.y,
+      outside: inside ? player.outsideReturn : null, facing: player.facing, elevated: !inside && !!player.elevated };
+    d.townVersion = TOWN_LAYOUT_VERSION;
     d.worlds = {};
     for (const w of EXTRA_WORLDS) d.worlds[w] = worldStore[w] || null;
     if (currentWorld !== "main") {
@@ -339,6 +414,10 @@ function addMissingWildPlaces(store) {
   };
   const applyBase = applySaveData;
   applySaveData = function (data) {
+    // safety net: a save stamped with today's town that still holds the old
+    // big town's items (out past 80x46) is migrated again
+    if (data && typeof TOWN_MAP !== "undefined" && data.townVersion === TOWN_LAYOUT_VERSION && townLooksOld(data.placedItems)) delete data.townVersion;
+    data = migrateToSmallTown(data);
     currentWorld = "main";
     worldStore.main = null;
     for (const w of EXTRA_WORLDS) {
@@ -347,6 +426,58 @@ function addMissingWildPlaces(store) {
       worldStore[w] = sv && (!want || sv.layoutVersion === want) ? sv : null; // the far worlds were rebuilt (side passages): an older save of one starts fresh
     }
     if (worldStore.wild) addMissingWildPlaces(worldStore.wild);
+    pendingResume = data && data.resume ? data.resume : null;
     return applyBase(data);
   };
+}
+
+
+/* ---------------- the town remade small ----------------
+   Per request ("yung town gawin mo na lang na mas maliit na map ... pantay
+   pantay na silang laki"): a save from the old big town gets the new town
+   (js/townMap.data.js) in its place. Every room inside an old town building
+   (tavern, shops, grocery, cottages, the cave ...) moves with it: the room
+   id `<room>@col,row` is renamed to the same kind of building's new spot,
+   everywhere in the save (furniture, room shapes, chests, Maria's trays ...),
+   so what was inside stays. What the player had placed out in the old town,
+   its farm plots and its auto-tile records go — the ground is all new. */
+function townLooksOld(items) {
+  if (!Array.isArray(items) || !items.length) return false;
+  for (const [k] of items) {
+    const i = String(k).indexOf(","), c = +String(k).slice(0, i), r = +String(k).slice(i + 1);
+    if (c >= TOWN_MAP.cols || r >= TOWN_MAP.rows) return true;
+  }
+  return false;
+}
+function migrateToSmallTown(data) {
+  if (!data || typeof TOWN_MAP === "undefined" || data.townVersion === TOWN_LAYOUT_VERSION) return data;
+  const spots = {};
+  // the town's buildings, then the homes town's (TOWN2_MAP): a cottage from an older town moves there
+  for (const b of TOWN_MAP.buildings.concat(typeof TOWN2_MAP !== "undefined" ? TOWN2_MAP.buildings : [])) (spots[b.type] = spots[b.type] || []).push(b);
+  spots.caveEntrance = [TOWN_MAP.cave];
+  const used = {}, rename = {};
+  for (const [k, t] of data.placedItems || []) {
+    const def = itemDefs[t];
+    if (!def || !def.interior || !def.interior.roomId || !spots[t]) continue;
+    const i = used[t] || 0;
+    if (i >= spots[t].length) continue;
+    used[t] = i + 1;
+    rename[def.interior.roomId + "@" + k] = def.interior.roomId + "@" + spots[t][i].col + "," + spots[t][i].row;
+  }
+  const keepWorlds = data.worlds;
+  let out;
+  try {
+    const json = JSON.stringify(Object.assign({}, data, { worlds: undefined }))
+      .replace(/([A-Za-z0-9]+_room)@(-?\d+),(-?\d+)/g, (m) => rename[m] || m);
+    out = JSON.parse(json);
+  } catch (e) { out = Object.assign({}, data); }
+  out.worlds = Object.assign({}, keepWorlds || {}, { town2: null }); // the homes town starts from its own layout
+  out.placedItems = TOWN_MAP.placedItems.map((e) => e.slice());
+  out.groundFill = JSON.parse(JSON.stringify(TOWN_MAP.groundFill));
+  if (out.autotileOwned && typeof out.autotileOwned === "object") { delete out.autotileOwned.main; delete out.autotileOwned["foot:main"]; }
+  if (out.farm && out.farm.worlds) delete out.farm.worlds.main;
+  if (Array.isArray(out.pendingConstructions)) out.pendingConstructions = [];
+  if (Array.isArray(out.pendingRespawns)) out.pendingRespawns = out.pendingRespawns.filter(([, v]) => v && v.world && v.world !== "main");
+  out.townVersion = TOWN_LAYOUT_VERSION;
+  return out;
 }

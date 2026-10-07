@@ -384,19 +384,20 @@ function drawMinimap() {
       if (inDial(ax, ay)) drawMapIcon(minimapCtx, animalMapIcon(a.id), ax, ay, a.id === "cow" ? MAP_ICON_PX : MAP_ICON_PX - 2);
     }
   }
+  const townPeople = typeof currentWorld === "undefined" || currentWorld === "main"; // they live in the town map only
   for (const c of citizens) {
-    if (c.scene !== "outside") continue;
+    if (c.scene !== "outside" || !townPeople) continue;
     const cx = toX(c.fx), cy = toY(c.fy);
     if (inDial(cx, cy)) drawMapIcon(minimapCtx, citizenMapIcon(c.id), cx, cy, MAP_ICON_PX);
   }
   if (typeof customers !== "undefined") {
     for (const cu of customers) {
-      if (cu.scene !== "outside" || cu.state === "away" || !cu.look) continue;
+      if (cu.scene !== "outside" || cu.state === "away" || !cu.look || !townPeople) continue;
       const cx = toX(cu.fx), cy = toY(cu.fy);
       if (inDial(cx, cy)) drawMapIcon(minimapCtx, citizenMapIcon(cu.look), cx, cy, MAP_ICON_PX);
     }
   }
-  if (npc.scene === "outside") {
+  if (npc.scene === "outside" && townPeople) {
     const npcX = toX(npc.x), npcY = toY(npc.y);
     if (inDial(npcX, npcY)) drawMapIcon(minimapCtx, mariaMapIcon(), npcX, npcY, MAP_ICON_PX);
   }
@@ -485,9 +486,10 @@ function drawFullMapDots() {
   };
   const icon = (ic, x, y, sz) => { if (!drawMapIcon(g, ic, x * s, y * s, sz)) dot(x, y, 3, "#ffffff"); };
   if (typeof animals !== "undefined") for (const a of animals) icon(animalMapIcon(a.id), a.fx, a.fy, a.id === "cow" ? 16 : 13); // farm animals (js/animals.js)
-  for (const c of citizens) if (c.scene === "outside") icon(citizenMapIcon(c.id), c.fx, c.fy, 16); // townsfolk (js/citizens.js)
-  if (typeof customers !== "undefined") for (const cu of customers) if (cu.scene === "outside" && cu.state !== "away" && cu.look) icon(citizenMapIcon(cu.look), cu.fx, cu.fy, 16);
-  if (npc.scene === "outside") icon(mariaMapIcon(), npc.x, npc.y, 16);
+  const townPeople = typeof currentWorld === "undefined" || currentWorld === "main";
+  if (townPeople) for (const c of citizens) if (c.scene === "outside") icon(citizenMapIcon(c.id), c.fx, c.fy, 16); // townsfolk (js/citizens.js)
+  if (townPeople && typeof customers !== "undefined") for (const cu of customers) if (cu.scene === "outside" && cu.state !== "away" && cu.look) icon(citizenMapIcon(cu.look), cu.fx, cu.fy, 16);
+  if (townPeople && npc.scene === "outside") icon(mariaMapIcon(), npc.x, npc.y, 16);
   // Indoors, player.x/y are room coordinates — show where they went in.
   const p = player.scene === "inside" && player.outsideReturn ? player.outsideReturn : player;
   drawPlayerArrow(g, p.x * s, p.y * s, 14);

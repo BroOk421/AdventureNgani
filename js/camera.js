@@ -140,7 +140,7 @@ function drawShadow(px, feetY, size, sheet, sx) {
   // side sheet flipped) — it does not affect which side the shadow leans
   // toward, since `skew` above comes from the sun's position, not facing.
   if (player.facing === "left") ctx.scale(-1, 1);
-  ctx.globalAlpha = 0.32 * alpha; // same strength the per-frame tint used to bake in
+  ctx.globalAlpha = (typeof SUNLIGHT_ON !== "undefined" && SUNLIGHT_ON ? 0.5 : 0.32) * alpha; // darker with the cast shadows on (js/sunlight.js), to match them
   const pad = SOFT_SIL_PAD * size / FRAME_SIZE; // the cached canvas has blur room around the frame
   ctx.drawImage(silhouette, -size / 2 - pad, -size - pad, size + pad * 2, size + pad * 2);
   ctx.restore();
@@ -316,10 +316,9 @@ function getRoomOwnerPresence(roomId) {
   const room = INTERIOR_ROOMS[roomId];
   const owner = room && room.owner;
   if (owner === "player") return { home: true, asleep: !!player.sleeping }; // you're the one looking at it, so you're home
-  if (owner === "npc") {
-    const home = npc.scene === "inside" && npc.roomId === roomId;
-    return { home, asleep: home && npc.sleeping };
-  }
+  // Per request ("ganitong itsura dapat kapag gabi sa lahat"): every room gets the
+  // night look now, the tavern too — no more "owner home = daytime colours";
+  // its lamps and candles light it instead.
   return { home: false, asleep: false };
 }
 
@@ -458,7 +457,7 @@ let sceneLightMaxStrength = 0;
        inside a lamp's core the two are simply one light. */
 // Overall brightness of every light (candles + lamp posts) — per request
 // ("bawasan mo ng konti yung lightness siguro -10%"). 1 = the old look.
-const SCENE_LIGHT_BRIGHTNESS = 0.9;
+const SCENE_LIGHT_BRIGHTNESS = 0.9; // additive lights (daytime / no night mask); at night they lift the multiply mask instead (flushNightMask())
 const SCENE_LIGHT_CAP_RGB = [250, 193, 120]; // a lamp's core, pre-multiplied (inner 0.95 over mid 0.60 — buildPostGlowSprite())
 
 // Phones: the light buffers are only touched where lights actually went this
@@ -624,6 +623,7 @@ function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB, cutouts, cache) {
 
 // Adds the merged lights to the scene, once.
 function flushSceneLights() {
+  if (nightMulPending) { flushNightMask(); return; }
   if (!sceneLightsUsed) return;
   const W = sceneLightCanvas.width, H = sceneLightCanvas.height;
   // Phones: only the part of the buffer this frame's lights touched (+1px for
@@ -648,6 +648,58 @@ function flushSceneLights() {
   ctx.restore();
   sceneLightsUsed = false;
 }
+
+// The night mask: blue multiply, with this frame's lights added into it
+// (capped at white), multiplied over the scene once.
+function flushNightMask() {
+  const mul = nightMulPending;
+  nightMulPending = null;
+  const W = sceneLightCanvas.width, H = sceneLightCanvas.height;
+  if (nightMaskCanvas.width !== W || nightMaskCanvas.height !== H) { nightMaskCanvas.width = W; nightMaskCanvas.height = H; }
+  const g = nightMaskCtx;
+  g.globalCompositeOperation = "copy";
+  g.fillStyle = "rgb(" + mul.map((v) => Math.round(v * 255)).join(",") + ")";
+  g.fillRect(0, 0, W, H);
+  if (sceneLightsUsed) {
+    sceneLightCtx.globalCompositeOperation = "darken"; // clip the summed lights to their cap, as before
+    sceneLightCtx.drawImage(sceneLightCapCanvas, 0, 0);
+    sceneLightCtx.globalCompositeOperation = "source-over";
+    // light^2 (each pool falls off faster at its rim -> distinct warm circles), then lifted
+    sceneLightCtx.globalCompositeOperation = "multiply";
+    sceneLightCtx.drawImage(sceneLightCanvas, 0, 0);
+    sceneLightCtx.globalCompositeOperation = "source-over";
+    // lifted into a scratch buffer, then merged into the mask per channel with "lighten" (max):
+    // a pool turns the blue mask toward the light's own warm colour instead of toward white/pink
+    if (sceneLightTmp.width < W || sceneLightTmp.height < H) { sceneLightTmp.width = Math.max(sceneLightTmp.width, W); sceneLightTmp.height = Math.max(sceneLightTmp.height, H); }
+    const t = sceneLightTmpCtx;
+    t.globalCompositeOperation = "copy"; t.globalAlpha = 1;
+    // brightness only (the colour comes from NIGHT_LIGHT_RGB below), lifted x NIGHT_LIGHT_LIFT in one pass
+    t.filter = "grayscale(1) brightness(" + NIGHT_LIGHT_LIFT + ")";
+    t.drawImage(sceneLightCanvas, 0, 0, W, H, 0, 0, W, H);
+    t.filter = "none";
+    t.globalCompositeOperation = "multiply"; // a warm lamplight colour
+    t.fillStyle = NIGHT_LIGHT_RGB;
+    t.fillRect(0, 0, W, H);
+    t.globalCompositeOperation = "source-over";
+    g.globalCompositeOperation = "lighten";
+    g.drawImage(sceneLightTmp, 0, 0, W, H, 0, 0, W, H);
+  }
+  g.globalCompositeOperation = "source-over";
+  ctx.save();
+  if (nightAmbientK > 0.001) { // moonlight: a little blue added first, so even blue-less colours (grass, wood) lean blue
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "rgb(" + NIGHT_AMBIENT_RGB.map((c) => Math.round(c * nightAmbientK)).join(",") + ")";
+    ctx.fillRect(0, 0, view.width, view.height);
+  }
+  nightAmbientK = 0;
+  ctx.globalCompositeOperation = "multiply";
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(nightMaskCanvas, 0, 0, W, H, 0, 0, W / SCENE_LIGHT_SCALE, H / SCENE_LIGHT_SCALE);
+  ctx.restore();
+  sceneLightsUsed = false;
+}
+const NIGHT_LIGHT_LIFT = 10;
+const NIGHT_LIGHT_RGB = "rgb(255,226,168)"; // the warm colour a lit pool turns the night toward // how strongly a light lifts the night mask toward its own warm colour
 
 /* --- Light occlusion: walls/decor cast silhouettes out of the glow -----
    Per request ("yung pagkashadow ng wall, kaya ba yung mismong itsura
@@ -2526,7 +2578,7 @@ function drawIndoorLampGlows(room, strength) {
     if (!def || !def.lightGlow) continue;
     const comma = key.indexOf(",");
     const col = +key.slice(0, comma), row = +key.slice(comma + 1);
-    const size = POST_GLOW_WORLD_SIZE * (def.lightGlow.small ? 0.5 : 0.85) * zoom;
+    const size = POST_GLOW_WORLD_SIZE * (def.lightGlow.small ? 0.8 : 0.85) * zoom; // wall candles: a bigger pool now the rooms are dark at night
     const wx = (col + 0.5) * TILE + def.lightGlow.offsetX;
     const wy = (row + 1) * TILE + (def.lightGlow.groundOffsetY !== undefined ? def.lightGlow.groundOffsetY : def.lightGlow.offsetY);
     const sx = (wx - camX) * zoom - size / 2, sy = (wy - camY) * zoom - size / 2;
@@ -3896,19 +3948,14 @@ function renderInteriorScene() {
   if (lighting.clock > 0.001) {
     ctx.save();
     ctx.globalAlpha = lighting.clock;
-    ctx.fillStyle = getSkyOverlayColor();
-    ctx.fillRect(0, 0, vw, vh);
-    drawNightBlueTint(); // same extra cool/moonlit wash the outdoor view gets at night, layered on top
+    drawNightWash(getSkyOverlayColor(), (1 - getDayFactor()) * INDOOR_NIGHT_K, vw, vh, INDOOR_NIGHT_K); // the same Stardew-like night as outdoors, a bit lighter indoors
     ctx.restore();
   }
   if (lighting.ownerDark > 0.001) {
     // Owner asleep: the fixed 8pm look, whatever the clock says.
     ctx.save();
     ctx.globalAlpha = lighting.ownerDark;
-    ctx.fillStyle = ROOM_NIGHT_SKY_COLOR;
-    ctx.fillRect(0, 0, vw, vh);
-    ctx.fillStyle = NIGHT_BLUE_TINT;
-    ctx.fillRect(0, 0, vw, vh);
+    drawNightWash(ROOM_NIGHT_SKY_COLOR, INDOOR_NIGHT_K, vw, vh, INDOOR_NIGHT_K);
     ctx.restore();
   }
   if (typeof treasureLights === "function") treasureLights(); // the crystals' blue glow (js/treasure.js)
@@ -4080,6 +4127,43 @@ function skyAndNightTint(skyColor) {
   return "rgba(" + mix(1) + "," + mix(2) + "," + mix(3) + "," + A.toFixed(4) + ")";
 }
 
+/* Stardew-like night — per request (a Stardew screenshot: "ganitong itsura dapat
+   kapag gabi sa lahat"): the night used to be a flat navy laid OVER the scene
+   at 60%, which greys every colour out. Now most of the darkening is a
+   MULTIPLY by a saturated moonlight blue (NIGHT_MULTIPLY_RGB) — colours stay
+   rich, everything leans blue — plus a light navy wash (NIGHT_SKY_ALPHA, now
+   0.2) for depth. The lamps / candles then add their warm pools on top
+   (flushSceneLights()). Used outdoors and in every room. The caller's
+   globalAlpha fades the whole thing (indoor clock / owner weights). */
+const NIGHT_MULTIPLY_RGB = [58, 72, 170];
+const INDOOR_NIGHT_K = 0.88; // rooms: a little lighter than outdoors so they stay readable (Stardew-like)
+// The night is a MULTIPLY by a moonlit blue, applied with the lights in
+// flushSceneLights(): the lights are added into that blue mask first
+// (nightMulPending), so where a lamp / candle shines the mask turns warm
+// and white and the scene shows its own colours, warm-lit — Stardew's
+// look — instead of light being added on top of a fogged-over scene.
+let nightMulPending = null; // [r,g,b] 0..1, product of this frame's night washes
+let nightAmbientK = 0;      // how much moonlit blue is added under the mask (greens / browns turn teal / slate)
+const NIGHT_AMBIENT_RGB = [14, 24, 66];
+const nightMaskCanvas = document.createElement("canvas");
+const nightMaskCtx = nightMaskCanvas.getContext("2d");
+function drawNightWash(skyColor, night, w, h, washK) {
+  const k = Math.min(1, Math.max(0, night)) * ctx.globalAlpha;
+  if (k > 0.001) {
+    const m = NIGHT_MULTIPLY_RGB.map((c) => 1 - (1 - c / 255) * k);
+    nightMulPending = nightMulPending ? nightMulPending.map((v, i) => v * m[i]) : m;
+    nightAmbientK = Math.min(1, nightAmbientK + k);
+  }
+  const al = RGBA_RE.exec(skyColor);
+  if (al && (al[4] === undefined ? 1 : +al[4]) > 0.004) { // dawn / dusk glow (the night part is the mask)
+    ctx.save();
+    if (washK !== undefined) ctx.globalAlpha *= washK;
+    ctx.fillStyle = skyColor;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+}
+
 function drawNightBlueTint() {
   const nightFactor = 1 - getDayFactor(); // 0 in full day, 1 in full night, easing through twilight same as everything else
   if (nightFactor <= 0) return;
@@ -4182,8 +4266,7 @@ function render() {
   // below) are folded into ONE fill — two flat colours laid over each other
   // are exactly one flat colour (skyAndNightTint()), and it's one less whole
   // screen of pixels to paint every frame.
-  ctx.fillStyle = isMobileMode() ? skyAndNightTint(getSkyOverlayColor()) : getSkyOverlayColor();
-  ctx.fillRect(0, 0, vw, vh);
+  drawNightWash(getSkyOverlayColor(), 1 - getDayFactor(), vw, vh);
 
   // Sun rays/god rays go on AFTER the sky tint: they're light being added
   // to the scene, not part of what gets dimmed by it. World-space (they
@@ -4193,7 +4276,6 @@ function render() {
 
   drawMinimap(); // top-right overview — a separate <canvas> (index.html), not part of the main view/sky tint above (js/hud.js)
 
-  if (!isMobileMode()) drawNightBlueTint(); // extra blue cast at night, on top of the sky tint above (phones: already in it)
   if (typeof treasureLights === "function") treasureLights(); // the crystals' blue glow (js/treasure.js)
   drawPostLightGlows(camX, camY); // lamps join the candles already collected in the shared light buffer
   flushSceneLights();             // ...and every light lands at once, merged instead of stacked

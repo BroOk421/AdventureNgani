@@ -15,11 +15,12 @@
 ================================================================= */
 let mapEl = null, mapCanvas = null, mapTab = "map", mapBase = null, mapBaseKey = "";
 const ATLAS = [ // [world, col, row] on the world map grid
-  ["wild", 0, 1], ["main", 1, 1], ["east1", 2, 1], ["east2", 3, 1], ["east3", 3, 2], ["east4", 4, 2], ["east5", 4, 3], ["east6", 3, 3], ["east7", 3, 4], ["east8", 2, 4], ["forest", 0, 2],
+  ["wild", 0, 1], ["main", 1, 1], ["east1", 2, 1], ["east2", 3, 1], ["east3", 3, 2], ["east4", 4, 2], ["east5", 4, 3], ["east6", 3, 3], ["east7", 3, 4], ["east8", 2, 4], ["forest", 0, 2], ["town2", 1, 2],
 ];
-const ATLAS_LINKS = [["wild", "main"], ["main", "east1"], ["east1", "east2"], ["east2", "east3"], ["east3", "east4"], ["east4", "east5"], ["east5", "east6"], ["east6", "east7"], ["east7", "east8"], ["wild", "forest"]];
+const ATLAS_LINKS = [["wild", "main"], ["main", "east1"], ["east1", "east2"], ["east2", "east3"], ["east3", "east4"], ["east4", "east5"], ["east5", "east6"], ["east6", "east7"], ["east7", "east8"], ["wild", "forest"], ["main", "town2"]];
 function worldLabel(w) {
-  if (w === "main") return ["Town", "the town, the shops"];
+  if (w === "main") return ["Town", "the tavern, the shops"];
+  if (w === "town2") return ["Homes", "the townsfolk's houses"];
   if (w === "wild") return ["Wild", "your house, the caves"];
   if (w === "forest") return ["Greenwood", "animals to hunt, the falls, the sea"];
   const Z = typeof MOB_WORLDS !== "undefined" && MOB_WORLDS[w];

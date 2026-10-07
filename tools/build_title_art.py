@@ -258,11 +258,13 @@ def town():
     for lx in range(40, W, 110):
         img.alpha_composite(lamp, (lx, ground + 10 - lamp.height))
         lamps.append([lx + 22, ground + 10 - lamp.height + 12])
+    # trees standing in front of the road: their own layer (town_front.png), drawn over the walkers
+    front = Image.new("RGBA", (W, H))
     for _ in range(9):
         t = rng.choice(trees[:4])
         tx = rng.randint(0, W - t.width)
-        img.alpha_composite(t, (tx, ground + 30 - t.height))
-    return img, smoke, lamps
+        front.alpha_composite(t, (tx, ground + 30 - t.height))
+    return img, smoke, lamps, front
 
 
 def fore(side):
@@ -403,7 +405,8 @@ def main():
                       seed=29, pal=rg_pal, snow_depth=12, snowline=160, haze=(196, 170, 196), haze_from=175, haze_to=245, rough=8)
     rg.save(os.path.join(OUT, "range.png"))
     hills().save(os.path.join(OUT, "hills.png"))
-    tw, smoke, lamps = town()
+    tw, smoke, lamps, tfront = town()
+    tfront.save(os.path.join(OUT, "town_front.png"))
     tw.save(os.path.join(OUT, "town.png"))
     fore("left").save(os.path.join(OUT, "fore_left.png"))
     fore("right").save(os.path.join(OUT, "fore_right.png"))

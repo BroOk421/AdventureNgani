@@ -175,7 +175,7 @@ function getShadowParams() {
 // through the middle of the day.
 // How dark the night wash gets (0-1). Per request ("medyo i dark mo ng
 // konti yung paligid kapag gabi") raised from 0.55 to 0.63.
-const NIGHT_SKY_ALPHA = 0.6;
+const NIGHT_SKY_ALPHA = 0; // most of the night is a multiply now (camera.js drawNightWash()) — Stardew-like, colours stay rich
 const SKY_KEYFRAMES = [
   { h: 0, r: 18, g: 30, b: 86, a: NIGHT_SKY_ALPHA },
   { h: SUNRISE_HOUR - TWILIGHT_HOURS, r: 18, g: 30, b: 86, a: NIGHT_SKY_ALPHA },

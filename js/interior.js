@@ -65,7 +65,7 @@ const INTERIOR_ROOM_BLUEPRINTS = {
   //   - the doormat is the green rug at x 129-158, y 279-292.
   house_room: {
     customizable: true, // the player's own room can be restyled/resized (js/roomCustomizer.js, H)
-    owner: "player", // the player's own house — lit while you're awake, dark once you're asleep in bed (camera.js getRoomOwnerPresence())
+    // no `owner`: per request the House darkens with the clock like the shops (wall candles light it — js/home.js)
     image: assets.houseRoom,
     width: 300,
     height: 300,
@@ -390,7 +390,12 @@ function getOrCreateInteriorRoom(roomId) {
   // for the first time gets its blueprint's furniture. A room that's in
   // the save being loaded keeps only what was saved.
   if (blueprint.customDefaults || INTERIOR_SAVED_CUSTOM[roomId]) {
-    applyRoomCustom(room, Object.assign({}, INTERIOR_SAVED_CUSTOM[roomId] || blueprint.customDefaults));
+    // A house the towns were built with (TOWN_MAP / TOWN2_MAP) is furnished full size; one the player places starts small.
+    const [, at] = roomId.split("@");
+    const townBuilt = !!at && [typeof TOWN_MAP !== "undefined" ? TOWN_MAP : null, typeof TOWN2_MAP !== "undefined" ? TOWN2_MAP : null]
+      .some((T) => T && T.buildings.some((b) => b.col + "," + b.row === at && itemDefs[b.type] && itemDefs[b.type].interior && itemDefs[b.type].interior.roomId === blueprintId));
+    const defaults = townBuilt && blueprint.customDefaults ? Object.assign({}, blueprint.customDefaults, { start: undefined }) : blueprint.customDefaults;
+    applyRoomCustom(room, Object.assign({}, INTERIOR_SAVED_CUSTOM[roomId] || defaults));
   }
   if (blueprint.defaultDecor && !INTERIOR_SAVED_ROOM_IDS.has(roomId)) {
     for (const [col, row, type] of blueprint.defaultDecor) {

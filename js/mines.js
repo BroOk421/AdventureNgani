@@ -401,6 +401,12 @@ function damagePlayer(n, magic) {
 function playerBlackout() {
   player.health = Math.ceil(player.maxHealth * 0.5);
   player.action = null; player.mineSwing = null;
+  // Per request: you wake up at home, beside your bed (js/home.js respawnInHome()).
+  if (typeof respawnInHome === "function" && typeof beginSceneFade === "function" && typeof findHomeHouse === "function" && findHomeHouse()) {
+    if (typeof showToast === "function") showToast("You passed out... you woke up at home");
+    beginSceneFade(() => { if (!respawnInHome()) switchWorld("main", MAIN_EAST_PORTAL.spawn, "left"); });
+    return;
+  }
   if (typeof showToast === "function") showToast(player.scene === "inside" ? "You passed out... you were carried out of the cave" : "You passed out... you were carried back to town");
   if (player.scene === "inside") { if (typeof beginSceneFade === "function") beginSceneFade(() => exitInterior()); }
   else if (typeof beginSceneFade === "function") beginSceneFade(() => switchWorld("main", MAIN_EAST_PORTAL.spawn, "left")); // back to the town's east gate

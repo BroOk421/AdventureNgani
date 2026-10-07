@@ -6798,3 +6798,108 @@ yung pop up ng skills").
 - style.css (phones): skills panel 78vw / 82vh, 8-9.5px text, 16px icons, 19px +
   buttons, the next-level preview line hidden. 220px tall at 844x390 (was 326).
 - index.html -> ?v=20261068a.
+
+## Sunlight: cast shadows + warm light everywhere outdoors; popups on the phone; title trees
+
+Per request ("yan pwede gawin mo sa lahat yan ... intro ... npcs naglalakad sa
+ibabaw ng puno ... skill button need pa diinan ... kapag click sa labas mag close").
+- js/sunlight.js (before popups.js/main.js): every standing object casts its own
+  silhouette as a ground shadow, sheared by the game's sun (getShadowParams():
+  long down-left in the morning, short at noon, up-right toward evening, none at
+  night; Sunny full, Cloudy 0.45, rain/snow none). The exact draw of each object
+  (picture, source rect, transform incl. wind sway) is recorded in a
+  drawObjectLayerItemRaw wrapper and cast the next frame, shifted by the camera
+  move; each picture's empty bottom rows are measured once (getImageData; 0 on
+  file://) so shadows start at the foot. Mask at 1/3 screen res, tinted
+  SUN_SHADOW_RGB, drawn with multiply (only its bounding box) inside the
+  drawBirdShadows hook = right before the depth-sorted pass, so shadows are on
+  the ground only and never over the objects / characters. drawTreeGroundShadows
+  (the round blobs) is skipped while it's on. Warm light: a warm layer mixed into
+  getSkyOverlayColor() (no extra fill) + on the desktop a soft "screen" glow from
+  the sun's side (drawSunRays hook). Characters' own shadows 0.32 -> 0.5 alpha
+  while it's on (camera.js drawShadow) to match. Settings > Graphics > Sun &
+  shadows (localStorage "agn-sun", setSunlight()).
+- js/popups.js: a phone button's own follow-up click / mousedown (the "ghost"
+  events after a tap) is swallowed for 450 ms — it landed on the just-opened
+  popup's backdrop and closed it (Skills closed on click, Profile / Map on
+  mousedown), so you had to hold the button. Every popup (Bag, Equipment G,
+  Skills, Quests, Profile) closes on a tap / click on its backdrop (not in the
+  first 300 ms). Tested with real touchscreen taps.
+- Title: the town's front trees are their own layer (assets/title/town_front.png)
+  drawn over the walkers.
+- index.html -> ?v=20261069a (+ js/sunlight.js, js/popups.js).
+
+## Home: dark at night with wall candles; you wake up at home after dying; old-town safety net
+
+Per request ("di pa na update yung new town sa town map ... yung room ng bahay
+ng character is idilim mo na din ... lagyan mo na lang ng ilaw yung pader
+parang sa cave. tapos kapag namatay yung character dapat yung spawn niya dun
+mismo sa loob ng bahay niya tabi ng bed sa pag baba niya kapag nagising").
+- Town map: a fresh game and an old big-town save (no townVersion, saved in the
+  wild world) both show the new 80x46 town on the full map and the Map tab
+  (tested). Safety net in js/worlds.js: a save stamped with today's
+  townVersion whose town still has items past TOWN_MAP's size
+  (townLooksOld()) is migrated again.
+- house_room has no `owner` any more (js/interior.js): it follows the clock
+  like the shops — bright by day, dark at night.
+- js/home.js (new, after popups.js): ensureHomeCandles() puts Wall Candles
+  (bldWallCandle, lit by drawIndoorLampGlows()) on every stretch of back wall
+  in the player's House (~1 per 7 tiles, not next to a window/other wall
+  piece), once per save (player.homeCandlesV1, saved) — on entering, and on a
+  game resumed inside. After that they're ordinary decor.
+- Dying: mines.js playerBlackout() (after the Death animation, js/fishing.js)
+  fades to respawnInHome(): leaves the room / cave / map, switches to the
+  House's world (findHomeHouse(): current map, then wild, then the others),
+  enters house_room, and if there's a Big Bed puts you lying in it
+  (player.homeWake: sleep-sheet zzz frames, eyes opening 4 -> 0, a moment
+  awake) then player.homeStep: you climb out to the free tile beside it
+  (homeBedSide(): right / left / below) with a little hop, facing down.
+  No bed -> just inside the door; no House at all -> the old town-gate.
+  Half health as before.
+- index.html -> ?v=20261070a (+ js/home.js).
+
+## Stardew-like nights everywhere; the town split in two (market + homes)
+
+Per request (a Stardew screenshot: "gantong itsura dapat kapag gabi sa lahat ...
+kapag yung mga bahay naman sa town is di magkasya ... gawa ka pa isang town ...
+pagsamahin mo sa isang town yung blacksmith, grocery ... tavern ... yung iba sa
+kabilang town na").
+- Night look (js/camera.js): the night is no longer a flat navy laid over the
+  scene (that greyed everything). drawNightWash() only queues a MULTIPLY by a
+  moonlit blue (NIGHT_MULTIPLY_RGB, nightMulPending; indoors x INDOOR_NIGHT_K)
+  and draws the dawn/dusk sky colour (NIGHT_SKY_ALPHA is 0 now, js/daynight.js).
+  flushSceneLights() -> flushNightMask(): adds a little moonlight blue
+  (NIGHT_AMBIENT_RGB, "lighter") so green/brown turn teal/slate, builds the
+  mask at half res (the blue, then this frame's lights squared, made grey and
+  lifted x NIGHT_LIGHT_LIFT with one ctx.filter pass, tinted NIGHT_LIGHT_RGB,
+  merged with "lighten") and multiplies it over the scene once. So a lamp or
+  candle shows the scene's own colours, warm, in a clear pool; everything else
+  is deep saturated blue. Outdoors and every room; caves stay light
+  (ownerDark 0.2). Characters' relight unchanged. The tavern no longer keeps
+  daytime colours while Maria is home (getRoomOwnerPresence(): no "npc" case).
+  Wall candles' pools are bigger (0.8 x POST_GLOW_WORLD_SIZE).
+- js/home.js ensureHomeCandles() now also lights any room with no lamp/candle
+  of its own (not caves), once per room (player.roomCandles, saved): wall spots
+  from the room's floor tiles (custom rooms), its tileMap (the tavern) or the
+  House art's row 5.
+- Two towns (tools/build_town_small.py builds both, `generate(seed, mode)`):
+  "market" -> js/townMap.data.js (TOWN_MAP, "small-v3-<seed>"): tavern, grocery,
+  equip / potion / blacksmith / furniture shops, the cave, the portal, and a
+  brick road from the back lane down to the bottom edge (southPass,
+  spawnSouth). "homes" -> js/town2Map.data.js (TOWN2_MAP, "homes-v1-<seed>"):
+  the cabin, 6 cottages, the Abandoned House, the Guard House, no cliff, a
+  road in from the north edge (northPass, spawnNorth). js/worlds.js:
+  WORLD_DEFS.town2, MAIN_SOUTH_PORTAL (walk down) <-> TOWN2_NORTH_PORTAL (walk
+  up). World map atlas: "Homes" under the Town.
+- Old saves: migrateToSmallTown() maps buildings onto TOWN_MAP.buildings then
+  TOWN2_MAP.buildings by type, so a cottage's room (furniture, shape, chests)
+  moves to its new spot in the homes town; worlds.town2 is reset.
+  getOrCreateInteriorRoom(): a house the towns were built with is furnished
+  full size (not the 4x4 start a placed house gets).
+- js/towns.js (after worlds.js): the townsfolk still live their day in the
+  market town; their homes being elsewhere, the road south is a "virtual"
+  house (citizenShelters() wrapper, roomId "__town2") — at night they walk
+  down it and out of sight, a daytime home visit does the same, and they come
+  back up it in the morning. The maps (hud.js) only show the town's people in
+  the town.
+- index.html -> ?v=20261071a (+ js/town2Map.data.js, js/towns.js).
