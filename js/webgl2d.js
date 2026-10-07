@@ -129,6 +129,7 @@ uniform float uAlpha;
 uniform sampler2D uRamp;
 out vec4 o;
 void main() {
+  if (uMode == 0) { o = vec4(0.0); return; } // stencil-only passes: must never discard (no discard = the stencil is written)
   vec2 dev = vec2(gl_FragCoord.x, uH - gl_FragCoord.y);
   vec2 p = (uInv * vec3(dev, 1.0)).xy;
   if (uMode == 3) { o = texture(uRamp, p / uPatSize) * uAlpha; return; }

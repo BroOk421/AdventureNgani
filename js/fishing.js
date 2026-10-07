@@ -374,8 +374,8 @@ function drawWaterAnim() {
   const sx0 = (c0 * TILE - camX) * zoom, sy0 = (r0 * TILE - camY) * zoom, sw = (c1 - c0 + 1) * T, sh = (r1 - r0 + 1) * T;
   const ph = (t * 0.06) % 1, gx = Math.cos(0.5), gy = Math.sin(0.5);
   const band = ctx.createLinearGradient(sx0 - ph * 220 * zoom * gx, sy0 - ph * 220 * zoom * gy, sx0 + (1 - ph) * 220 * zoom * gx, sy0 + (1 - ph) * 220 * zoom * gy);
-  band.addColorStop(0, "rgba(255,255,255,0.045)"); band.addColorStop(0.25, "rgba(10,40,90,0.05)"); band.addColorStop(0.5, "rgba(255,255,255,0.045)");
-  band.addColorStop(0.75, "rgba(10,40,90,0.05)"); band.addColorStop(1, "rgba(255,255,255,0.045)");
+  band.addColorStop(0, "rgba(255,255,255,0.025)"); band.addColorStop(0.25, "rgba(10,40,90,0.028)"); band.addColorStop(0.5, "rgba(255,255,255,0.025)");
+  band.addColorStop(0.75, "rgba(10,40,90,0.028)"); band.addColorStop(1, "rgba(255,255,255,0.025)");
   ctx.fillStyle = band; ctx.fillRect(sx0, sy0, sw, sh);
   // caustics: a slow big layer + a quicker small one drifting the other way
   const layer = (scale, speed, dx, dy, alpha, offset) => {
@@ -385,8 +385,9 @@ function drawWaterAnim() {
     pat.setTransform(m);
     ctx.globalAlpha = alpha; ctx.fillStyle = pat; ctx.fillRect(sx0, sy0, sw, sh);
   };
-  layer(3, 0.5, 2.2, 0.8, 0.4, 0);
-  layer(2, 0.9, -3.4, 1.6, 0.6, 0.37);
+  // Calmer water (per request "bawasan mo rin yung effects ng water waving"): one slow,
+  // fainter layer — the second, quicker one is gone.
+  layer(3, 0.35, 1.4, 0.5, 0.35, 0);
   ctx.globalAlpha = 1;
   // foam where the water meets land
   for (const [c, r] of tiles) {

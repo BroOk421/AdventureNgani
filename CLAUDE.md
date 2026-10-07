@@ -6604,3 +6604,10 @@ drawn here. Lost GPU context is rebuilt.
 - Speed can't be measured here: the test browser has no GPU (WebGL runs in
   software there, so it is slower than the canvas in tests). Must be
   compared on the phone with the FPS readout. index.html -> ?v=20261060a.
+- Fix: WebGL clip() didn't clip (the moving water spilled over the land /
+  port shore). The paint shader had no case for its stencil-only mode 0
+  and fell into the radial-gradient branch, which could `discard` — and a
+  discarded fragment writes no stencil. Mode 0 now returns at once.
+- Phone Settings popup: 3 columns, smaller buttons (js/mobile.js CSS).
+- Water (js/fishing.js drawWaterAnim()): calmer — one slow caustic layer at
+  35% (was two, 40% + 60%), fainter swell bands. index.html -> ?v=20261061a.

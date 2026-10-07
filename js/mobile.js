@@ -104,9 +104,9 @@ if (MOBILE_ON) {
   #mb-drop .mb-btn { width: 44px; height: 44px; }
   #mb-drop { display: none; flex-direction: column; gap: 6px; }
   #mb-drop.open { display: flex; }
-  #mb-settings { right: 122px; top: 42px; display: none; flex-direction: column; gap: 6px; padding: 8px; background: #2a1d14; border: 2px solid #a8743e; border-radius: 10px; }
-  #mb-settings.open { display: flex; }
-  #mb-settings button { min-width: 120px; min-height: 40px; background: #3b2a1e; border: 2px solid #a8743e; border-radius: 8px; color: #f3e2c3; font: 12px 'Pixelify Sans', ui-monospace, monospace; }
+  #mb-settings { right: 122px; top: 42px; display: none; grid-template-columns: repeat(3, auto); gap: 4px; padding: 5px; background: #2a1d14; border: 2px solid #a8743e; border-radius: 10px; }
+  #mb-settings.open { display: grid; }
+  #mb-settings button { min-width: 74px; min-height: 28px; padding: 2px 6px; background: #3b2a1e; border: 2px solid #a8743e; border-radius: 7px; color: #f3e2c3; font: 10px 'Pixelify Sans', ui-monospace, monospace; white-space: nowrap; }
   `;
   document.head.appendChild(css);
   const font = document.createElement("link");
