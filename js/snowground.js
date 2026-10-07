@@ -151,8 +151,8 @@ for (const [type, file] of Object.entries(SNOW_TREE_ART)) {
 // Winter art next to the normal art (same name under a snow/ folder, made by
 // tools/build_snow_trees.py and tools/build_snow_world.py): bushes, flower
 // bushes, mushrooms, fallen leaves, flowers, lamp posts and the houses.
-const SNOW_ART_SRC_RE = /^(assets\/(?:bushes|flowers|outdoor|buildings\/exterior|items\/house|items\/tile))\/((?:postlight[^/?]*|[^/?]+))\.png/;
-const SNOW_ART_HAS = /^(assets\/(bushes|flowers)\/|assets\/outdoor\/postlight|assets\/buildings\/exterior\/(cottage|grocery|guard)|assets\/items\/house\/house|assets\/items\/tile\/port_)/;
+const SNOW_ART_SRC_RE = /^(assets\/(?:bushes|flowers|outdoor|buildings\/exterior|items\/house|items\/tile|tiles\/bricks_tile|tiles\/cobble_tile))\/((?:postlight[^/?]*|[^/?]+))\.png/;
+const SNOW_ART_HAS = /^(assets\/(bushes|flowers)\/|assets\/outdoor\/postlight|assets\/buildings\/exterior\/(cottage|grocery|guard)|assets\/items\/house\/house|assets\/items\/tile\/port_|assets\/tiles\/(bricks|cobble)_tile\/edge-)/;
 const snowArtByImage = new Map();
 function snowArtFor(img) {
   if (!img || !img.getAttribute) return null;

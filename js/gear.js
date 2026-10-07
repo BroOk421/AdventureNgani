@@ -76,6 +76,8 @@ function playerStats() {
     if (!g || itemLocked(t)) continue;
     s.atk += g.atk || 0; s.def += g.def || 0; s.mres += g.mres || 0; s.spd += g.spd || 0; s.crit += g.crit || 0;
   }
+  const lv = Math.max(0, (player.level || 1) - 1); // the per-level bonus (js/mines.js LEVEL_ATK / LEVEL_DEF)
+  s.atk += lv * (typeof LEVEL_ATK !== "undefined" ? LEVEL_ATK : 1); s.def += lv * (typeof LEVEL_DEF !== "undefined" ? LEVEL_DEF : 1);
   const A = player.attrs || { str: 0, sta: 0, agi: 0, acc: 0 };
   s.atk += A.str * 2; s.def += A.sta; s.mres += Math.round(A.sta * 0.8); s.spd += A.agi * 0.02;
   s.spd = Math.round(s.spd * 100) / 100; s.crit = Math.min(0.6, s.crit);
@@ -378,7 +380,7 @@ setInterval(() => { if (player.autoTarget && !(typeof currentMineRoom === "funct
    else walks there). Walk up into it (W) -> Wolfpine Woods (east3), coming in
    at its north passage. The far worlds have no portals any more — side
    passages (js/worlds.js) — so any old portal left in a saved world is removed. */
-const TOWN_PORTAL = { col: 176, row: 12 };
+const TOWN_PORTAL = typeof TOWN_MAP !== "undefined" ? TOWN_MAP.portal : { col: 176, row: 12 };
 let warpCooldown = 0;
 function ensureTownPortal() {
   if (typeof currentWorld === "undefined") return;
@@ -777,7 +779,14 @@ function grantGearTrial() {
     return r;
   };
 }
-setTimeout(() => { try { grantGearTrial(); } catch (e) { console.error(e); } }, 4000);
+// only once a save has been loaded (the title screen can keep the game waiting)
+{
+  const t = setInterval(() => {
+    if (typeof saveGameReady === "undefined" || !saveGameReady) return;
+    clearInterval(t);
+    setTimeout(() => { try { grantGearTrial(); } catch (e) { console.error(e); } }, 2000);
+  }, 500);
+}
 
 /* ---------------- buying gear: equipped straight away ----------------
    Per request ("yung mga nabibili pala sa shop ... equip na lang tapos

@@ -830,7 +830,8 @@ const TERRAIN_TILE_SETS = [
   },
   {
     id: "Bricks", name: "Brick Tiles", folder: "bricks_tile", icon: "enter-bricks-6",
-    rows: [["top-bricks", 3], ["left-bricks", 3], ["right-bricks", 3], ["bottom-bricks", 3], ["enter-bricks", 6, 3]],
+    rows: [["top-bricks", 3], ["left-bricks", 3], ["right-bricks", 3], ["bottom-bricks", 3], ["enter-bricks", 6, 3],
+      ["edge-top", 5], ["edge-left", 3], ["edge-right", 3], ["edge-bottom", 5]], // + the grass rim over bricks (tools/build_paved_tiles.py)
     // Picker layout = the user's bricks mockup (a plus-shaped patch). The
     // middle 3x3 repeats enter 4-6 on its last row, exactly like the
     // mockup (enter-bricks' dropped 3rd row was identical to its 2nd).
@@ -840,6 +841,21 @@ const TERRAIN_TILE_SETS = [
       ["left-bricks-2", "enter-bricks-4", "enter-bricks-5", "enter-bricks-6", "right-bricks-2"],
       ["left-bricks-3", "enter-bricks-4", "enter-bricks-5", "enter-bricks-6", "right-bricks-3"],
       [null, "bottom-bricks-1", "bottom-bricks-2", "bottom-bricks-3", null],
+    ],
+  },
+  {
+    // Cobblestone — per request ("dagdag ka ng tile na parang stones"), drawn by
+    // tools/build_paved_tiles.py: one seamless stone pattern, laid out like the
+    // bricks (any two pieces join); edge-* = the grass rim over cobbles.
+    id: "Cobble", name: "Cobblestone Tiles", folder: "cobble_tile", icon: "enter-cobble-2",
+    rows: [["top-cobble", 3], ["left-cobble", 3], ["right-cobble", 3], ["bottom-cobble", 3], ["enter-cobble", 6, 3],
+      ["edge-top", 5], ["edge-left", 3], ["edge-right", 3], ["edge-bottom", 5]],
+    shape: [
+      [null, "top-cobble-1", "top-cobble-2", "top-cobble-3", null],
+      ["left-cobble-1", "enter-cobble-1", "enter-cobble-2", "enter-cobble-3", "right-cobble-1"],
+      ["left-cobble-2", "enter-cobble-4", "enter-cobble-5", "enter-cobble-6", "right-cobble-2"],
+      ["left-cobble-3", "enter-cobble-4", "enter-cobble-5", "enter-cobble-6", "right-cobble-3"],
+      [null, "bottom-cobble-1", "bottom-cobble-2", "bottom-cobble-3", null],
     ],
   },
   {

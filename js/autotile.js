@@ -17,7 +17,7 @@
    neighbours) — maps loaded from a save are never touched.
 ================================================================= */
 
-const AUTOTILE_SET_IDS = ["Grass", "Bricks", "Snow", "Mountain"];
+const AUTOTILE_SET_IDS = ["Grass", "Bricks", "Cobble", "Snow", "Mountain"];
 const AUTOTILE_NB = [[0, -1], [1, 0], [0, 1], [-1, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]]; // N E S W, then diagonals NW NE SE SW
 const AUTOTILE_DIAG_SIDES = [[0, 3], [0, 1], [2, 1], [2, 3]]; // NW: N+W, NE: N+E, SE: S+E, SW: S+W
 const autotileSets = {}; // prefix -> { candidates: [{ type, mask }], centers: [type], layer }
@@ -152,7 +152,7 @@ useArtMasks("port", PORT_ART_MASKS, ["portI2", "portI4", "portI6"]);
 // (unlike grass), so the layout masks are right — they just get the same
 // "best match always" rule: solid inside, edge / corner pieces round the
 // outside, inner-corner pieces in the bends, no plain-centre shortcut.
-for (const p of ["terrainMountain", "terrainBricks"]) if (autotileSets[p]) autotileSets[p].exact = true;
+for (const p of ["terrainMountain", "terrainBricks", "terrainCobble"]) if (autotileSets[p]) autotileSets[p].exact = true;
 
 /* Mountain plateau: its own art has no bumpy BOTTOM rim — the bottom-inner
    pieces are flat because they sit on a cliff wall. So the top of a hole in
@@ -176,7 +176,7 @@ if (autotileSets.terrainMountain) {
 
 // The tile an auto-tiled set's inventory slot holds (its plain centre),
 // or null for sets that keep their picker (mountain, everything else).
-const AUTOTILE_NO_PICKER = { terrainGrass: true, terrainBricks: true, terrainSnow: true, port: true };
+const AUTOTILE_NO_PICKER = { terrainGrass: true, terrainBricks: true, terrainCobble: true, terrainSnow: true, port: true };
 function autotileCentreForGroup(groupId) {
   if (!AUTOTILE_NO_PICKER[groupId] || !autotileSets[groupId]) return null;
   if (groupId.startsWith("terrain")) {
@@ -351,7 +351,7 @@ function mountainStairsAt(col, row) {
    up next to them, so the old edge pieces turn into whatever joins the new
    tile — no leftover rim of dirt round a filled-in patch. Mountain keeps the
    old rule (its hand-made cliffs are never touched). */
-const AUTOTILE_MERGE_OLD = { terrainGrass: true, terrainSnow: true, terrainBricks: true, port: true };
+const AUTOTILE_MERGE_OLD = { terrainGrass: true, terrainSnow: true, terrainBricks: true, terrainCobble: true, port: true };
 // Is this neighbour "the same stuff" for set `prefix`? For grass that also
 // means the painted lawn (ground fill), old-style grass tiles and port land —
 // the same things migrateOldGrass() below counts as grass — so a laid grass

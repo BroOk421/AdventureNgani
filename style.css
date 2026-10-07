@@ -1748,3 +1748,19 @@ body.mobile #dlg { bottom: 18px; width: min(560px, 70vw); }
    (change it from the Equipment list, G). The element stays in index.html so the code that fills it
    keeps working. */
 #equipped-weapon-hud { display: none !important; }
+
+/* Skills window on phones (per request: "sobrang laki sa mobile kaya di makita yung passive"):
+   smaller text and icons, Active and Passive side by side so everything fits without scrolling
+   (and it scrolls if it still doesn't — js/mobile.js lets #skill-panel scroll). */
+html.agn-mobile #skill-panel { width: min(78vw, 600px); max-height: 82vh; padding: 5px 7px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+html.agn-mobile #sk-body { display: flex; gap: 8px; align-items: flex-start; }
+html.agn-mobile .sk-col { flex: 1; min-width: 0; }
+html.agn-mobile .sk-title { font-size: 11px; margin-bottom: 1px; }
+html.agn-mobile .sk-title .hint, html.agn-mobile .sk-sec .hint { font-size: 9px; }
+html.agn-mobile .sk-sec { font-size: 10px; margin: 2px 0 3px; padding-bottom: 1px; }
+html.agn-mobile .sk-row { gap: 5px; padding: 2px 4px; margin-bottom: 3px; font-size: 8.5px; line-height: 1.2; }
+html.agn-mobile .sk-row img { width: 16px; height: 16px; }
+html.agn-mobile .sk-txt b { font-size: 9.5px; }
+html.agn-mobile .sk-meta { font-size: 8px; margin-top: 1px; } html.agn-mobile .sk-next { display: none; } /* the next-level preview is left out on phones to keep the panel small */
+html.agn-mobile .sk-plus { width: 19px; height: 19px; font-size: 12px; border-radius: 5px; flex-shrink: 0; }
+html.agn-mobile .pips { gap: 2px; margin-top: 2px; } html.agn-mobile .pips i { width: 8px; height: 4px; }

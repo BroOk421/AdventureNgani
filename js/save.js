@@ -43,7 +43,8 @@
    fresh from the current itemDefs first, then only layers saved COUNTS
    on top by type, ignoring any saved type that no longer exists.
 ================================================================= */
-const SAVE_KEY = "rpg-prototype-save-v1";
+// The save slot being played (js/title.js: slot 1 keeps the old key, so older saves are slot 1).
+let SAVE_KEY = typeof saveSlotKey === "function" ? saveSlotKey(getActiveSlot()) : "rpg-prototype-save-v1";
 
 function buildSaveData() {
   // Counts keyed by item type, not by slot index — see the note above.
@@ -159,12 +160,17 @@ function buildSaveData() {
 // the fresh defaults (gold back to 100, everything reset).
 let saveGameReady = false;
 
+let saveFailToastAt = 0;
 function saveGame() {
   if (!saveGameReady) return;
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(buildSaveData()));
+    const d = buildSaveData();
+    d.savedAt = Date.now(); // shown in the Load list (js/title.js)
+    if (typeof dayNightEpoch !== "undefined") d.dayNightEpoch = dayNightEpoch; // each slot keeps its own clock / day count
+    localStorage.setItem(SAVE_KEY, JSON.stringify(d));
   } catch (e) {
     console.error("Failed to save game:", e);
+    if (Date.now() - saveFailToastAt > 30000) { saveFailToastAt = Date.now(); showToast("Couldn't save — storage is full. Export or delete a slot (Main Menu > Load)."); }
   }
 }
 
@@ -654,6 +660,11 @@ function loadGame() {
     return;
   }
 
+  // this slot's own clock (older saves don't have one: the clock carries on as it was)
+  if (data && typeof data.dayNightEpoch === "number" && isFinite(data.dayNightEpoch) && typeof dayNightEpoch !== "undefined") {
+    dayNightEpoch = data.dayNightEpoch;
+    try { localStorage.setItem(DAYNIGHT_STORAGE_KEY, String(dayNightEpoch)); } catch (e) { /* ignore */ }
+  }
   applySaveData(data);
 }
 
@@ -671,8 +682,38 @@ function clearSave() {
 
 /* ---------------- export / import ---------------- */
 
+// In the phone app (Capacitor) a web download link does nothing, so the file is
+// written with the Filesystem plugin into Documents/AdventureNgani/ (and, if that
+// fails, put in the app cache and handed to the Share sheet — Save to Files / Drive /
+// Messenger ...). Needs @capacitor/filesystem + @capacitor/share (package.json).
+function capPlugin(name) {
+  const C = window.Capacitor;
+  if (!C || !(C.isNativePlatform ? C.isNativePlatform() : C.getPlatform && C.getPlatform() !== "web")) return null;
+  if (C.isPluginAvailable && !C.isPluginAvailable(name)) return null;
+  try { return (C.Plugins && C.Plugins[name]) || (C.registerPlugin ? C.registerPlugin(name) : null); } catch (e) { return null; }
+}
+async function exportSaveNative(text) {
+  const fs = capPlugin("Filesystem");
+  if (!fs) return false;
+  const d = new Date(), pad = (n) => String(n).padStart(2, "0");
+  const name = "rpg-save-" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes()) + ".json";
+  try {
+    await fs.writeFile({ path: "AdventureNgani/" + name, data: text, directory: "DOCUMENTS", encoding: "utf8", recursive: true });
+    showToast("Saved to Documents/AdventureNgani/" + name);
+    return true;
+  } catch (e) { console.warn("Documents write failed, using Share:", e); }
+  try {
+    const r = await fs.writeFile({ path: name, data: text, directory: "CACHE", encoding: "utf8" });
+    const share = capPlugin("Share");
+    if (share) { await share.share({ title: "AdventureNgani save", files: [r.uri], dialogTitle: "Save the game file" }); return true; }
+  } catch (e) { console.warn("Share failed:", e); }
+  showToast("Export failed — try again");
+  return true;
+}
 function exportSave() {
-  const blob = new Blob([JSON.stringify(buildSaveData(), null, 2)], { type: "application/json" });
+  const text = JSON.stringify(buildSaveData(), null, 2);
+  if (capPlugin("Filesystem")) { exportSaveNative(text); return; }
+  const blob = new Blob([text], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -799,3 +840,16 @@ setInterval(() => { if (typeof isMobileMode === "function" && isMobileMode()) sa
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveGame(); });
 window.addEventListener("pagehide", saveGame);
 window.addEventListener("beforeunload", saveGame);
+// In the Android app the page isn't always told it's being hidden when the app goes to the
+// background or is swiped away — the Capacitor App plugin's pause / state events are.
+// Without this the last seconds of play (a quest just finished...) could be lost on a phone.
+document.addEventListener("pause", saveGame);
+(() => {
+  try {
+    const App = capPlugin("App");
+    if (App && App.addListener) {
+      App.addListener("pause", saveGame);
+      App.addListener("appStateChange", (s) => { if (s && !s.isActive) saveGame(); });
+    }
+  } catch (e) { /* not in the app */ }
+})();

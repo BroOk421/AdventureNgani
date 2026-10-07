@@ -802,7 +802,7 @@ function toggleSkillWindow(show) {
 function renderSkillWindow() {
   const body = skillWinEl.querySelector("#sk-body"), r = passiveRanks(), pts = skillPointsLeft();
   const sl = skillLevels();
-  let h = '<div class="sk-sec">Active <span class="pts">Skill points: ' + pts + '</span> <span class="hint">(1 per level)</span></div>';
+  let h = '<div class="sk-col"><div class="sk-sec">Active <span class="pts">Skill points: ' + pts + '</span> <span class="hint">(1 per level)</span></div>';
   for (const [id, S] of Object.entries(SKILLS)) {
     const L = sl[id];
     let pips = "";
@@ -812,14 +812,14 @@ function renderSkillWindow() {
       '<div class="sk-meta">⏱ ' + skillStats(id, L).cd + "s · ⚡ " + S.stamina + " stamina" + (S.mobsOnly ? " · mobs only" : "") + '</div><div class="pips">' + pips + "</div></div>" +
       '<button class="sk-plus" data-s="' + id + '"' + (pts > 0 && L < SKILL_MAX ? "" : " disabled") + ">+</button></div>";
   }
-  h += '<div class="sk-sec">Passive</div>';
+  h += '</div><div class="sk-col"><div class="sk-sec">Passive</div>';
   for (const [id, P] of Object.entries(PASSIVES)) {
     let pips = "";
     for (let i = 0; i < PASSIVE_MAX; i++) pips += '<i class="' + (i < r[id] ? "on" : "") + '"></i>';
     h += '<div class="sk-row"><img src="' + skillIcon(id) + '"><div class="sk-txt"><b>' + P.name + " " + r[id] + "/" + PASSIVE_MAX + "</b> — " + P.per + " per rank<br>" + P.desc +
       '<div class="pips">' + pips + "</div></div><button class=\"sk-plus\" data-p=\"" + id + "\"" + (pts > 0 && r[id] < PASSIVE_MAX ? "" : " disabled") + ">+</button></div>";
   }
-  body.innerHTML = h;
+  body.innerHTML = h + "</div>";
   body.querySelectorAll(".sk-plus[data-s]").forEach((b) => b.addEventListener("click", () => {
     const id = b.dataset.s, L = skillLevels();
     if (skillPointsLeft() <= 0 || L[id] >= SKILL_MAX) return;

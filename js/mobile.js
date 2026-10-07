@@ -233,7 +233,7 @@ if (MOBILE_ON) {
   setInterval(() => { const q = col.querySelector(".qpts"); if (q && typeof QUESTS !== "undefined") { const n = QUESTS.filter((x) => (questActive(x.id) && x.turnIn && questObjectivesMet(x))).length; q.textContent = n ? "?" : ""; } }, 600);
   setInterval(() => { const p = col.querySelector(".pts:not(.qpts)"); if (p && typeof skillPointsLeft === "function") { const n = skillPointsLeft(); p.textContent = n > 0 ? n : ""; } }, 500);
   const settings = add(`<div id="mb-settings" class="mb">
-    <button data-s="map">Map</button><button data-s="save">Save</button><button data-s="export">Export</button><button data-s="import">Import</button><button data-s="fps">FPS</button><button data-s="quality" id="mb-quality">Quality: ${MOBILE_RENDER_SCALE < 1 ? "Smooth" : "Sharp"}</button><button data-s="renderer" id="mb-renderer">Renderer: ${typeof GL2D !== "undefined" && GL2D.active ? "WebGL" : "Canvas"}</button><button data-s="maxfps" id="mb-maxfps">FPS limit: ${MOBILE_MAX_FPS}</button><button data-s="view" id="mb-view">View: ${typeof MOBILE_RENDER_TILES !== "undefined" && MOBILE_RENDER_TILES > 0 ? MOBILE_RENDER_TILES + "x" + MOBILE_RENDER_TILES : "Full"}</button></div>`);
+    <button data-s="map">Map</button><button data-s="save">Save</button><button data-s="export">Export</button><button data-s="import">Import</button><button data-s="fps">FPS</button><button data-s="quality" id="mb-quality">Quality: ${MOBILE_RENDER_SCALE < 1 ? "Smooth" : "Sharp"}</button><button data-s="renderer" id="mb-renderer">Renderer: ${typeof GL2D !== "undefined" && GL2D.active ? "WebGL" : "Canvas"}</button><button data-s="maxfps" id="mb-maxfps">FPS limit: ${MOBILE_MAX_FPS}</button><button data-s="view" id="mb-view">View: ${typeof MOBILE_RENDER_TILES !== "undefined" && MOBILE_RENDER_TILES > 0 ? MOBILE_RENDER_TILES + "x" + MOBILE_RENDER_TILES : "Full"}</button><button data-s="slots">Load</button><button data-s="settings2">Settings…</button><button data-s="mainmenu">Main Menu</button></div>`);
   const clickToolbar = (re) => { for (const b of document.querySelectorAll("#top-toolbar button")) if (re.test(b.textContent)) { b.click(); return true; } return false; };
   col.addEventListener("pointerdown", (e) => {
     const b = e.target.closest("button"); if (!b) return;
@@ -254,6 +254,9 @@ if (MOBILE_ON) {
     else if (s === "export") clickToolbar(/Export/);
     else if (s === "import") clickToolbar(/Import/);
     else if (s === "fps") toggleFps();
+    else if (s === "slots") { if (typeof openLoadPanel === "function") openLoadPanel(true); }
+    else if (s === "settings2") { if (typeof openSettingsPanel === "function") openSettingsPanel(); }
+    else if (s === "mainmenu") { if (typeof goToMainMenu === "function") goToMainMenu(); return; }
     else if (s === "quality") {
       MOBILE_RENDER_SCALE = MOBILE_RENDER_SCALE < 1 ? 1 : 0.5;
       try { localStorage.setItem("agn-render-scale", String(MOBILE_RENDER_SCALE)); } catch (e) { /* ignore */ }
@@ -308,7 +311,7 @@ if (MOBILE_ON) {
   }
 
   // no page scroll / pinch zoom / long-press menus while playing
-  document.addEventListener("touchmove", (e) => { if (!e.target.closest || !e.target.closest("#inventory, #npc-shop-overlay, #profile-overlay, .scroll-ok")) e.preventDefault(); }, { passive: false });
+  document.addEventListener("touchmove", (e) => { if (!e.target.closest || !e.target.closest("#inventory, #npc-shop-overlay, #profile-overlay, #skill-panel, .agn-panel, .scroll-ok")) e.preventDefault(); }, { passive: false });
   document.addEventListener("contextmenu", (e) => e.preventDefault());
   document.addEventListener("gesturestart", (e) => e.preventDefault());
 }

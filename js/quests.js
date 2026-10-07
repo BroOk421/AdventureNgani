@@ -525,3 +525,12 @@ function renderQuestTracker() {
     return r;
   };
 }
+
+/* Quest progress is written straight away (not only by the autosave), so closing
+   the app right after a quest starts or ends can't lose it and replay it. */
+{
+  const later = () => setTimeout(() => { if (typeof saveGame === "function") saveGame(); }, 60);
+  const sq = startQuest, cq = completeQuest;
+  startQuest = function () { const r = sq.apply(this, arguments); later(); return r; };
+  completeQuest = function () { const r = cq.apply(this, arguments); later(); return r; };
+}

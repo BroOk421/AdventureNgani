@@ -6755,3 +6755,46 @@ height liitan ... may mga naglalakad na npcs ... cloud ... professional pixel ar
   both ways, stop now and then, with a small shadow. layers.json gains `road`
   (feet rows) and `walkers`.
 - index.html -> ?v=20261065a.
+
+## Title: smooth parallax, sturdier Play, Play in the Load list
+
+Per request ("nanginginig yung land tyaka yung trees ... ayaw mag pindot ng play
+... yung sa load ... lagyan mo ng play sa tabi ng export").
+- The scene was drawn on a 360-px-tall canvas and scaled up, so every move
+  stepped by 2-3 screen pixels, and on phones the tilt sensor's noise kept
+  nudging the parallax. Now the canvas is the screen's own size (x DPR, max 3),
+  drawn with a scale transform; positions snap to SCREEN pixels (sn()), so the
+  slow sway glides. Phone tilt parallax removed; mouse parallax eased more.
+- Play: setActiveSlot() can't throw any more (an older save.js had a const
+  SAVE_KEY), go() doesn't start() a game that an older main.js already started,
+  and if the loader's callback was missed it asks whenAssetsReady() directly
+  (only once main.js — start() — is in). The likely cause on the user's side:
+  the previous zip only had title.js, so with the older main.js/save.js the
+  button threw / waited forever. Delivered as one cumulative zip.
+- Load list: "⬇ Export" then "▶ Play" (plays that slot) then delete.
+- index.html -> ?v=20261066a.
+
+## Skills window fits on phones
+
+Per request ("pop up ng skills sobrang laki sa mobile kaya di makita yung passive").
+On a phone the panel couldn't be scrolled at all (js/mobile.js stops touchmove
+everywhere except listed panels) and was too tall, so Passive was off-screen.
+- js/mobile.js: #skill-panel and .agn-panel (title Load / Settings) may scroll.
+- js/skills.js: Active and Passive are each wrapped in .sk-col.
+- style.css (html.agn-mobile): panel up to 96vw, the two columns side by side,
+  text 9-11px, icons 20px, + buttons 22px, smaller pips. Desktop unchanged.
+  Measured at 844x390: panel 326px tall, everything visible without scrolling.
+- index.html -> ?v=20261067a.
+
+## Every level adds ATK / DEF / HP; smaller skills window on phones
+
+Per request ("kada level din may additional + sa atk health def ... liitan mo pa
+yung pop up ng skills").
+- js/mines.js: LEVEL_HP 12 (was a fixed +8), LEVEL_ATK 1, LEVEL_DEF 1. Max health
+  is still stored (+12 on each level up); ATK / DEF are added in playerStats()
+  (js/gear.js) from (level - 1), so existing saves get the bonus for the levels
+  they already have. The level-up pop shows "+12 HP +1 ATK +1 DEF".
+  Lv 1: 100 HP / 3 ATK / 0 DEF -> Lv 10: 208 / 12 / 9 (bare hands, no points).
+- style.css (phones): skills panel 78vw / 82vh, 8-9.5px text, 16px icons, 19px +
+  buttons, the next-level preview line hidden. 220px tall at 844x390 (was 326).
+- index.html -> ?v=20261068a.

@@ -59,7 +59,7 @@ function loop(now) {
 }
 
 function loopFrame(now) {
-  const dt = Math.min((now - last) / 1000, 0.05);
+  const dt = Math.max(0, Math.min((now - last) / 1000, 0.05)); // the first frame's timestamp can be a hair before start(): never negative
   last = now;
   updateDayNight(); // wall-clock based — doesn't need dt, see js/daynight.js
   updateResources(); // wall-clock based too — restores respawned stones (js/resources.js)
@@ -135,4 +135,6 @@ function revealGameWhenSettled() {
   requestAnimationFrame(tick);
 }
 
-whenAssetsReady(start);
+// The title screen (js/title.js) decides when the game starts (Play / Load);
+// without it (?notitle=1, tests) it starts right away as before.
+whenAssetsReady(() => (typeof titleOnAssetsReady === "function" ? titleOnAssetsReady() : start()));

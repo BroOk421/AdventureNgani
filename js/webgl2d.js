@@ -44,6 +44,7 @@ const GL2D = (() => {
       if (/[?&]gl=0\b/.test(location.search)) return false;
       if (/[?&]gl=1\b/.test(location.search)) return true;
       if (localStorage.getItem("agn-renderer") === "canvas") return false;
+      if (localStorage.getItem("agn-renderer") === "webgl") return true; // chosen in Settings (desktop too)
       if (/[?&]mobile=0\b/.test(location.search)) return false;
       if (/[?&]mobile=1\b/.test(location.search)) return true;
       return !!(window.matchMedia && matchMedia("(pointer: coarse)").matches) || "ontouchstart" in window || navigator.maxTouchPoints > 0;

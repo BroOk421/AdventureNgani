@@ -29,7 +29,7 @@ function saveSlotKey(n) { return n === 1 ? "rpg-prototype-save-v1" : "rpg-protot
 function getActiveSlot() { try { const n = +localStorage.getItem("agn-active-slot"); return n >= 1 && n <= SAVE_SLOT_COUNT ? n : 1; } catch (e) { return 1; } }
 function setActiveSlot(n) {
   try { localStorage.setItem("agn-active-slot", String(n)); } catch (e) { /* ignore */ }
-  if (typeof SAVE_KEY !== "undefined") SAVE_KEY = saveSlotKey(n); // eslint-disable-line no-global-assign
+  try { if (typeof SAVE_KEY !== "undefined") SAVE_KEY = saveSlotKey(n); } catch (e) { console.warn("save slots need the newer js/save.js", e); } // eslint-disable-line no-global-assign
 }
 function readSlotRaw(n) { try { return localStorage.getItem(saveSlotKey(n)); } catch (e) { return null; } }
 
@@ -240,7 +240,9 @@ function buildLogo() {
 
 function TitleScene(canvas) {
   const g = canvas.getContext("2d");
-  let W = 640, H = TITLE_H, sky = null, logo = null, shine = null;
+  let W = 640, H = TITLE_H, S = 1, sky = null, logo = null, shine = null;
+  // positions snap to the screen's own pixels (not to the 360-px art grid), so slow parallax glides instead of stepping
+  const sn = (v) => Math.round(v * S) / S;
   const rnd = Math.random;
   const stars = Array.from({ length: 70 }, () => ({ x: rnd(), y: rnd() * 0.45, p: rnd() * 6, s: rnd() < 0.15 ? 2 : 1 }));
   const flakes = Array.from({ length: 46 }, () => ({ x: rnd(), y: rnd(), v: 6 + rnd() * 10, a: rnd() * 6, s: rnd() < 0.2 ? 2 : 1 }));
@@ -251,8 +253,9 @@ function TitleScene(canvas) {
   let birdTimer = 2;
   function resize() {
     const vw = Math.max(1, window.innerWidth), vh = Math.max(1, window.innerHeight);
-    H = TITLE_H; W = Math.max(320, Math.min(1060, Math.round(H * vw / vh)));
-    canvas.width = W; canvas.height = H;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    canvas.width = Math.round(vw * dpr); canvas.height = Math.round(vh * dpr);
+    H = TITLE_H; S = canvas.height / H; W = canvas.width / S;
     sky = g.createLinearGradient(0, 0, 0, H);
     for (const [o, c] of [[0, "#141a3c"], [0.22, "#2c3368"], [0.42, "#5d5a96"], [0.58, "#b77892"], [0.68, "#ee9474"], [0.78, "#ffc98d"], [1, "#ffe3ac"]]) sky.addColorStop(o, c);
   }
@@ -260,16 +263,16 @@ function TitleScene(canvas) {
   window.addEventListener("resize", resize);
 
   let tiltX = 0, tiltY = 0, aimX = 0, aimY = 0;
-  window.addEventListener("pointermove", (e) => { aimX = (e.clientX / window.innerWidth - 0.5) * 2; aimY = (e.clientY / window.innerHeight - 0.5) * 2; });
-  window.addEventListener("deviceorientation", (e) => { if (e.gamma == null) return; aimX = Math.max(-1, Math.min(1, (e.beta || 0) / 25)); aimY = Math.max(-1, Math.min(1, (e.gamma || 0) / 40)); });
+  // a little parallax with the mouse (no phone tilt: its sensor noise made the scene shake)
+  window.addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse") return; aimX = (e.clientX / window.innerWidth - 0.5) * 2; aimY = (e.clientY / window.innerHeight - 0.5) * 2; });
 
   const ease = (t) => 1 - Math.pow(1 - Math.max(0, Math.min(1, t)), 3);
   const INTRO = 3.4;
   let time = 0;
   function layer(img, depth, rise, sway, y0 = 0) {
     if (!img || !img.width) return;
-    const x = Math.round((W - img.width) / 2 + sway * depth * 60 + tiltX * depth * 14);
-    const y = Math.round(y0 + rise * depth * H * 0.95 + tiltY * depth * 4);
+    const x = sn((W - img.width) / 2 + sway * depth * 60 + tiltX * depth * 14);
+    const y = sn(y0 + rise * depth * H * 0.95 + tiltY * depth * 4);
     g.drawImage(img, x, y);
     return { x, y };
   }
@@ -280,9 +283,10 @@ function TitleScene(canvas) {
   this.logoAt = () => time;
   this.frame = (dt) => {
     time += dt;
-    tiltX += (aimX - tiltX) * Math.min(1, dt * 2.5); tiltY += (aimY - tiltY) * Math.min(1, dt * 2.5);
+    tiltX += (aimX - tiltX) * Math.min(1, dt * 1.5); tiltY += (aimY - tiltY) * Math.min(1, dt * 1.5);
     const p = ease(time / INTRO), rise = 1 - p;
     const sway = Math.sin(time * 0.07) * (0.4 + 0.6 * p);
+    g.setTransform(S, 0, 0, S, 0, 0);
     g.imageSmoothingEnabled = false;
     g.fillStyle = sky; g.fillRect(0, 0, W, H);
     // sun glow behind the mountains
@@ -299,7 +303,7 @@ function TitleScene(canvas) {
         const im = TITLE_ART["cloud" + c.i]; if (!im || !im.width) continue;
         c.x += c.v * dt; if (c.x > 1120) c.x = -im.width - 20;
         g.globalAlpha = near ? 0.92 : 0.85;
-        g.drawImage(im, Math.round(c.x - (1100 - W) / 2 + sway * (near ? 30 : 8) + tiltX * (near ? 8 : 3)), Math.round(c.y + rise * H * (near ? 0.4 : 0.15)));
+        g.drawImage(im, sn(c.x - (1100 - W) / 2 + sway * (near ? 30 : 8) + tiltX * (near ? 8 : 3)), sn(c.y + rise * H * (near ? 0.4 : 0.15)));
         g.globalAlpha = 1;
       }
     };
@@ -363,7 +367,7 @@ function TitleScene(canvas) {
         }
         const im = TITLE_ART["walk_" + w.id + "_" + (w.dir > 0 ? "r" : "l")];
         if (!im || !im.width) continue;
-        const feet = titleLayers.road[w.lane], sx = Math.round(tw.x + w.x), sy = Math.round(tw.y + feet);
+        const feet = titleLayers.road[w.lane], sx = sn(tw.x + w.x), sy = sn(tw.y + feet);
         if (sx < -40 || sx > W + 40) continue;
         g.fillStyle = "rgba(20,30,10,.28)"; g.fillRect(sx - 4, sy - 1, 8, 2); g.fillRect(sx - 3, sy - 2, 6, 1);
         const fr = w.wait > 0 ? 0 : Math.floor(w.f) % 6;
@@ -379,8 +383,8 @@ function TitleScene(canvas) {
     }
     // trees framing the edges, in front
     const fl = TITLE_ART.fore_left, fr = TITLE_ART.fore_right;
-    if (fl && fl.width) g.drawImage(fl, Math.round(-40 + sway * 70 + tiltX * 18), Math.round(rise * H * 1.05 + tiltY * 5));
-    if (fr && fr.width) g.drawImage(fr, Math.round(W - fr.width + 40 + sway * 70 + tiltX * 18), Math.round(rise * H * 1.05 + tiltY * 5));
+    if (fl && fl.width) g.drawImage(fl, sn(-40 + sway * 70 + tiltX * 18), sn(rise * H * 1.05 + tiltY * 5));
+    if (fr && fr.width) g.drawImage(fr, sn(W - fr.width + 40 + sway * 70 + tiltX * 18), sn(rise * H * 1.05 + tiltY * 5));
     // a few flakes drifting down
     for (const f of flakes) {
       f.y += f.v * dt / H; f.a += dt;
@@ -399,9 +403,9 @@ function TitleScene(canvas) {
       const bounce = lt < 1.1 ? Math.sin(Math.min(1, lt / 1.1) * Math.PI) * (1 - k) * 0 : 0;
       const sc = 1 + (1 - k) * 0.6 + bounce;
       const lw = Math.round(logo.width * sc), lh = Math.round(logo.height * sc);
-      const ly = Math.round(H * 0.07 - (1 - k) * 30 + Math.sin(time * 1.3) * 1.5);
+      const ly = sn(H * 0.07 - (1 - k) * 30 + Math.sin(time * 1.3) * 1.5);
       g.globalAlpha = Math.min(1, lt / 0.45);
-      g.drawImage(logo, Math.round((W - lw) / 2), ly, lw, lh);
+      g.drawImage(logo, sn((W - lw) / 2), ly, lw, lh);
       g.globalAlpha = 1;
       // a shine sweeping across now and then
       const st = (time % 5.5) / 1.1;
@@ -414,7 +418,7 @@ function TitleScene(canvas) {
         sg.addColorStop(0, "rgba(255,255,255,0)"); sg.addColorStop(0.5, "rgba(255,252,230,.55)"); sg.addColorStop(1, "rgba(255,255,255,0)");
         s.fillStyle = sg; s.fillRect(0, 0, logo.width, logo.height);
         s.globalCompositeOperation = "destination-in"; s.drawImage(logo, 0, 0);
-        g.drawImage(shine, Math.round((W - logo.width) / 2), ly);
+        g.drawImage(shine, sn((W - logo.width) / 2), ly);
       }
     }
   };
@@ -490,11 +494,12 @@ function titlePlay(slot, isNew) {
   if (typeof Music !== "undefined") Music.play("day");
   const go = () => {
     titleFade.querySelector(".msg").textContent = "";
+    const alreadyRunning = typeof saveGameReady !== "undefined" && saveGameReady; // an older main.js started it by itself
     if (fresh && typeof dayNightEpoch !== "undefined") { // a new game starts on a fresh morning
       dayNightEpoch = Date.now() - (SUNRISE_HOUR * 3600 * 1000) / TIME_SCALE;
       try { localStorage.setItem(DAYNIGHT_STORAGE_KEY, String(dayNightEpoch)); } catch (e) { /* ignore */ }
     }
-    try { start(); } catch (e) { console.error("Game failed to start:", e); }
+    if (!alreadyRunning) { try { start(); } catch (e) { console.error("Game failed to start:", e); } }
     const wait = () => {
       const r = document.documentElement;
       if (r.classList.contains("agn-booting") || r.classList.contains("agn-revealing")) { requestAnimationFrame(wait); return; }
@@ -505,8 +510,17 @@ function titlePlay(slot, isNew) {
     requestAnimationFrame(wait);
   };
   setTimeout(() => {
-    if (titleGameAssetsReady) go();
-    else { titleFade.querySelector(".msg").textContent = tt("loading"); titlePendingStart = go; }
+    if (titleGameAssetsReady || (typeof saveGameReady !== "undefined" && saveGameReady)) go();
+    else {
+      titleFade.querySelector(".msg").textContent = tt("loading"); titlePendingStart = go;
+      // also ask the loader directly (it calls back at once if everything is already in)
+      // (only once main.js is in too — start() lives there; otherwise main.js calls titleOnAssetsReady() itself)
+      if (typeof whenAssetsReady === "function") whenAssetsReady(() => {
+        if (typeof start !== "function") return;
+        titleGameAssetsReady = true;
+        if (titlePendingStart) { const f = titlePendingStart; titlePendingStart = null; f(); }
+      });
+    }
   }, 750);
 }
 
@@ -574,7 +588,7 @@ function renderLoadPanel() {
     h += `</div><div class="acts">`;
     if (!titleImportText) {
       const running = titleStarted && n === cur; // the game being played right now: no Load / Delete
-      if (used) h += (running ? "" : `<button class="agn-sm gold" data-a="load">${tt("loadBtn")}</button>`) + `<button class="agn-sm" data-a="export" title="${tt("exportBtn")}">⬇</button>` + (running ? "" : `<button class="agn-sm red" data-a="del">${titleDelArm === n ? tt("sure") : "🗑"}</button>`);
+      if (used) h += `<button class="agn-sm" data-a="export" title="${tt("exportBtn")}">⬇ ${tt("exportBtn")}</button>` + (running ? "" : `<button class="agn-sm gold" data-a="load">▶ ${tt("play")}</button><button class="agn-sm red" data-a="del">${titleDelArm === n ? tt("sure") : "🗑"}</button>`);
       else h += `<button class="agn-sm gold" data-a="new">${tt("newGame")}</button>`;
     }
     h += `</div></div>`;

@@ -927,6 +927,10 @@ if (typeof player.level !== "number") player.level = 1;
 // 50 x level^1.75 (Lv1 50, Lv20 ~9.5k, Lv80 ~110k)
 function expForLevel(l) { return Math.max(50, Math.round(50 * Math.pow(l, 1.75))); } // steeper: every level takes longer than the last
 const LEVEL_MAX = 100; // per request: level 1 -> 100, only from killing mobs and quests
+// Every level also makes you stronger on its own (per request: "kada level din may additional + sa
+// atk health def"): +LEVEL_HP max health (stored), +LEVEL_ATK ATK and +LEVEL_DEF DEF (added in
+// playerStats(), js/gear.js, from the level itself — so older saves get it too).
+const LEVEL_HP = 12, LEVEL_ATK = 1, LEVEL_DEF = 1;
 function gainExp(n, m) {
   if ((player.level || 1) >= LEVEL_MAX) { player.exp = 0; return; }
   player.exp += n;
@@ -936,10 +940,11 @@ function gainExp(n, m) {
     player.level++;
     if (player.level >= LEVEL_MAX) player.exp = 0;
     player.maxExp = expForLevel(player.level);
-    player.maxHealth += 8; player.health = player.maxHealth;
+    player.maxHealth += LEVEL_HP; player.health = player.maxHealth;
     player.maxStamina += 4; player.stamina = player.maxStamina;
     player.statPoints = (player.statPoints || 0) + 3; // spend them in the profile (P): STR / STA / AGI / ACC
     pushMineNumber(player.x, player.y - DRAW_SIZE * 0.4, "LEVEL UP!  Lv " + player.level, "#ffd84a", true);
+    pushMineNumber(player.x, player.y - DRAW_SIZE * 0.1, "+" + LEVEL_HP + " HP  +" + LEVEL_ATK + " ATK  +" + LEVEL_DEF + " DEF", "#9cf59a");
     const unlocked = Object.values(itemDefs).filter((d) => d.weapon && d.weapon.reqLevel === player.level).map((d) => d.name);
     if (typeof showToast === "function") showToast("Level " + player.level + "!" + (unlocked.length ? " Na-unlock: " + unlocked.join(", ") : ""));
   }
