@@ -6611,3 +6611,147 @@ drawn here. Lost GPU context is rebuilt.
 - Phone Settings popup: 3 columns, smaller buttons (js/mobile.js CSS).
 - Water (js/fishing.js drawWaterAnim()): calmer — one slow caustic layer at
   35% (was two, 40% + 60%), fainter swell bands. index.html -> ?v=20261061a.
+
+## Every map the same size: the town and the Greenwood remade at 80x46; export on the phone; carry on where you left off
+
+Per request ("gawin na lang kasing laki ng wild lahat ng map ... yung town gawin
+mo na lang na mas maliit na map ... yung may bahay i random mo san mo pwede
+ilagay dun pero may path parin alisin mo lang mga animals duon ... liitan mo na
+din yun [greenwood] ... kung san siya nakapwesto tapos nag exit dapat kapag
+bukas ulit nandun siya ... yung export sa mobile hindi nag direct sa download").
+- The town: tools/build_town_small.py -> js/townMap.data.js (TOWN_MAP, loaded
+  before defaultMap.data.js). 80x46: a cliff along the north (plateau rows
+  0-3, wall rows 4-7) with the town cave's entrance in it; the main street
+  (rows 24-25) from the west edge (-> the wild world) to the east edge (->
+  the Highlands); a north row of buildings opening onto the street and a
+  south row opening onto a back lane (rows 40-41) joined to the street by two
+  connecting lanes; which row each building goes in, their order, the gaps,
+  the cave's / warp portal's spots and the connectors are random (seeded —
+  re-run with another seed for another town). A dirt plaza across the street
+  from the tavern (TOWN_MAP.centre, the townsfolk's centre); lamps, benches,
+  flowers by the doors, trees whose crowns never hang over a house or a
+  doorstep, low bushes along the bottom. Buildings: tavern, grocery, equip /
+  potion / blacksmith / furniture shops, the cabin, 5-6 cottages (the
+  Abandoned House and the Guard House only if they fit — the soldiers never
+  go in anyway; townsfolk without a cottage use any house).
+- js/worlds.js: worldW()/worldH() for the town = TOWN_MAP.cols/rows;
+  MAIN_PORTAL / MAIN_EAST_PORTAL / TOWN_CENTRE_TILE from TOWN_MAP;
+  js/gear.js TOWN_PORTAL = TOWN_MAP.portal; js/shops.js no longer builds the
+  shops / east road (the map has them). No farm animals in the town
+  (updateAnimals empties the list; animalDrawables none).
+- Old saves (migrateToSmallTown(), js/worlds.js, before applySaveData): when
+  `townVersion` differs, every `<room>@col,row` of an old town building is
+  renamed — everywhere in the save — to the same kind of building's new
+  spot (first old cottage of a kind -> first new one ...), so furniture,
+  room shapes, chests, trays stay; the town's placed items / grass fill come
+  from TOWN_MAP; its farm plots, auto-tile records, builds and regrowths go.
+  Saves now carry `townVersion`. New games go the same way (DEFAULT_MAP_SAVE
+  holds the old town).
+- The Greenwood (tools/build_east_worlds.py forest()) is 80x46 too: ring,
+  east pass rows 21-24, 3 mesas, a lake + waterfall + stream to a sea in the
+  south-west, ~95 trees, stones, flowers. layoutVersion v4-149s (a saved one
+  is rebuilt). js/forest.js FOREST_PASS / FOREST_ARRIVE from the data; wild
+  animals 7 at first, up to 12; they move with the game's frame (was a 30 Hz
+  timer), slide along what's in their way and turn round when stuck.
+- Carry on: saves keep `resume` (world, map layoutVersion, scene, room id,
+  position, outside spot, facing); startInDefaultWorld() -> resumeWhereLeft()
+  puts you back — in the room / cave too — unless that map was rebuilt or the
+  spot is blocked (then the House as before).
+- Export on the phone (js/save.js exportSave()): in the Capacitor app it
+  writes Documents/AdventureNgani/rpg-save-<date>.json with the Filesystem
+  plugin, or, failing that, a cache file handed to the Share sheet. Needs
+  `npm install` (package.json: @capacitor/filesystem, @capacitor/share)
+  then `npx cap sync`. AndroidManifest: storage permissions for Android <= 10.
+- index.html -> ?v=20261062a (+ js/townMap.data.js).
+
+## Brick streets and a Cobblestone tile set
+
+Per request ("yung sa town kaya mo bang gawin is bricks? tapos dagdag ka ng
+tile na parang stones?").
+- tools/build_paved_tiles.py: a new Cobblestone set, assets/tiles/cobble_tile/
+  (top/left/right/bottom-cobble 1-3, enter-cobble 1-6 — one seamless 16x16
+  stone pattern; every variant shares the stones crossing the tile border,
+  so any two pieces join). Also `edge-<side>-<n>.png` in bricks_tile and
+  cobble_tile: grass_tile's edge pieces drawn over the paving (the grass rim
+  of a paved path), with snow/<name>_snow.png versions (the rim turns to snow
+  while it snows; js/snowground.js SNOW_ART_* cover those folders).
+- js/assets.js TERRAIN_TILE_SETS: Bricks gets the edge-* rows (listed under
+  its picker), new set "Cobble" ("Cobblestone Tiles", own inventory slot,
+  layer 2). js/autotile.js treats terrainCobble like terrainBricks (auto-tile,
+  no picker, exact, merges with older tiles).
+- tools/build_town_small.py (VERSION small-v2): the main street, the back
+  lane between the connectors and the two connecting lanes are bricks; the
+  plaza and the short paths to doors / the cave / the portal are cobblestone;
+  rim cells get the matching paved grass edge. Same seed, same building spots,
+  so migrateToSmallTown() keeps every room; things the player placed outdoors
+  in the town since small-v1 are reset with the new ground.
+- index.html -> ?v=20261063a.
+
+## Title screen, save slots, music
+
+Per request ("dapat gumagana yung save at may load game para di umuulit yung
+quest gawa ka ng parang parallax na intro may mount everest na may snow tapos
+yung town na may mga puno tyaka lalabas yung mismong name ng game tapos sa baba
+may mga buttons play, load, settings at exit ...").
+- js/title.js (loaded first, before config.js — shows while the game's images
+  load). Parallax intro: assets/title/ layers (tools/build_title_art.py: a
+  procedural snowy summit lit pink by dawn, a nearer range, forest hills with
+  pines, the town at half size from the game's own house/tree art, big trees
+  framing the edges; layers.json = chimney tops, lamps, summit) rise into place
+  at different speeds over 3.4 s, then the name ("ADVENTURE NGANI", 5x7 pixel
+  letters with snow caps, outline, shine) drops in and the buttons come up.
+  Idle: slow sway + mouse / tilt parallax, stars, clouds, snow blowing off the
+  summit, chimney smoke, lamp glow, birds, light snowfall. Tap skips the intro.
+- Play = the last slot played (or the latest save, or a new game) — fade to
+  black, start(), fade in. main.js: whenAssetsReady -> titleOnAssetsReady()
+  (the game only starts on Play / Load). Skipped with ?notitle=1 and in
+  automated browsers (navigator.webdriver; ?title=1 forces it) so tests run
+  as before.
+- Save slots: SAVE_SLOT_COUNT 3, keys saveSlotKey(n) (slot 1 = the old
+  "rpg-prototype-save-v1", so existing saves are slot 1), active slot in
+  "agn-active-slot". save.js: SAVE_KEY is `let`; saves carry `savedAt` and
+  `dayNightEpoch` (each slot its own clock; a new game starts at 06:00 Day 1).
+  Load panel (title, toolbar "📂 Load", phone Settings > Load): per slot place /
+  Lv / gold / play time / tracked quest / saved time, Load or New Game, Export,
+  Delete (tap twice); Import (top right) -> pick the slot. In the game the slot
+  being played can't be deleted / reloaded; switching slots saves, stops
+  saving, and reloads straight into the other slot (sessionStorage
+  "agn-autoplay"). "Main Menu" (toolbar / phone settings) saves and reloads to
+  the title (intro skipped).
+- Quests no longer get lost: startQuest / completeQuest save at once
+  (quests.js), and the Android app saves on the Capacitor App plugin's
+  pause / appStateChange (new dependency @capacitor/app) and on document
+  "pause" — closing the app within the 10 s phone autosave window used to lose
+  the last progress. Storage-full saves show a toast. gear.js's try-out grant
+  waits for a loaded save (it fired 4 s after page load). main.js dt can't go
+  negative any more (the first frame made play time negative).
+- Settings (title, toolbar ⚙, phone Settings…): Graphics (Renderer WebGL/Canvas
+  — reloads; Quality, FPS limit, View — phone), Music (on/off, volume), Language
+  (English / Filipino for the menus; the story stays English), Controls.
+  webgl2d.js: agn-renderer "webgl" now also turns WebGL on on the desktop.
+- js/music.js: procedural WebAudio soundtrack (no files) — "title", "day",
+  "night" (switches with isDaytime() every 5 s); pad, plucked arpeggio, bass,
+  bell melody, convolver reverb; starts on the first tap/key, suspends in the
+  background; "agn-music-vol" / "agn-music-on".
+- Exit: Capacitor App.exitApp(); in a browser tab a "you can close this tab" note.
+- index.html -> ?v=20261064a (+ js/music.js, js/title.js).
+
+## Title screen: vertical menu, pixel-art clouds, people on the road
+
+Per request ("i center tapos vertical ... play na lang yung text ... habaan ...
+height liitan ... may mga naglalakad na npcs ... cloud ... professional pixel art").
+- Menu: one centred column under the name (top 41%, phone 39%), 250px wide
+  (phone 200px), lower buttons; Play shows just "Play" (the slot it continues is
+  its tooltip).
+- Clouds (tools/build_title_art.py cloud(), assets/title/cloud1-6.png): built like
+  hand-drawn pixel cumulus — a low body for a flat one-piece base, a row of round
+  puffs with a smaller row on top and a crown, higher puffs behind lower ones;
+  every puff shaded as a little sphere lit from the upper left (5 dawn tones),
+  a crease shadow where a puff tucks behind another, a dark flat underside, a 1px
+  checker on the band edges. Four far ones behind the summit, two nearer and
+  faster ones in front of the second range.
+- Walkers: half-size side-walk strips of townsfolk F G I J K P Q L B E
+  (assets/title/walk_<id>_r|l.png); 9 of them walk the town's road in two lanes
+  both ways, stop now and then, with a small shadow. layers.json gains `road`
+  (feet rows) and `walkers`.
+- index.html -> ?v=20261065a.
