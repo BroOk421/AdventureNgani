@@ -33,8 +33,10 @@ function loop(now) {
   // Phones: at most MOBILE_MAX_FPS frames a second (js/config.js). The 2 ms
   // slack keeps a 60 Hz screen from skipping frames on timer jitter.
   if (typeof MOBILE_ON !== "undefined" && MOBILE_ON && typeof MOBILE_MAX_FPS !== "undefined" && MOBILE_MAX_FPS > 0) {
-    if (now - lastDrawnAt < 1000 / MOBILE_MAX_FPS - 2) return;
-    lastDrawnAt = now;
+    // Keeps the leftover time, so 90 on a 120 Hz screen really draws 3 of every 4 frames.
+    const interval = 1000 / MOBILE_MAX_FPS, elapsed = now - lastDrawnAt;
+    if (elapsed < interval - 1.5) return;
+    lastDrawnAt = elapsed >= interval && elapsed < interval * 3 ? now - (elapsed % interval) : now;
   }
   gameFrameCount++;
   try {

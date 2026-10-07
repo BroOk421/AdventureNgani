@@ -6563,9 +6563,20 @@ cost was not the number of objects but full-screen / per-pixel work. Fixed
   (relightMovingList, `k` = depth on each entry).
 - js/hud.js: HUD text/bars only written when they change (setHudText(),
   half-percent bar steps); the minimap redraws every 120 ms on phones.
-- Settings > View cycles 10x10 -> 16x16 -> 20x20 -> Full
-  (MOBILE_RENDER_TILES 10/16/20/0, localStorage "agn-view-tiles"; default
+- Settings > View cycles 16x16 -> 20x20 -> Full (10x10 was tried, then
+  removed per request; a stored "10" loads as 16)
+  (MOBILE_RENDER_TILES 16/20/0, localStorage "agn-view-tiles"; default
   16). Full = the screen + CULL_MARGIN, now 4 tiles (js/culling.js).
 - Measured (headless, phone size, fill-bound like the phone): wild snow
   night 10.8 -> ~22 fps, wild sunny day with birds ~6 -> ~30, town night
   ~7.5 -> ~15 (16x16) / ~18 (10x10), caves ~40. index.html -> ?v=20261058a.
+
+## Phones: FPS limit 30 / 60 / 90 / 120
+
+Settings > FPS limit (js/mobile.js) cycles 30 -> 60 -> 90 -> 120, saved as
+localStorage "agn-max-fps" (default 60). MOBILE_MAX_FPS (js/config.js) is
+`let` now. js/main.js loop() keeps the leftover time between frames, so a
+cap that doesn't divide the screen's refresh rate (90 on a 120 Hz screen)
+really gives 90. 90/120 only show on a phone whose screen runs that fast
+(MainActivity already asks for its highest refresh rate). index.html ->
+?v=20261059a.

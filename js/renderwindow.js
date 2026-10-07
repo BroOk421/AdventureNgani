@@ -31,7 +31,7 @@
    never go black. Weather, clouds and birds are screen-wide as before.
 
    Indoors (rooms are small) and on the desktop nothing changes.
-   Settings > View on the phone cycles 10x10 / 16x16 / 20x20 / Full
+   Settings > View on the phone cycles 16x16 / 20x20 / Full
    (Full = the screen + js/culling.js's 4-tile margin)  (js/mobile.js).
 ================================================================= */
 

@@ -566,7 +566,10 @@ const MOBILE_ZOOM = 2.7; // per request: a closer phone camera (was 2)
 // made the game draw the whole night scene up to 120 times a second — twice
 // the work, the phone heating up and slowing itself down, then lagging. 60 is
 // smooth and steady; set to 0 for no cap.
-const MOBILE_MAX_FPS = 60;
+// Settings > FPS limit on the phone: 30 / 60 / 90 / 120 (localStorage "agn-max-fps").
+// Lower = less work a second, so a cooler phone and a steadier frame rate.
+let MOBILE_MAX_FPS = 60;
+try { const f = +localStorage.getItem("agn-max-fps"); if (f === 30 || f === 60 || f === 90 || f === 120) MOBILE_MAX_FPS = f; } catch (e) { /* private mode */ }
 // Phone render distance — per request ("16x16 na tiles lang na render center
 // jan yung character"): only what's inside a square this many tiles across,
 // centred on the character, is drawn (objects, trees, houses, people,
@@ -576,8 +579,8 @@ const MOBILE_MAX_FPS = 60;
 // which is cheap. 0 = no limit (draw everything on screen). Settings > View
 // on the phone switches it on/off (js/mobile.js), see js/renderwindow.js.
 let MOBILE_RENDER_TILES = 16;
-// Settings > View on the phone: 10 / 16 / 20 tiles across, or 0 = Full (the screen + CULL_MARGIN)
-try { const v = localStorage.getItem("agn-view-tiles"); if (v === "0" || v === "10" || v === "16" || v === "20") MOBILE_RENDER_TILES = +v; } catch (e) { /* private mode */ }
+// Settings > View on the phone: 16 / 20 tiles across, or 0 = Full (the screen + CULL_MARGIN)
+try { const v = localStorage.getItem("agn-view-tiles"); if (v === "0" || v === "16" || v === "20") MOBILE_RENDER_TILES = +v; } catch (e) { /* private mode */ }
 // Phone walk/run animation speed, x normal — slowed less than the movement
 // so the steps don't look like slow motion, but enough that the feet don't
 // slide. (Idle is not affected.)
