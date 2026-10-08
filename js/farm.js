@@ -271,6 +271,7 @@ function plantSeedsOn(tiles) {
     plot.crop = { veg, growth: 0, lastT: farmNow(), ripeAt: null };
     plot.emptySince = null;
     farmTileFx("plant", t.col, t.row);
+    seedBounces.set(fkey(t.col, t.row), { t0: performance.now() + n * 70, type: heldItem.type }); // each seed a touch after the last
     commitPlacementUse(heldItem.fromSlot); // takes one seed, saves
     n++;
   }
@@ -400,6 +401,7 @@ function farmHandleHeldPlacement(col, row) {
     const plot = plotAt(col, row);
     plot.crop = { veg: def.seedOf, growth: 0, lastT: farmNow(), ripeAt: null };
     plot.emptySince = null;
+    seedBounces.set(fkey(col, row), { t0: performance.now(), type: heldItem.type });
     commitPlacementUse(heldItem.fromSlot); // takes one seed, saves
     return true;
   }
@@ -778,10 +780,51 @@ function drawCollector() {
 
 /* ---------------- per frame / periodic ---------------- */
 let farmTickAcc = 0, farmLastT = performance.now();
+/* ---------------- crops part as you walk through them; seeds bounce in ----------------
+   Per request ("nag hahawi yun yung left at right na tanim kagaya sa ibang grass o flower kapag nadaanan
+   ... yung nasa left niya puntang left at yung right papuntang right dapat may bounce papahina"): a crop
+   the character brushes leans AWAY from them — the one on the left to the left, the one on the right to
+   the right (one under the feet: the way they're walking) — on a damped spring, so when they move on it
+   springs back past upright and wobbles to rest, each swing smaller. Like the wild grass. */
+const cropSway = new Map(); // key -> { a, v } (a: -1 .. 1, lean of the tip)
+const CROP_SWAY_K = 140, CROP_SWAY_DAMP = 5.5, CROP_SWAY_REACH = TILE * 1.25, CROP_SWAY_PX = 3.2;
+const seedBounces = new Map(); // key -> { t0, type } — a seed dropped in, bouncing to rest
+const SEED_BOUNCE_SEC = 0.75;
+function updateCropSway(dt) {
+  if (player.scene !== "outside") { cropSway.clear(); return; }
+  const fx = player.x, fy = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+  const w = farmWorld();
+  const pc = Math.floor(fx / TILE), pr = Math.floor(fy / TILE);
+  const moving = player.anim === "walk" || player.anim === "run";
+  const walkDir = player.facing === "left" ? -1 : player.facing === "right" ? 1 : 0;
+  // crops round the feet get pushed
+  for (let r = pr - 1; r <= pr + 1; r++) for (let c = pc - 2; c <= pc + 2; c++) {
+    const key = fkey(c, r), p = w.plots.get(key);
+    if (!p || !p.crop || !(p.crop.growth > 0 || cropState(p, farmNow()) !== "growing")) continue;
+    const cx = (c + 0.5) * TILE, cy = (r + 1) * TILE - 3;
+    const dx = cx - fx, dy = cy - fy;
+    if (Math.abs(dy) > TILE * 0.75 || Math.abs(dx) > CROP_SWAY_REACH) continue;
+    const near = 1 - Math.abs(dx) / CROP_SWAY_REACH;
+    let dir = Math.abs(dx) < 3 ? (moving ? walkDir : 0) : Math.sign(dx);
+    if (!cropSway.has(key)) cropSway.set(key, { a: 0, v: 0 });
+    const s = cropSway.get(key);
+    s.target = dir * Math.min(1, 0.35 + near);
+    s.touched = true;
+  }
+  for (const [key, s] of cropSway) {
+    const tgt = s.touched ? s.target : 0;
+    s.touched = false;
+    s.v += (CROP_SWAY_K * (tgt - s.a) - CROP_SWAY_DAMP * s.v) * dt;
+    s.a += s.v * dt;
+    if (tgt === 0 && Math.abs(s.a) < 0.01 && Math.abs(s.v) < 0.05) cropSway.delete(key);
+  }
+  for (const [key, b] of seedBounces) if (performance.now() - b.t0 > SEED_BOUNCE_SEC * 1000 + 200) seedBounces.delete(key);
+}
 function updateFarm() {
   const t = performance.now();
   const dt = Math.min(0.05, (t - farmLastT) / 1000);
   farmLastT = t;
+  updateCropSway(dt);
   updateCollector(dt);
   updateSocketFx(dt);
   farmTickAcc += dt;
@@ -904,6 +947,26 @@ function drawCrop(key, p, now) {
   const sheet = FARM_GROW_SHEETS[p.crop.veg];
   if (!sheet || !sheet.width) return;
   const z = zoom;
+  const bounce = seedBounces.get(key);
+  if (bounce) { // a seed dropping in and bouncing to rest, each hop smaller
+    const t = (performance.now() - bounce.t0) / 1000;
+    const icon = itemDefs[bounce.type] && itemDefs[bounce.type].icon;
+    if (t < 0) return;
+    if (t < SEED_BOUNCE_SEC && icon && icon.width) {
+      const hop = Math.abs(Math.cos(t * Math.PI * 3.2)) * Math.exp(-4.2 * t) * 12; // world px above the soil
+      const land = hop < 1.2; // squashed a little when it touches down
+      const sz = 9, sx = land ? 1.25 : 0.9, sy = land ? 0.75 : 1.1;
+      const bx = (c * TILE + TILE / 2 - camX) * z, by = ((r + 1) * TILE - 5 - hop - camY) * z;
+      ctx.save();
+      ctx.globalAlpha = 0.3 * (1 - hop / 12); ctx.fillStyle = "#000"; // its shadow on the soil
+      ctx.beginPath(); ctx.ellipse(bx, ((r + 1) * TILE - 5 - camY) * z, 2.4 * z, 0.9 * z, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = t > SEED_BOUNCE_SEC - 0.15 ? Math.max(0, (SEED_BOUNCE_SEC - t) / 0.15) : 1; // sinks into the soil
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(icon, bx - sz * sx * z / 2, by - sz * sy * z, sz * sx * z, sz * sy * z);
+      ctx.restore();
+      return;
+    }
+  }
   if (st === "growing" && p.crop.growth <= 0) { // just sown: a few seeds in the soil
     ctx.fillStyle = "#e8d6a8";
     for (const [dx, dy] of [[5, 9], [9, 7], [10, 11], [6, 12]]) ctx.fillRect(Math.round((c * TILE + dx - camX) * z), Math.round((r * TILE + dy - camY) * z), Math.ceil(z), Math.ceil(z));
@@ -916,7 +979,16 @@ function drawCrop(key, p, now) {
   const fw = 16, sw = Math.min(fw, sheet.width - frame * fw), h = sheet.height;
   const x = (c * TILE + (TILE - sw) / 2 - camX) * z, y = ((r + 1) * TILE - h - 2 - camY) * z;
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(sheet, frame * fw, 0, sw, h, x, y, sw * z, h * z);
+  const sway = cropSway.get(key);
+  if (sway && Math.abs(sway.a) > 0.005) {
+    // lean from the base: the top moves sideways by up to CROP_SWAY_PX, the roots stay put
+    const baseX = (c * TILE + TILE / 2 - camX) * z, baseY = ((r + 1) * TILE - 2 - camY) * z;
+    ctx.save();
+    ctx.translate(baseX, baseY);
+    ctx.transform(1, 0, -sway.a * CROP_SWAY_PX / h, 1, 0, 0);
+    ctx.drawImage(sheet, frame * fw, 0, sw, h, x - baseX, y - baseY, sw * z, h * z);
+    ctx.restore();
+  } else ctx.drawImage(sheet, frame * fw, 0, sw, h, x, y, sw * z, h * z);
   // thirsty: a water drop over a growing crop on dry soil, going from blue to
   // red as the dry clock runs out
   if (st === "growing" && !isPlotWet(p, now)) {

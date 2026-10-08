@@ -6984,3 +6984,15 @@ so it all but vanished. drawCharacterGlow() now adds it x CANDLE_NIGHT_BOOST
   farm took the touch, the later ghost mousedown is swallowed at the top of farmOnMouseDown()
   (farmTouchTookAt, 900 ms). Tested with real CDP touch events: hoe / plant / water / axe drags and taps.
   index.html -> ?v=20261079a.
+
+## Crops part as you walk through; seeds bounce in
+
+- js/farm.js updateCropSway() (every frame from updateFarm()): crops within 1.25 tiles sideways of the
+  feet (same row band) lean AWAY from the character — left of them to the left, right to the right, the
+  one underfoot the way they walk — on a damped spring (cropSway key -> {a, v}, CROP_SWAY_K 140,
+  CROP_SWAY_DAMP 5.5), so after you pass they spring back past upright and wobble to rest, each swing
+  smaller. drawCrop() skews the sprite from its base (top moves up to CROP_SWAY_PX world px).
+  Just-sown seeds don't sway.
+- Planting: each seed drops in and bounces to rest (seedBounces, SEED_BOUNCE_SEC 0.75 — hops of
+  |cos| x exp decay, squash on landing, a shadow, sinks into the soil), staggered 70 ms per tile in a
+  drag. index.html -> ?v=20261080a.
