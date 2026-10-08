@@ -6903,3 +6903,18 @@ kabilang town na").
   back up it in the morning. The maps (hud.js) only show the town's people in
   the town.
 - index.html -> ?v=20261071a (+ js/town2Map.data.js, js/towns.js).
+
+## Candle circles back at night
+
+Per report ("nawala yung mga circle light ng npc at character sa gabi"): the
+carried candle (player, Maria, townsfolk, shop keepers) went into the light
+buffer at ~0.23 strength; the night mask squares the lights (flushNightMask()),
+so it all but vanished. drawCharacterGlow() now adds it x CANDLE_NIGHT_BOOST
+(4.2, js/camera.js). Lamps unchanged. index.html -> ?v=20261072a.
+- Revised per feedback ("parang hindi ganyan yung dati na circle light"): the
+  boost is gone; carried candles no longer go into the night mask at all.
+  addCandleLight() draws them into their own half-res buffer
+  (candleLightCanvas, "lighter", x CANDLE_GLOW_BOOST 2) and flushCandleLights()
+  adds it over the scene right after the mask (flushSceneLights()) — the old
+  soft warm glow, just a bit stronger since the night under it is darker.
+  Lamps / wall candles still light through the mask. index.html -> ?v=20261073a.

@@ -259,6 +259,35 @@ const CANDLE_OPACITY = 0.6;
 // The candle's centre as it lands in the light buffer (first gradient
 // stop's colour x its alpha) — its brightest point, used as its cap.
 const CANDLE_PEAK_RGB = [217, 170, 111];
+// The carried candles (player, Maria, townsfolk, keepers) keep their old look —
+// a soft warm glow ADDED over the scene — in their own buffer (addCandleLight()),
+// added after the night mask (flushNightMask()) instead of going into it.
+const candleLightCanvas = document.createElement("canvas");
+const candleLightCtx = candleLightCanvas.getContext("2d");
+let candleLightsUsed = false;
+const CANDLE_GLOW_BOOST = 2;
+function addCandleLight(src, dx, dy, dw, dh, strength) {
+  if (!src || strength <= 0.005 || dw <= 0 || dh <= 0) return;
+  const S = SCENE_LIGHT_SCALE;
+  const W = Math.max(1, Math.ceil(view.width * S)), H = Math.max(1, Math.ceil(view.height * S));
+  if (candleLightCanvas.width !== W || candleLightCanvas.height !== H) { candleLightCanvas.width = W; candleLightCanvas.height = H; candleLightsUsed = false; }
+  if (!candleLightsUsed) { candleLightCtx.clearRect(0, 0, W, H); candleLightsUsed = true; }
+  candleLightCtx.globalCompositeOperation = "lighter";
+  candleLightCtx.globalAlpha = Math.min(1, strength * CANDLE_GLOW_BOOST); // the night is darker under the mask, so the glow is a bit stronger to read the same
+  candleLightCtx.drawImage(src, dx * S, dy * S, dw * S, dh * S);
+  candleLightCtx.globalAlpha = 1;
+  candleLightCtx.globalCompositeOperation = "source-over";
+}
+function flushCandleLights() {
+  if (!candleLightsUsed) return;
+  candleLightsUsed = false;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = SCENE_LIGHT_BRIGHTNESS;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(candleLightCanvas, 0, 0, candleLightCanvas.width / SCENE_LIGHT_SCALE, candleLightCanvas.height / SCENE_LIGHT_SCALE);
+  ctx.restore();
+}
 const CANDLE_GRADIENT_STOPS = [
   [0.00, "rgba(255,200,130,0.85)"],
   [0.25, "rgba(255,186,110,0.66)"],
@@ -623,7 +652,8 @@ function addSceneLight(src, dx, dy, dw, dh, strength, peakRGB, cutouts, cache) {
 
 // Adds the merged lights to the scene, once.
 function flushSceneLights() {
-  if (nightMulPending) { flushNightMask(); return; }
+  if (nightMulPending) { flushNightMask(); flushCandleLights(); return; }
+  flushCandleLights();
   if (!sceneLightsUsed) return;
   const W = sceneLightCanvas.width, H = sceneLightCanvas.height;
   // Phones: only the part of the buffer this frame's lights touched (+1px for
@@ -1142,7 +1172,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   const cached = candleCache.get(ckey);
   if (cached) {
     candleCache.delete(ckey); candleCache.set(ckey, cached); // most recently used
-    addSceneLight(cached, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
+    addCandleLight(cached, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
     return;
   }
   // Phones: someone ELSE walking (a townsperson, Maria) missed the cache
@@ -1156,7 +1186,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
       if (Math.abs(r.x - worldX) > 4 || Math.abs(r.y - worldY) > 4) continue;
       if (candleCache.get(r.key) !== r.canvas) continue; // its canvas was recycled meanwhile
       r.x = worldX; r.y = worldY;
-      addSceneLight(r.canvas, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
+      addCandleLight(r.canvas, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
       return;
     }
   }
@@ -1252,7 +1282,7 @@ function drawCharacterGlow(px, py, size, worldX, worldY) {
   //    night washes, where this candle used to land before them — so it's
   //    dimmed by hand to the same strength the washes used to leave it
   //    at (POST_GLOW_MATCH_CANDLE, the lamp's own figure for exactly this).
-  addSceneLight(glowCanvas, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
+  addCandleLight(glowCanvas, px - screenRadius, py - screenRadius, screenRadius * 2, screenRadius * 2, darkness * POST_GLOW_MATCH_CANDLE * CANDLE_OPACITY, CANDLE_PEAK_RGB, counterLightCutouts());
   // keep a copy for next frame (see the cache lookup above)
   // Performance: a walking character misses this cache every frame, so the
   // canvas the oldest entry was using is recycled instead of creating (and
