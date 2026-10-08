@@ -1301,7 +1301,10 @@ for (const [id, file] of [["farmHoe", "hoe"], ["farmCan", "wateringcan"],
   ["seedCarrots", "seed_carrots"], ["seedCabbage", "seed_cabbage"], ["seedOnion", "seed_onion"], ["seedPetchay", "seed_petchay"],
   ["seedBrocolli", "seed_brocolli"], ["seedBrocolliFlower", "seed_brocolli_flower"], ["seedDragonfruit", "seed_dragonfruit"],
   ["cropCarrots", "crop_carrots"], ["cropCabbage", "crop_cabbage"], ["cropOnion", "crop_onion"], ["cropPetchay", "crop_petchay"],
-  ["cropBrocolli", "crop_brocolli"], ["cropBrocolliFlower", "crop_brocolli_flower"], ["cropDragonfruit", "crop_dragonfruit"]]) {
+  ["cropBrocolli", "crop_brocolli"], ["cropBrocolliFlower", "crop_brocolli_flower"], ["cropDragonfruit", "crop_dragonfruit"],
+  // one loose seed each (tools/build_single_seeds.py) — what a harvest drops
+  ["seedOneCarrots", "seedone_carrots"], ["seedOneCabbage", "seedone_cabbage"], ["seedOneOnion", "seedone_onion"], ["seedOnePetchay", "seedone_petchay"],
+  ["seedOneBrocolli", "seedone_brocolli"], ["seedOneBrocolliFlower", "seedone_brocolli_flower"], ["seedOneDragonfruit", "seedone_dragonfruit"]]) {
   assets[id] = new Image(); assets[id].src = "assets/items/farm/" + file + ".png";
 }
 assets.waterCrateHorizontal.src = "assets/items/vegetables/waterboxh.png";

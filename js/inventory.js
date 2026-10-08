@@ -3720,12 +3720,27 @@ itemDefs.fishingRod = { id: "fishingRod", name: "Fishing Rod", icon: assets.fish
 for (const [id, name, food] of [["fishTilapia", "Tilapia", 8], ["fishBangus", "Bangus", 12], ["fishLapu", "Lapu-Lapu", 18], ["fishKoi", "Golden Koi", 30]]) {
   itemDefs[id] = { id, name, icon: assets[id], startCount: 0, fish: true, consumable: { food, healthPercent: Math.round(food / 2) } };
 }
+// What eating one harvested vegetable gives (food points, % of max health, % of max stamina) —
+// the dearer the crop, the more it fills you up.
+const CROP_EAT = {
+  carrots:         { food: 10, healthPercent: 5,  staminaPercent: 12 },
+  petchay:         { food: 8,  healthPercent: 6,  staminaPercent: 10 },
+  onion:           { food: 12, healthPercent: 6,  staminaPercent: 15 },
+  cabbage:         { food: 18, healthPercent: 10, staminaPercent: 15 },
+  brocolli:        { food: 18, healthPercent: 12, staminaPercent: 18 },
+  brocolli_flower: { food: 20, healthPercent: 14, staminaPercent: 20 },
+  dragonfruit:     { food: 28, healthPercent: 20, staminaPercent: 30 },
+};
 itemDefs.farmCan = { id: "farmCan", name: "Watering Can", icon: assets.farmCan, unlimited: true, equipSlot: "weapon", weapon: { attackAnim: "watering" } };
 for (const [key, veg, label] of [["Carrots", "carrots", "Carrot"], ["Cabbage", "cabbage", "Cabbage"], ["Onion", "onion", "Onion"],
   ["Petchay", "petchay", "Petchay"], ["Brocolli", "brocolli", "Broccoli"], ["BrocolliFlower", "brocolli_flower", "Broccoli Flower"],
   ["Dragonfruit", "dragonfruit", "Dragonfruit"]]) {
   itemDefs["seed" + key] = { id: "seed" + key, name: label + " Seeds", icon: assets["seed" + key], startCount: 0, seedOf: veg };
-  itemDefs["crop" + key] = { id: "crop" + key, name: label + " (Crop)", icon: assets["crop" + key], startCount: 0, cropOf: veg, flat: true };
+  itemDefs["crop" + key] = { id: "crop" + key, name: label + " (Crop)", icon: assets["crop" + key], startCount: 0, cropOf: veg, flat: true,
+    consumable: CROP_EAT[veg] }; // per request: a harvested vegetable can be eaten — food, health and stamina
+  // per request ("yung seeds nun na drop ... isang seed yun dapat ang na drop di yung nasa sachet"): a harvest drops
+  // loose seeds (one-seed picture), planted exactly like the sachet seeds from the grocery
+  itemDefs["seedOne" + key] = { id: "seedOne" + key, name: label + " Seed", icon: assets["seedOne" + key], startCount: 0, seedOf: veg };
 }
 // Mountain, split in two easy slots (js/autotile.js lays the real tiles):
 // "Mountain" = the plateau, "Mountain Wall" = a cliff wall under it. Click

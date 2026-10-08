@@ -37,7 +37,8 @@ function skillLevel(id) { return Math.max(1, Math.min(SKILL_MAX, skillLevels()[i
 function skillStats(id, L) {
   L = L || skillLevel(id);
   const n = L - 1;
-  if (id === "slash") return { mult: 2.2 + 0.18 * n, range: 3 + 0.1 * n, cd: Math.round((4 - 0.1 * n) * 10) / 10 };
+  // Per request ("medyo layuan pa yung sakop na tiles ng slash"): reach 3 -> 4.5 tiles (+0.15 a level)
+  if (id === "slash") return { mult: 2.2 + 0.18 * n, range: 4.5 + 0.15 * n, cd: Math.round((4 - 0.1 * n) * 10) / 10 };
   if (id === "stun") return { mult: 0.9 + 0.1 * n, radius: 2.5 + 0.1 * n, dur: Math.round((3 + 0.15 * n) * 100) / 100, bossDur: Math.round((1.5 + 0.06 * n) * 100) / 100, cd: Math.round((8 - 0.25 * n) * 100) / 100 };
   return { dist: 4 + 0.25 * n, cd: Math.round((6 - 0.25 * n) * 100) / 100 };
 }
@@ -137,6 +138,7 @@ function mobAlive(m, st) { return !!(m && m.state !== "dead" && !m.gone && (!st 
    skill counts as the second click: afterwards you keep attacking that mob. */
 let skillAiming = null;        // skill id waiting for a mob click
 let skillPending = null;       // { id, m } walking into range
+const SKILL_SEEK_RANGE = 7 * TILE; // phone: how far a skill looks for a mob by itself
 function skillReach(id) { return id === "slash" ? skillStats("slash").range * TILE * 0.8 : 3.5 * TILE; }
 function requestSkill(id) {
   const S = SKILLS[id];
@@ -146,7 +148,14 @@ function requestSkill(id) {
   if (id === "teleport") { if (castTeleport()) spendSkill(id); return; }
   const z = mobZoneState();
   if (!z) { skillToast(S.name + " — only usable against mobs"); return; }
-  const m = mobAlive(player.selectedMob, z.st) ? player.selectedMob : mobAlive(player.autoTarget, z.st) ? player.autoTarget : null;
+  let m = mobAlive(player.selectedMob, z.st) ? player.selectedMob : mobAlive(player.autoTarget, z.st) ? player.autoTarget : null;
+  // Per request ("kahit yung sa skills niya pag click highlight at lalapit sa mobs tyaka gagana yung
+  // skills"): on a phone there's no aiming click — the skill picks the nearest / weakest mob itself
+  // (same rule as the ATTACK button, js/combat.js pickMobileTarget()), highlights it, walks up, fires.
+  if (!m && isMobileMode() && typeof pickMobileTarget === "function") {
+    m = pickMobileTarget(SKILL_SEEK_RANGE);
+    if (!m) { skillToast(S.name + " — no enemy nearby"); return; }
+  }
   if (m) { beginSkillOn(id, m); return; }
   setAiming(id);
 }
@@ -236,10 +245,10 @@ function castSlash(st, target) {
     const vx = m.x - f.x, vy = m.y - f.y, d = Math.hypot(vx, vy);
     if (d > R + m.def.r) return false;
     if (d < 14) return true;
-    return (vx * dx + vy * dy) / d > 0.35; // inside the front arc
+    return (vx * dx + vy * dy) / d > 0.05; // inside the front arc (a wide half-circle in front)
   });
   skillSwing("sweep");
-  skillFx.push({ kind: "wave", x: f.x, y: f.y - 8, dx, dy, t0: skillNow() });
+  skillFx.push({ kind: "wave", x: f.x, y: f.y - 8, dx, dy, range: R, t0: skillNow() });
   setTimeout(() => {
     for (const m of hits) { if (m.state === "dead") continue; const h = skillDamage(SS.mult, m); landMineHit(st, m, h.dmg, h.crit, false, f.x, f.y); }
   }, 90);
@@ -511,9 +520,12 @@ window.addEventListener("keydown", (e) => {
   const drawBase = drawMob;
   drawMob = function (m) {
     const sel = player.selectedMob === m && player.autoTarget !== m && m.state !== "dead" && !m.gone;
-    if (sel) drawSelectRing(m);
+    // phone: the mob the ATTACK button / a skill picked is highlighted the whole time (outline + arrow)
+    const mobTgt = isMobileMode() && m.state !== "dead" && !m.gone && !sel &&
+      (player.autoTarget === m || (skillPending && skillPending.m === m));
+    if (sel || mobTgt) drawSelectRing(m);
     const hov = player.hoverMob;
-    if (sel) player.hoverMob = m; // the selected mob keeps its outline
+    if (sel || mobTgt) player.hoverMob = m; // the selected mob keeps its outline
     // stunned: it sways, dazed
     const stunned = m.stunUntil && m.stunUntil > skillNow() && m.state !== "dead" && !m.gone;
     const wob = stunned ? Math.sin(skillNow() * 11) * 0.9 : 0;
@@ -523,6 +535,7 @@ window.addEventListener("keydown", (e) => {
     player.hoverMob = hov;
     if (m.stunUntil && m.stunUntil > skillNow() && m.state !== "dead" && !m.gone) drawStunStars(m);
     if (sel) drawSelectMarker(m);
+    else if (mobTgt) drawSelectMarker(m, "");
     return r;
   };
 }
@@ -535,7 +548,7 @@ function drawSelectRing(m) {
   ctx.beginPath(); ctx.ellipse(px, py, r, r * 0.42, 0, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
 }
-function drawSelectMarker(m) {
+function drawSelectMarker(m, hintText) {
   const t = skillNow(), top = typeof mobTopY === "function" ? mobTopY(m) : m.y - 20;
   const px = (m.x - camX) * zoom, py = (top - 9 - camY) * zoom - Math.abs(Math.sin(t * 5)) * 2 * zoom;
   ctx.save();
@@ -543,11 +556,13 @@ function drawSelectMarker(m) {
   ctx.beginPath(); ctx.moveTo(px - 2.6 * zoom, py - 3 * zoom); ctx.lineTo(px + 2.6 * zoom, py - 3 * zoom); ctx.lineTo(px, py); ctx.closePath(); ctx.fill(); ctx.stroke();
   const fs = Math.max(9, Math.round(3.8 * zoom));
   ctx.font = "bold " + fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-  const label = "Lv " + m.level + " " + m.def.name, hint = "Click again to attack";
+  const label = "Lv " + m.level + " " + m.def.name, hint = hintText === undefined ? "Click again to attack" : hintText;
   ctx.lineWidth = Math.max(2, fs / 4); ctx.strokeStyle = "rgba(0,0,0,0.85)";
   ctx.strokeText(label, px, py - 4 * zoom); ctx.fillStyle = "#ffe6a8"; ctx.fillText(label, px, py - 4 * zoom);
-  ctx.font = Math.max(8, Math.round(3 * zoom)) + "px sans-serif";
-  ctx.strokeText(hint, px, py - 4 * zoom - fs); ctx.fillStyle = "#cfe6ff"; ctx.fillText(hint, px, py - 4 * zoom - fs);
+  if (hint) {
+    ctx.font = Math.max(8, Math.round(3 * zoom)) + "px sans-serif";
+    ctx.strokeText(hint, px, py - 4 * zoom - fs); ctx.fillStyle = "#cfe6ff"; ctx.fillText(hint, px, py - 4 * zoom - fs);
+  }
   ctx.restore();
 }
 // a selection that died or was left behind is cleared
@@ -601,18 +616,21 @@ function drawSkillFx() {
     ctx.save();
     if (f.kind === "wave") {
       // a big crescent rushing forward
-      const dist = 6 + k * 3 * TILE, ang = Math.atan2(f.dy, f.dx);
+      // Per request ("yung animation nun is medyo dagdagan pa ng opacity to 100%"): fully opaque,
+      // only fading out at the very end; it travels the skill's whole reach and is a bit bigger.
+      const reach = f.range || 4.5 * TILE;
+      const dist = 6 + k * (reach - 6), ang = Math.atan2(f.dy, f.dx);
       const x = (f.x + f.dx * dist - camX) * zoom, y = (f.y + f.dy * dist - camY) * zoom;
-      const R = (14 + k * 10) * zoom;
+      const R = (18 + k * 14) * zoom;
       const [cr, cg, cb] = typeof swordTrailColor === "function" ? swordTrailColor() : [220, 235, 255];
       ctx.translate(x, y); ctx.rotate(ang);
-      ctx.globalAlpha = 1 - k;
+      ctx.globalAlpha = k < 0.75 ? 1 : Math.max(0, (1 - k) / 0.25);
       const g = ctx.createRadialGradient(-R * 0.6, 0, R * 0.2, -R * 0.6, 0, R * 1.2);
-      g.addColorStop(0, "rgba(" + cr + "," + cg + "," + cb + ",0)"); g.addColorStop(0.65, "rgba(" + cr + "," + cg + "," + cb + ",0.65)"); g.addColorStop(1, "rgba(255,255,255,0.95)");
+      g.addColorStop(0, "rgba(" + cr + "," + cg + "," + cb + ",0.35)"); g.addColorStop(0.55, "rgba(" + cr + "," + cg + "," + cb + ",1)"); g.addColorStop(1, "rgba(255,255,255,1)");
       ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(-R * 0.6, 0, R, -1.15, 1.15); ctx.arc(-R * 0.95, 0, R * 0.92, 1.05, -1.05, true); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255," + (0.9 * (1 - k)) + ")"; ctx.lineWidth = Math.max(1, zoom * 0.8);
-      ctx.beginPath(); ctx.arc(-R * 0.6, 0, R, -1.05, 1.05); ctx.stroke();
+      ctx.beginPath(); ctx.arc(-R * 0.6, 0, R, -1.25, 1.25); ctx.arc(-R * 0.95, 0, R * 0.92, 1.15, -1.15, true); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,1)"; ctx.lineWidth = Math.max(1.5, zoom * 1.1);
+      ctx.beginPath(); ctx.arc(-R * 0.6, 0, R, -1.15, 1.15); ctx.stroke();
     } else if (f.kind === "bolt") {
       const tx = f.m.x, ty = (typeof mobTopY === "function" ? (mobTopY(f.m) + f.m.y) / 2 : f.m.y - 8);
       const e = Math.min(1, k * 1.4);

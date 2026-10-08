@@ -277,23 +277,41 @@ drawSwordSwing = function (screenX, screenY, z) {
 /* Per request ("yung sa atk na espada na button kahit 4 tiles na pala ang sakop na range malapitan niya
    yung mobs at espadahin"): F / ATTACK with no mob in reach but one within 4 tiles — the character runs
    up to it and attacks (the same as clicking it twice: player.autoTarget, js/gear.js autoAttackTick()). */
-const ATTACK_SEEK_RANGE = 4 * TILE;
+/* Per request ("sa mobile version kapag click ng hit button kung anong mas malapit na mobs or low
+   health yun yung ihihit niya mag highlight na yung mobs"): on a phone the ATTACK button picks its
+   target first — the nearest mob, with a weakened one (low health) preferred when it's about as
+   close — highlights it (outline + arrow, js/skills.js drawMob wrapper), runs up to it and keeps
+   attacking (player.autoTarget, js/gear.js autoAttackTick()). Movement cancels, as before. */
+const ATTACK_SEEK_RANGE = 5 * TILE;
+// lower = better: 1 point per tile away, up to 2.5 points for a mob at full health
+function mobileTargetScore(m, d) {
+  const hp = m.maxHp ? Math.max(0, Math.min(1, m.hp / m.maxHp)) : 1;
+  return d / TILE + hp * 2.5;
+}
+function pickMobileTarget(range) {
+  const zone = typeof currentMineRoom === "function" ? currentMineRoom() : null;
+  const st = zone && mineStates[mobZoneKey()];
+  if (!st) return null;
+  const fx = player.x, fy = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+  let best = null, bs = 1e9;
+  for (const m of st.mobs) {
+    if (m.state === "dead" || m.gone) continue;
+    const d = Math.max(0, Math.hypot(m.x - fx, m.y - fy) - m.def.r * 0.5);
+    if (d > range) continue;
+    const s = mobileTargetScore(m, d);
+    if (s < bs) { bs = s; best = m; }
+  }
+  return best;
+}
 {
   const base = mineIndoorUpdate;
   mineIndoorUpdate = function (dt) {
-    if (isMobileMode() && harvestRequested && !player.autoTarget && !player.action && !player.mineSwing && !player.skillAnim &&
+    const tgt = player.autoTarget;
+    const tgtAlive = tgt && tgt.state !== "dead" && !tgt.gone;
+    if (isMobileMode() && harvestRequested && !tgtAlive && !player.action && !player.mineSwing && !player.skillAnim &&
         !(typeof isRoomTool === "function" && isRoomTool(player.equippedWeapon)) && player.equippedWeapon !== "fishingRod") {
-      const zone = currentMineRoom(), st = zone && mineStates[mobZoneKey()];
-      if (st && !autoAimMob()) {
-        const fx = player.x, fy = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
-        let best = null, bd = 1e9;
-        for (const m of st.mobs) {
-          if (m.state === "dead" || m.gone) continue;
-          const d = Math.hypot(m.x - fx, m.y - fy) - m.def.r * 0.5;
-          if (d <= ATTACK_SEEK_RANGE && d < bd) { bd = d; best = m; }
-        }
-        if (best) { harvestRequested = false; player.autoTarget = best; player.selectedMob = best; }
-      }
+      const best = pickMobileTarget(ATTACK_SEEK_RANGE);
+      if (best) { harvestRequested = false; player.autoTarget = best; player.selectedMob = best; }
     }
     return base.apply(this, arguments);
   };

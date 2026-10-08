@@ -153,6 +153,7 @@ function startFarmAction(kind, anim, col, row) {
 function farmTryToolAction(tile) {
   if (player.scene !== "outside" || heldItem || player.grabbedType) return false;
   const tool = player.equippedWeapon;
+  if (AXE_HARVEST_TOOLS.includes(tool)) return farmTryAxeHarvest(tile);
   if (tool !== "farmHoe" && tool !== "farmCan") return false;
   const t = tile || getTileInFrontOfPlayer();
   if (tool === "farmHoe") {
@@ -172,47 +173,219 @@ function farmTryToolAction(tile) {
   return true;
 }
 
+/* Per request ("yung sa pag alis ng mga bulok o pag harvest kapag goods na yung vegetables is kahit axe
+   na gamit para mag harvest 3 tiles simula sa gitna niya left at right"): with the Axe equipped, F (or a
+   click on a crop) swings the axe across 3 tiles — the tile in front and the one on each side of it
+   (across the way you face) — harvesting every ripe crop there and clearing rotten / dried ones.
+   With no crop on those tiles the axe chops trees as before. */
+const AXE_HARVEST_TOOLS = ["woodAxe"];
+function axeSweepTiles(center) {
+  const across = player.facing === "left" || player.facing === "right";
+  return [-1, 0, 1].map((d) => across ? { col: center.col, row: center.row + d } : { col: center.col + d, row: center.row });
+}
+function farmTryAxeHarvest(tile) {
+  const center = tile || getTileInFrontOfPlayer();
+  if (tile) faceTile(tile.col, tile.row);
+  const tiles = axeSweepTiles(center);
+  if (!tiles.some((t) => isHarvestable(t.col, t.row))) return false; // nothing to harvest: the axe chops trees
+  startFarmAction("axeHarvest", "slice", center.col, center.row);
+  player.farmAction.tiles = tiles;
+  return true;
+}
+
+/* Press - drag - release, for every farm job (per requests "yung pag dilig ... diinan at i drag 1-3 tile",
+   "pag harvest is pagka click diin tapos kapag release ... tyaka lang gagana", "pag tanim ng seeds diin at
+   ilapat sa ilang tiles", "pag hoe 1-3"):
+     water (Watering Can), till (Hoe), plant (holding seeds): press on a tile and drag any way — a
+       rectangle up to FARM_DRAG_MAX (3) tiles a side (1-9 tiles) lights up — let go and it's done to all
+       of them in one go.
+     axe: press on a crop — its 3-tile sweep lights up; drag and it becomes a rectangle like the others —
+       the swing happens when you let go.
+   Nothing happens on the press itself; moving the drag back onto the first tile makes it one tile again.
+   F still works on the tile in front, straight away. */
+const FARM_DRAG_MAX = 3;
+const WATER_DRAG_MAX = FARM_DRAG_MAX;
+/* Per request ("isama mo vertical ... parang sa pag expand ng room yung room hammer"): the drag is a
+   rectangle now, like the Room Hammer's — from the pressed tile toward wherever you drag, up to
+   FARM_DRAG_MAX (3) tiles each way: 1-3, 4-6 or up to 9 tiles in one go. */
+let farmDrag = null; // { kind, col, row, endCol, endRow, world, tiles? (the axe's sweep before it's dragged) }
+function farmDragTiles() {
+  const d = farmDrag;
+  if (!d) return [];
+  if (d.tiles && d.endCol === d.col && d.endRow === d.row) return d.tiles; // axe, not dragged: its 3-tile sweep
+  const c0 = Math.min(d.col, d.endCol), c1 = Math.max(d.col, d.endCol);
+  const r0 = Math.min(d.row, d.endRow), r1 = Math.max(d.row, d.endRow);
+  const out = [];
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) out.push({ col: c, row: r });
+  return out;
+}
+function farmDragTileOk(kind, c, r) {
+  if (kind === "water") return !!plotAt(c, r);
+  if (kind === "till") return isTillable(c, r);
+  if (kind === "plant") return isPlantable(c, r);
+  return isHarvestable(c, r);
+}
+function beginFarmDrag(kind, col, row, tiles) { farmDrag = { kind, col, row, endCol: col, endRow: row, world: currentWorld, tiles: tiles || null }; }
+function moveFarmDrag(clientX, clientY) {
+  if (!farmDrag) return;
+  const t = screenToTile(clientX, clientY), M = FARM_DRAG_MAX - 1;
+  farmDrag.endCol = Math.max(farmDrag.col - M, Math.min(farmDrag.col + M, t.col));
+  farmDrag.endRow = Math.max(farmDrag.row - M, Math.min(farmDrag.row + M, t.row));
+}
+function endFarmDrag() {
+  if (!farmDrag) return;
+  const d = farmDrag, all = farmDragTiles();
+  farmDrag = null;
+  if (d.world !== currentWorld || player.scene !== "outside" || player.action) return;
+  const tiles = all.filter((t) => farmDragTileOk(d.kind, t.col, t.row));
+  const mid = all[Math.floor((all.length - 1) / 2)] || d; // the swing faces the middle of the area
+  if (d.kind === "water") {
+    if (player.equippedWeapon !== "farmCan") return;
+    if (!tiles.length) { farmToast("Water tilled soil (Dirt Rake)"); return; }
+    startFarmAction("water", "watering", mid.col, mid.row);
+    player.farmAction.tiles = tiles;
+  } else if (d.kind === "till") {
+    if (player.equippedWeapon !== "farmHoe") return;
+    if (!tiles.length) { farmToast("The ground here can't be tilled"); return; }
+    startFarmAction("till", "crush", mid.col, mid.row);
+    player.farmAction.tiles = tiles;
+  } else if (d.kind === "plant") {
+    plantSeedsOn(tiles);
+  } else if (d.kind === "axe") {
+    if (!AXE_HARVEST_TOOLS.includes(player.equippedWeapon) || !tiles.length) return;
+    startFarmAction("axeHarvest", "slice", mid.col, mid.row);
+    player.farmAction.tiles = all;
+  }
+}
+// Seeds go in one per tile, as long as the held stack lasts.
+function plantSeedsOn(tiles) {
+  if (!heldItem || !itemDefs[heldItem.type] || !itemDefs[heldItem.type].seedOf) return;
+  const veg = itemDefs[heldItem.type].seedOf;
+  let n = 0;
+  for (const t of tiles) {
+    if (!heldItem) break;
+    const slot = inventory[heldItem.fromSlot];
+    if (!slot || slot.count <= 0) break;
+    const plot = plotAt(t.col, t.row);
+    if (!plot || plot.crop) continue;
+    plot.crop = { veg, growth: 0, lastT: farmNow(), ripeAt: null };
+    plot.emptySince = null;
+    farmTileFx("plant", t.col, t.row);
+    commitPlacementUse(heldItem.fromSlot); // takes one seed, saves
+    n++;
+  }
+  if (n) { faceTile(tiles[0].col, tiles[0].row); }
+  else farmToast("Plant seeds in empty tilled soil (Dirt Rake)");
+}
+window.addEventListener("pointermove", (e) => moveFarmDrag(e.clientX, e.clientY), true);
+window.addEventListener("mousemove", (e) => moveFarmDrag(e.clientX, e.clientY), true);
+window.addEventListener("touchmove", (e) => { if (farmDrag && e.touches[0]) moveFarmDrag(e.touches[0].clientX, e.touches[0].clientY); }, { capture: true, passive: true });
+window.addEventListener("pointerup", endFarmDrag, true);
+window.addEventListener("mouseup", endFarmDrag, true);
+window.addEventListener("touchend", endFarmDrag, true);
+window.addEventListener("pointercancel", () => { farmDrag = null; }, true);
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") farmDrag = null; });
+
+/* Little bursts when a tile is worked (js/plantfx.js leafFlecks, drawn with the other leaves):
+   harvest = leaves + soil thrown up; a rotten / dried crop = brown, withered bits; planting = a puff of
+   soil; tilling = clods. */
+const FARM_FX_COLORS = {
+  leaf: ["#6cbf3e", "#3f8a2a"], rotten: ["#8a7436", "#5a4424"], soil: ["#8a5a34", "#5e3b20", "#b07a48"],
+};
+function farmTileFx(kind, col, row) {
+  if (typeof leafFlecks === "undefined") return;
+  const cx = (col + 0.5) * TILE, cy = (row + 0.5) * TILE + 2;
+  const soil = (n, up) => {
+    for (let i = 0; i < n; i++) leafFlecks.push({
+      x: cx + (Math.random() - 0.5) * 8, y: cy + (Math.random() - 0.5) * 4,
+      vx: (Math.random() - 0.5) * 36, vy: -up - Math.random() * up, t: 0, life: 0.35 + Math.random() * 0.3,
+      color: FARM_FX_COLORS.soil[Math.floor(Math.random() * 3)],
+    });
+  };
+  const leaves = (n, cols) => {
+    for (let i = 0; i < n; i++) leafFlecks.push({
+      x: cx + (Math.random() - 0.5) * 10, y: cy - 4 - Math.random() * 6,
+      vx: (Math.random() - 0.5) * 34, vy: -14 - Math.random() * 16,
+      t: 0, life: 0.7 + Math.random() * 0.5, color: cols[i % 2], cols, sprite: true,
+      ...(typeof newLeafAnim === "function" ? newLeafAnim() : { frame: 0, frameT: 0, fps: 10 }),
+    });
+  };
+  if (kind === "harvest") { leaves(7, FARM_FX_COLORS.leaf); soil(6, 16); }
+  else if (kind === "rotten") { leaves(6, FARM_FX_COLORS.rotten); soil(5, 12); }
+  else if (kind === "plant") soil(6, 10);
+  else if (kind === "till") soil(9, 18);
+  if (typeof capLeafFlecks === "function") capLeafFlecks();
+}
+
 function farmResolveAction(fa) {
   if (fa.world !== currentWorld || player.scene !== "outside") return;
   const { col, row } = fa;
   const k = fkey(col, row);
   const now = farmNow();
   if (fa.kind === "till") {
-    if (!isTillable(col, row)) return;
-    // remember what the ground was, so an unused hole can grow back
-    const orig = { fill: typeof isGroundFilled === "function" && isGroundFilled(col, row), ground: groundLayer.get(k) || null };
-    if (typeof setGroundFill === "function") setGroundFill(col, row, false);
-    if (/^(grass|terrainGrass)/.test(groundLayer.get(k) || "")) groundLayer.delete(k);
-    dirtLayer.set(k, "dirtRake");
-    farmWorld().plots.set(k, { wetUntil: 0, crop: null, orig, emptySince: now });
-    saveGame();
-  } else if (fa.kind === "water") {
-    const p = plotAt(col, row);
-    if (!p) return;
-    if (p.crop) { advancePlot(p, now); if (!p.crop.dead) p.crop.dry = 0; } // every watering: dry clock back to 0
-    p.wetUntil = now + FARM_WET_HOURS * 3600;
-    saveGame();
-  } else if (fa.kind === "harvest") {
-    const p = plotAt(col, row);
-    if (!p || !p.crop) return;
-    const st = cropState(p, now);
-    if (st === "growing") return;
-    const info = FARM_CROPS[p.crop.veg];
-    p.crop = null;
-    p.emptySince = now; // an empty hole grows back over after a while (farmRegrowEmptyPlots())
-    if (st === "ripe") {
-      const n = info.yield[0] + Math.floor(Math.random() * (info.yield[1] - info.yield[0] + 1));
-      grantItem(info.crop, n);
-      spawnFloatingPickups((col + 0.5) * TILE, (row + 0.5) * TILE, info.crop, n);
-      // per request: its seeds drop too — 2 seeds 60%, 1 seed 25%, 3 seeds 15%
-      const roll = Math.random(), seeds = roll < 0.6 ? 2 : roll < 0.85 ? 1 : 3;
-      grantItem(info.seed, seeds);
-      spawnFloatingPickups((col + 0.5) * TILE, (row + 0.5) * TILE - 4, info.seed, seeds);
-    } else {
-      farmToast(st === "dead" ? "The crop dried up — nothing to harvest" : "It rotted — nothing to harvest");
+    let any = false;
+    for (const t of fa.tiles || [{ col, row }]) {
+      if (!isTillable(t.col, t.row)) continue;
+      const tk = fkey(t.col, t.row);
+      // remember what the ground was, so an unused hole can grow back
+      const orig = { fill: typeof isGroundFilled === "function" && isGroundFilled(t.col, t.row), ground: groundLayer.get(tk) || null };
+      if (typeof setGroundFill === "function") setGroundFill(t.col, t.row, false);
+      if (/^(grass|terrainGrass)/.test(groundLayer.get(tk) || "")) groundLayer.delete(tk);
+      dirtLayer.set(tk, "dirtRake");
+      farmWorld().plots.set(tk, { wetUntil: 0, crop: null, orig, emptySince: now });
+      farmTileFx("till", t.col, t.row);
+      any = true;
     }
+    if (any) saveGame();
+  } else if (fa.kind === "water") {
+    // one tile (F / a click) or the 1-3 tiles of a drag (beginFarmDrag())
+    let any = false;
+    for (const t of fa.tiles || [{ col, row }]) {
+      const p = plotAt(t.col, t.row);
+      if (!p) continue;
+      if (p.crop) { advancePlot(p, now); if (!p.crop.dead) p.crop.dry = 0; } // every watering: dry clock back to 0
+      p.wetUntil = now + FARM_WET_HOURS * 3600;
+      any = true;
+    }
+    if (any) saveGame();
+  } else if (fa.kind === "harvest") {
+    harvestPlot(col, row, now, false);
+    saveGame();
+  } else if (fa.kind === "axeHarvest") {
+    // the axe sweep: every ripe / rotten / dried crop on the 3 tiles is cleared at once
+    let got = 0, junk = 0;
+    for (const t of fa.tiles || [{ col, row }]) {
+      const r = harvestPlot(t.col, t.row, now, true);
+      if (r === "ripe") got++; else if (r) junk++;
+    }
+    if (!got && junk) farmToast(junk === 1 ? "Cleared a spoiled crop" : "Cleared " + junk + " spoiled crops");
     saveGame();
   }
+}
+// One plot's harvest: a ripe crop pops out with its loose seeds; a rotten / dried one just goes.
+// Returns the crop's state ("ripe" / "rotten" / "dead") or null when there was nothing to take.
+function harvestPlot(col, row, now, quiet) {
+  const p = plotAt(col, row);
+  if (!p || !p.crop) return null;
+  const st = cropState(p, now);
+  if (st === "growing") return null;
+  const info = FARM_CROPS[p.crop.veg];
+  p.crop = null;
+  p.emptySince = now; // an empty hole grows back over after a while (farmRegrowEmptyPlots())
+  farmTileFx(st === "ripe" ? "harvest" : "rotten", col, row);
+  if (st === "ripe") {
+    const n = info.yield[0] + Math.floor(Math.random() * (info.yield[1] - info.yield[0] + 1));
+    grantItem(info.crop, n);
+    spawnFloatingPickups((col + 0.5) * TILE, (row + 0.5) * TILE, info.crop, n);
+    // per request: its seeds drop too — 2 seeds 60%, 1 seed 25%, 3 seeds 15%
+    const roll = Math.random(), seeds = roll < 0.6 ? 2 : roll < 0.85 ? 1 : 3;
+    const looseSeed = itemDefs["seedOne" + info.seed.slice(4)] ? "seedOne" + info.seed.slice(4) : info.seed; // a loose seed, not a sachet
+    grantItem(looseSeed, seeds);
+    spawnFloatingPickups((col + 0.5) * TILE, (row + 0.5) * TILE - 4, looseSeed, seeds);
+  } else if (!quiet) {
+    farmToast(st === "dead" ? "The crop dried up — nothing to harvest" : "It rotted — nothing to harvest");
+  }
+  return st;
 }
 
 // placeHeldItemAt() (js/inventory.js) hands seeds and crops here first.
@@ -803,6 +976,26 @@ function drawFarmHighlights() {
       strokeTile(c, r, mouseIn && mouse.col === c && mouse.row === r);
     }
   }
+  // a drag in progress: the tiles it will work on (white; red = can't)
+  if (farmDrag && farmDrag.world === currentWorld) {
+    // per request: white like the Room Hammer's highlight (red where it can't be done)
+    for (const t of farmDragTiles()) {
+      const sz = TILE * zoom, x = Math.round((t.col * TILE - camX) * zoom), y = Math.round((t.row * TILE - camY) * zoom);
+      const ok = farmDragTileOk(farmDrag.kind, t.col, t.row);
+      ctx.fillStyle = ok ? "rgba(255,255,255,0.22)" : "rgba(220,40,40,0.25)";
+      ctx.fillRect(x, y, sz, sz);
+      ctx.strokeStyle = ok ? "rgba(255,255,255,0.95)" : "rgba(220,40,40,0.95)"; ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y + 1, sz - 2, sz - 2);
+    }
+  }
+  // the axe: the 3 tiles one swing would harvest, round the crop under the cursor
+  if (empty && AXE_HARVEST_TOOLS.includes(tool) && mouseIn && isHarvestable(mouse.col, mouse.row)) {
+    const keep = player.facing;
+    faceTile(mouse.col, mouse.row);
+    const tiles = axeSweepTiles(mouse);
+    player.facing = keep;
+    for (const t of tiles) if (isHarvestable(t.col, t.row)) strokeTile(t.col, t.row, true);
+  }
   // how full the sacks nearby are: a small badge "count/20" with a fill bar
   ctx.textAlign = "center";
   ctx.font = "bold " + Math.max(10, Math.round(2.9 * zoom)) + "px sans-serif";
@@ -827,6 +1020,8 @@ function drawFarmHighlights() {
 
 /* ---------------- clicks ---------------- */
 function farmOnMouseDown(e) {
+  // the "ghost" mousedown a phone sends after a touch the farm already took (see the pointerdown below)
+  if (e.type === "mousedown" && performance.now() - farmTouchTookAt < 900) { e.stopImmediatePropagation(); e.preventDefault(); return; }
   if (e.button !== 0) return;
   // the grocery keeper: click to shop
   if (player.scene === "inside" && typeof isInGrocery === "function" && isInGrocery() && !heldItem && !player.grabbedType) {
@@ -836,8 +1031,16 @@ function farmOnMouseDown(e) {
     if (Math.abs(x - k.fx) < 10 && y > k.fy - 34 && y < k.fy + 4) { e.stopImmediatePropagation(); openGroceryShop(); }
     return;
   }
-  if (player.scene !== "outside" || player.sitting || player.action || heldItem || player.grabbedType) return;
+  if (player.scene !== "outside" || player.sitting || player.action || player.grabbedType) return;
   const { col, row } = screenToTile(e.clientX, e.clientY);
+  // holding seeds: press on empty tilled soil and drag to plant 1-3 in a row (on release)
+  if (heldItem) {
+    const sd = itemDefs[heldItem.type];
+    if (!sd || !sd.seedOf) return;
+    const rch = Math.max(Math.abs(col - getPlayerTile().col), Math.abs(row - getPlayerTile().row));
+    if (rch <= FARM_RANGE && isPlantable(col, row)) { e.stopImmediatePropagation(); e.preventDefault(); beginFarmDrag("plant", col, row); }
+    return;
+  }
   const handled = () => { e.stopImmediatePropagation(); e.preventDefault(); };
   const reach = Math.max(Math.abs(col - getPlayerTile().col), Math.abs(row - getPlayerTile().row));
   if (/^plotSocket/.test(upperLayer.get(fkey(col, row)) || "")) {
@@ -846,13 +1049,42 @@ function farmOnMouseDown(e) {
     return;
   }
   if (reach <= FARM_RANGE && isHarvestable(col, row)) {
-    handled(); startFarmAction("harvest", "collect", col, row); return;
+    handled();
+    if (AXE_HARVEST_TOOLS.includes(player.equippedWeapon)) { // the axe sweeps 3 tiles — on release
+      const keep = player.facing; faceTile(col, row);
+      const sweep = axeSweepTiles({ col, row });
+      player.facing = keep;
+      beginFarmDrag("axe", col, row, sweep);
+    } else startFarmAction("harvest", "collect", col, row);
+    return;
+  }
+  if (player.equippedWeapon === "farmCan" && reach <= FARM_RANGE && plotAt(col, row)) {
+    handled(); beginFarmDrag("water", col, row); return; // press, drag left / right, let go (endFarmDrag())
+  }
+  if (player.equippedWeapon === "farmHoe" && reach <= FARM_RANGE && isTillable(col, row)) {
+    handled(); beginFarmDrag("till", col, row); return;
   }
   if ((player.equippedWeapon === "farmHoe" || player.equippedWeapon === "farmCan") && reach <= FARM_RANGE) {
     if (farmTryToolAction({ col, row })) handled();
   }
 }
 view.addEventListener("mousedown", farmOnMouseDown, true);
+/* Phones: a finger only produces a "mousedown" AFTER it's lifted (and never while it moves), so a drag
+   could never happen there. The finger's own pointerdown goes through the same farmOnMouseDown(); the
+   drag then follows pointermove and ends on pointerup (endFarmDrag()). When the farm took the touch, the
+   late "ghost" mousedown that follows is swallowed, so it can't also plant / place / sit. */
+let farmTouchTookAt = -1e9;
+view.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "mouse") return;
+  let took = false;
+  const fake = {
+    button: 0, clientX: e.clientX, clientY: e.clientY, target: e.target,
+    stopImmediatePropagation() { took = true; }, stopPropagation() { took = true; }, preventDefault() {},
+  };
+  farmOnMouseDown(fake);
+  if (took) { farmTouchTookAt = performance.now(); e.preventDefault(); }
+}, true);
+
 
 /* ---------------- save ---------------- */
 function serializeFarm() {

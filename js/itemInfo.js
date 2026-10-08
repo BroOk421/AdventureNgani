@@ -69,6 +69,7 @@ function itemCategory(type, d) {
     return "Tool";
   }
   if (d.gear) return ITEM_KIND_NAMES[d.gear.kind] || "Gear";
+  if (d.cropOf) return "Crop — Food";
   if (d.consumable) return /potion|elixir/i.test(type) ? "Potion" : "Food";
   if (d.seedOf) return "Seed";
   if (d.cropOf) return "Crop";
@@ -85,7 +86,7 @@ function itemDescription(type, d) {
   if (d.weapon && d.weapon.damage) return "For fighting mobs.";
   if (d.weapon) return "A tool — equip it and press F.";
   if (d.seedOf) return "Plant it in tilled soil, water it, and wait for it to grow.";
-  if (d.cropOf) return "Harvested from the field. It can be sold.";
+  if (d.cropOf) return "Harvested from the field. Click to eat it (food, health, stamina), or sell it.";
   if (d.consumable) return "Click to eat / drink.";
   if (d.interior) return "Place it on the map — you can go inside.";
   if (d.lightGlow) return "Lights up at night.";

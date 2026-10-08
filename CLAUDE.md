@@ -6918,3 +6918,69 @@ so it all but vanished. drawCharacterGlow() now adds it x CANDLE_NIGHT_BOOST
   adds it over the scene right after the mask (flushSceneLights()) — the old
   soft warm glow, just a bit stronger since the night under it is darker.
   Lamps / wall candles still light through the mask. index.html -> ?v=20261073a.
+
+## Sword on the back facing up; Wood Sword drawn right; phone auto-target; wider Slash
+
+- js/gear.js BACK_SLING.up: front: true — facing up you see the character's back, so the slung
+  sword/bow is drawn OVER the body (hilt over the left shoulder, blade to the right hip); down /
+  sideways it stays behind. The night relight repaints the sword too (drawPlayerNightRelight
+  wrapper), or the relit body covered it. Every sword and bow.
+- The Wood Sword art is upright (12x43); everything else lies on the 40px diagonal. A diagonal
+  40x40 copy is made at load (assets.woodSwordDiag, itemDefs.woodSword.animStrip) so the sling,
+  swings and Stun place it like the other long swords (it used to sit sideways over the head).
+- Phone ATTACK (js/combat.js pickMobileTarget()): picks within 5 tiles by score = tiles away +
+  2.5 x health fraction (nearest, but a weakened mob wins when it's about as close), sets
+  autoTarget + selectedMob — runs up and keeps attacking. Phone skills (Slash / Stun) with no
+  target pick the same way within 7 tiles (SKILL_SEEK_RANGE), walk up, fire; no aiming click.
+  The picked mob is highlighted (gold ring, white outline, arrow + "Lv N Name") the whole time.
+- Slash: reach 4.5 tiles +0.15/level (was 3 +0.1), arc widened to the whole front half; the
+  wave travels the full reach, is bigger and fully opaque (fades only in its last 25%).
+  index.html -> ?v=20261074a.
+
+## Edible crops, loose seeds from harvests, sword a bit lower, bigger night lights
+
+- Harvested vegetables (crop*) are consumable (js/inventory.js CROP_EAT: food / % health /
+  % stamina, carrots 10/5/12 ... dragonfruit 28/20/30). Clicking one in the bag/hotbar eats it;
+  sacks and selling unchanged. Tooltip category "Crop — Food".
+- A ripe harvest now drops loose seeds (seedOne<Key>, "Carrot Seed" ..., one-seed icons from
+  tools/build_single_seeds.py -> assets/items/farm/seedone_*.png) instead of the grocery sachet;
+  they plant the same (seedOf). The grocery still sells the sachets.
+- BACK_SLING.up grip [26,24] -> [26,28] (the sword on the back sits a little lower).
+- Night lights wider: PLAYER_GLOW_RADIUS_SCALE 0.85 -> 1.3 (player, Maria, townsfolk, keepers),
+  POST_GLOW_WORLD_SIZE 10 -> 13 tiles (lamp posts; wall candles scale with it), corner cut 1.9.
+  index.html -> ?v=20261075a.
+
+## Axe harvests 3 tiles; drag to water up to 3 tiles
+
+- js/farm.js farmTryAxeHarvest(): with the Axe (AXE_HARVEST_TOOLS) equipped, F or a click on a
+  crop swings (slice) across 3 tiles — the target tile (front tile for F) and its two neighbours
+  ACROSS the facing (left/right of it when facing up/down, above/below when facing sideways).
+  Every ripe crop there is harvested (crop + loose seeds pop out), rotten / dried ones cleared
+  (harvestPlot()). No crop on those tiles -> the axe chops trees as before. Hovering a crop with the
+  axe outlines the 3 tiles.
+- Watering Can: press on a tilled tile, drag left or right, let go -> one pour waters 1-3 tiles of
+  that row (WATER_DRAG_MAX 3, beginWaterDrag()/endWaterDrag(); blue preview; mouse, pointer and
+  touch). A plain click / F still waters one tile. fa.tiles carries the list for "water" and
+  "axeHarvest". index.html -> ?v=20261076a.
+
+## Farming is press - drag - release; little bursts on every worked tile
+
+- js/farm.js farmDrag (beginFarmDrag / moveFarmDrag / endFarmDrag), kinds: water (can), till (hoe),
+  plant (holding seeds), axe. Nothing happens on the press. water / till / plant: drag left or right
+  along the row, up to FARM_DRAG_MAX (3) tiles incl. the pressed one, coloured preview (blue / brown /
+  green, red = can't), done to all on release (one Watering / Crush swing; seeds planted one per tile
+  while the stack lasts — plantSeedsOn()). axe: press on a crop shows its 3-tile sweep (gold), the
+  swing starts on release. F keeps working instantly on the tile in front. Seeds pressed on empty
+  tilled soil no longer go through placeHeldItemAt (stopImmediatePropagation in the capture handler).
+- farmTileFx(kind, col, row): leaves (Leaf.png sprites) + soil for a harvest, brown withered bits for a
+  rotten / dried crop, a soil puff when planting, clods when tilling — pushed into plantfx.js leafFlecks.
+  index.html -> ?v=20261077a.
+- Follow-up: the farm drag is a RECTANGLE (like the Room Hammer's), up to FARM_DRAG_MAX (3) tiles a
+  side, any direction — 1-9 tiles (farmDrag.endCol/endRow). The axe starts as its 3-tile sweep and
+  becomes the dragged rectangle once you drag off the pressed tile. index.html -> ?v=20261078a.
+- Follow-up: the drag preview is white like the Room Hammer's (red = can't). Phones: a finger's
+  pointerdown on the view is fed to farmOnMouseDown() (a phone only sends "mousedown" after the finger
+  lifts, so no drag was possible); the drag follows pointermove/touchmove and ends on pointerup. When the
+  farm took the touch, the later ghost mousedown is swallowed at the top of farmOnMouseDown()
+  (farmTouchTookAt, 900 ms). Tested with real CDP touch events: hoe / plant / water / axe drags and taps.
+  index.html -> ?v=20261079a.

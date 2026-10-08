@@ -471,6 +471,28 @@ const HAND_AT = { // 64px frame coords of the screen-right hand: idle / walk / r
 };
 const HOLD_GRIP = [7, 33]; // where the grip sits in the 40px sword art
 const HOLD_SCALE = 0.55;   // world px per art px
+/* The Wood Sword's art is the only upright one (12x43, tip up) — every other sword lies on the
+   40px diagonal (grip bottom-left at HOLD_GRIP, tip top-right). Drawn as if it were square, it came
+   out sideways (over the head on the back). A diagonal 40x40 copy is made once and used as its
+   animStrip, so the back sling, the swings and the Stun all place it like the other long swords. */
+(function makeUprightSwordsDiagonal() {
+  const fix = (id) => {
+    const d = itemDefs[id], img = d && d.icon;
+    if (!img || d.animStrip) return;
+    const go = () => {
+      if (!img.width || img.width >= img.height * 0.6) return;
+      const c = document.createElement("canvas"); c.width = c.height = 40;
+      const g = c.getContext("2d"); g.imageSmoothingEnabled = false;
+      // its handle sits at ~84% of the height, centred; tip at the top
+      g.translate(HOLD_GRIP[0], HOLD_GRIP[1]); g.rotate(Math.PI / 4);
+      g.drawImage(img, -img.width / 2, -Math.round(img.height * 0.84));
+      assets[id + "Diag"] = c;
+      d.animStrip = id + "Diag";
+    };
+    if (img.complete && img.width) go(); else img.addEventListener("load", go, { once: true });
+  };
+  fix("woodSword");
+})();
 /* Per request ("yung sa sword naman kapag idle or walk is dapat nasa likod niya
    hindi niya hawak pero kapag hit sa kalaban same parin"): while idle / walking /
    running the weapon is slung across the BACK instead of held — hilt up over a
@@ -493,8 +515,12 @@ function heldSwordStrip() {
 // (grip -> tip, degrees, 0 = right, 90 = down), and whether it's in front of the body.
 // Per request ("parang nasa harap yung sword dapat nasa likod ng character"): always BEHIND the
 // body — the hilt shows over a shoulder and the point below the other hip, whichever way you face.
+// Per request ("yung sa pag talikod ng character napupunta kasi sa harap dapat sa likod ng
+// character"): facing UP we look at the character's back, so the slung sword is drawn OVER the
+// body (front: true) — hilt over the left shoulder, blade across the back to the right hip.
+// Facing down / sideways it stays behind the body. Every sword (wood, bronze, iron, ...) and bow.
 const BACK_SLING = {
-  up:    { grip: [25, 25], dir: 62,  front: false }, // seen from behind: hilt over the left shoulder
+  up:    { grip: [26, 28], dir: 60,  front: true },  // seen from behind: on the back, over the body
   down:  { grip: [39, 25], dir: 118, front: false }, // the hilt peeks over the right shoulder, the tip by the left leg
   right: { grip: [27, 26], dir: 104, front: false }, // the back is on the left of a right-facing sprite
 };
@@ -544,6 +570,21 @@ function drawHeldSword(strip, screenX, screenY, z) {
     const r = base.apply(this, arguments);
     if (strip && front) drawHeldSword(strip, screenX, screenY, z);  // seen from behind: over the back
     return r;
+  };
+  // At night the character is repainted in its own colours over the dark wash (drawPlayerNightRelight,
+  // js/camera.js) — that repaint would cover a sword worn over the back, so it's added to the repaint too.
+  const relBase = drawPlayerNightRelight;
+  drawPlayerNightRelight = function () {
+    const strip = heldSwordStrip();
+    const facing = player.facing === "left" ? "right" : player.facing;
+    if (!strip || !(BACK_SLING[facing] || {}).front) return relBase.apply(this, arguments);
+    const sprBase = drawPlayerSprite;
+    drawPlayerSprite = function (px, py, z, g) {
+      const r = sprBase.apply(this, arguments);
+      if (g) { const keep = ctx; ctx = g; try { drawHeldSword(strip, px, py, z); } finally { ctx = keep; } }
+      return r;
+    };
+    try { return relBase.apply(this, arguments); } finally { drawPlayerSprite = sprBase; }
   };
 }
 

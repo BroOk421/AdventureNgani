@@ -239,7 +239,7 @@ function drawSleepingBed() {
 // drawPlayer() below) so it sits fully BEHIND the character, like a soft
 // light the character carries with them, rather than on top of/around
 // the art.
-const PLAYER_GLOW_RADIUS_SCALE = 0.85; // relative to the sprite's own size — "medyo malaki lang ng konti sa kanya"
+const PLAYER_GLOW_RADIUS_SCALE = 1.3; // was 0.85 — per request ("kapag sa gabi yung circle light ng character, npcs ... medyo lakihan mo lang yung sakop"); // relative to the sprite's own size — "medyo malaki lang ng konti sa kanya"
 // Candle light — per request ("yung light circle gawin mong color is
 // parang candle light"). A real flame isn't white: it's a warm amber
 // that gets noticeably more orange toward the edge of its reach, as the
@@ -2391,8 +2391,8 @@ function drawObjectLayerItemRaw(type, col, row) {
 // Was 7 tiles; per request ("medyo lakihan yung sakop ng circle light ng
 // postlight") it now reaches 10 tiles across. The corner cut grows with
 // it so the pool keeps the same soft rounded-square shape.
-const POST_GLOW_WORLD_SIZE = TILE * 10;
-const POST_GLOW_CORNER_CUT = TILE * 1.5;
+const POST_GLOW_WORLD_SIZE = TILE * 13; // was 10 — per request: the lamp posts light a wider pool too
+const POST_GLOW_CORNER_CUT = TILE * 1.9;
 
 // The candle and this lamp use the same colours, but they're drawn at
 // different points in the frame: the player's candle goes down with the
