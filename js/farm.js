@@ -65,7 +65,7 @@ function farmWorld(w = currentWorld) {
   if (!farmWorlds[w]) farmWorlds[w] = { plots: new Map(), sockets: new Map() };
   return farmWorlds[w];
 }
-function farmNow() { return ((Date.now() - dayNightEpoch) / 1000) * TIME_SCALE; } // absolute in-game seconds
+function farmNow() { return ((playNow() - dayNightEpoch) / 1000) * TIME_SCALE; } // absolute in-game seconds
 const fkey = (c, r) => c + "," + r;
 const fpos = (k) => k.split(",").map(Number);
 

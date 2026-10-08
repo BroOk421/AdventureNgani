@@ -167,6 +167,7 @@ function saveGame() {
     const d = buildSaveData();
     d.savedAt = Date.now(); // shown in the Load list (js/title.js)
     if (typeof dayNightEpoch !== "undefined") d.dayNightEpoch = dayNightEpoch; // each slot keeps its own clock / day count
+    if (typeof playNow === "function") d.playClock = playNow(); // where the play clock stopped — it resumes from here, not from "now"
     localStorage.setItem(SAVE_KEY, JSON.stringify(d));
   } catch (e) {
     console.error("Failed to save game:", e);
@@ -660,6 +661,12 @@ function loadGame() {
     return;
   }
 
+  // the play clock picks up exactly where this slot stopped (js/daynight.js playNow()).
+  // Older saves never stored it: freeze them at the moment they were last saved.
+  if (data && typeof setPlayClock === "function") {
+    if (typeof data.playClock === "number" && isFinite(data.playClock)) setPlayClock(data.playClock);
+    else if (typeof data.savedAt === "number" && data.savedAt > 0) setPlayClock(data.savedAt);
+  }
   // this slot's own clock (older saves don't have one: the clock carries on as it was)
   if (data && typeof data.dayNightEpoch === "number" && isFinite(data.dayNightEpoch) && typeof dayNightEpoch !== "undefined") {
     dayNightEpoch = data.dayNightEpoch;
@@ -733,6 +740,11 @@ function importSaveFromFile(file) {
       console.error("That file isn't valid save data:", e);
       showToast("Import failed — not a valid save file");
       return;
+    }
+    // the imported save's own clock (stopped where it was saved)
+    if (data && typeof setPlayClock === "function" && typeof data.dayNightEpoch === "number" && isFinite(data.dayNightEpoch)) {
+      const pc = typeof data.playClock === "number" ? data.playClock : data.savedAt;
+      if (typeof pc === "number" && pc > 0) { setPlayClock(pc); dayNightEpoch = data.dayNightEpoch; }
     }
     applySaveData(data);
     saveGame(); // persist the imported data as this browser's save too

@@ -67,10 +67,29 @@ function spendStat(key) {
   if (typeof saveGame === "function") saveGame();
   renderProfile();
 }
+/* Per request ("add ka lang din ng atk speed or crit atk sa bow at swords"): every sword and bow
+   adds attack speed (extra attacks / s on top of 1) and crit chance. Swords lean on speed, bows on
+   crit; higher tiers give more. Unknown weapons with damage get a small bonus from their damage. */
+const WEAPON_BONUS = {
+  woodSword: { spd: 0.15, crit: 0.02 }, bronzeSword: { spd: 0.06, crit: 0.03 }, ironSword: { spd: 0.08, crit: 0.04 },
+  goldSword: { spd: 0.10, crit: 0.05 }, crystalSword: { spd: 0.12, crit: 0.06 }, emeraldSword: { spd: 0.14, crit: 0.07 },
+  mythrilSword: { spd: 0.16, crit: 0.08 }, diamondSword: { spd: 0.18, crit: 0.10 }, dragonSword: { spd: 0.20, crit: 0.12 },
+  infernoSword: { spd: 0.22, crit: 0.14 }, celestialSword: { spd: 0.25, crit: 0.15 }, stormSword: { spd: 0.20, crit: 0.12 },
+  woodBow: { spd: 0.05, crit: 0.06 }, ironBow: { spd: 0.08, crit: 0.09 }, goldBow: { spd: 0.11, crit: 0.12 },
+  demonBow: { spd: 0.16, crit: 0.18 },
+};
+function weaponBonusOf(type) {
+  const d = type && itemDefs[type], w = d && d.weapon;
+  if (!w || !w.damage) return { spd: 0, crit: 0 };
+  if (WEAPON_BONUS[type]) return WEAPON_BONUS[type];
+  const k = Math.min(1, w.damage / 150);
+  return { spd: Math.round((0.05 + 0.15 * k) * 100) / 100, crit: Math.round((w.ranged ? 0.06 + 0.1 * k : 0.03 + 0.09 * k) * 100) / 100 };
+}
 function playerStats() {
   const w = player.equippedWeapon && itemDefs[player.equippedWeapon];
   const wOk = w && w.weapon && w.weapon.damage && !itemLocked(player.equippedWeapon);
-  const s = { atk: wOk ? w.weapon.damage : 3, def: 0, mres: 0, spd: player.equippedWeapon === "woodSword" ? 1.15 : 1.0, crit: 0.12 };
+  const s = { atk: wOk ? w.weapon.damage : 3, def: 0, mres: 0, spd: 1.0, crit: 0.12 };
+  if (wOk) { const wb = weaponBonusOf(player.equippedWeapon); s.spd += wb.spd; s.crit += wb.crit; } // per request: swords / bows carry ATK SPEED + CRIT
   for (const slot of GEAR_SLOTS) {
     const t = player.equipment[slot.id], g = t && itemDefs[t] && itemDefs[t].gear;
     if (!g || itemLocked(t)) continue;
@@ -136,9 +155,9 @@ const STAT_ROWS = [
   ["ATK", () => playerStats().atk, "Hit strength: weapon + gauntlet + rings. Reduced by the mob's DEF."],
   ["DEF", () => playerStats().def, "Armour defence against physical hits."],
   ["MAGIC RES", () => playerStats().mres, "Defence against magic hits (wisps, imps, some bosses). From helmet, armour, shield, rings."],
-  ["ATK SPEED", () => playerStats().spd.toFixed(2) + "/s", "Attacks per second. Boots add to it."],
+  ["ATK SPEED", () => playerStats().spd.toFixed(2) + "/s", "Attacks per second. Swords, bows and boots add to it."],
   ["DEF RES", () => Math.round(playerStats().defPct * 100) + "%", "How much of a physical hit your DEF takes off."],
-  ["CRIT", () => Math.round(playerStats().crit * 100) + "%", "Chance of a x1.8 hit. Rings add to it."],
+  ["CRIT", () => Math.round(playerStats().crit * 100) + "%", "Chance of a x1.8 hit. Swords, bows and rings add to it."],
   ["HIT", () => Math.round(playerStats().hit * 100) + "%", "Chance to hit (from ACC). Lower against mobs above your level."],
 ];
 const ATTR_ROWS = [
@@ -265,7 +284,7 @@ setInterval(() => {
 }, 250);
 
 /* ---------------- click a mob: walk up and keep attacking ---------------- */
-let BOW_RANGE = 5 * TILE; // a bow hits a mob up to 5 tiles away; on the phone 3 (set in js/mobile.js, per request)
+let BOW_RANGE = 6 * TILE; // a bow hits a mob up to 6 tiles away; on the phone 5 (set in js/mobile.js) — per request "medyo layuan pa yung range ng bow"
 player.autoTarget = null;
 let autoKeysHeld = new Set(), attackCooldown = 0;
 function releaseAutoKeys() { for (const k of autoKeysHeld) keys[k] = false; autoKeysHeld.clear(); }

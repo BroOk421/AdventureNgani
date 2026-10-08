@@ -195,7 +195,7 @@ function currentTreasure() {
   if (treasureLayout && treasureLayout.key === zone.key && treasureLayout.chests.length &&
       treasureLayout.chests.every((h) => st.opened[h.i])) {
     const last = Math.max(...treasureLayout.chests.map((h) => st.opened[h.i]));
-    if (Date.now() - last > TREASURE_REFILL_MS) { st.gen = (st.gen || 0) + 1; st.opened = {}; st.loot = {}; if (typeof saveGame === "function") saveGame(); }
+    if (playNow() - last > TREASURE_REFILL_MS) { st.gen = (st.gen || 0) + 1; st.opened = {}; st.loot = {}; if (typeof saveGame === "function") saveGame(); }
   }
   if (!treasureLayout || treasureLayout.key !== zone.key || treasureLayout.gen !== (st.gen || 0)) {
     // the outdoor world must be loaded first (switchWorld fills the layers)
@@ -422,7 +422,7 @@ function rollTreasureLoot(level) {
 function openTreasureChest(T, h) {
   if (!T.st.loot) T.st.loot = {};
   if (!T.st.opened[h.i]) {
-    T.st.opened[h.i] = Date.now();
+    T.st.opened[h.i] = playNow();
     player.treasure.openedTotal = (player.treasure.openedTotal || 0) + 1; // every chest ever opened (the quests count them, js/quests.js)
     const loot = rollTreasureLoot(T.zone.level);
     T.st.loot[h.i] = [{ type: "goldCoin", amount: loot.gold }].concat(loot.items.map(([type, amount]) => ({ type, amount })));

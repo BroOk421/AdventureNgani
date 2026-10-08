@@ -6996,3 +6996,28 @@ so it all but vanished. drawCharacterGlow() now adds it x CANDLE_NIGHT_BOOST
 - Planting: each seed drops in and bounces to rest (seedBounces, SEED_BOUNCE_SEC 0.75 — hops of
   |cos| x exp decay, squash on landing, a shadow, sinks into the soil), staggered 70 ms per tile in a
   drag. index.html -> ?v=20261080a.
+
+## Game time stops while the game is closed; walk-up attacks; no button spam; bow range; weapon SPD/CRIT
+
+- **Play clock** (js/daynight.js): `playNow()` = real ms that only count while playing. Paused on
+  the title screen (starts paused; main.js start() calls `startPlayClock()`), while the tab/app is
+  in the background (visibilitychange, pagehide, Capacitor pause/resume) and between sessions:
+  each save stores `playClock` and loading sets `setPlayClock()` (old saves: their `savedAt`).
+  Everything that used the wall clock for game time reads it now: the day/night clock
+  (dayNightEpoch), so day / season / weather; farm growth (farmNow()); resource respawns; house
+  builds; chest refills; a new game's 06:00 start. Closing the game for hours and coming back
+  resumes at the same time, weather and crop state.
+- **Attack button / F** (js/combat.js, wrapper after the phone seek one): with a sword, bow or bare
+  hands (any tool on the phone, except room tools / fishing rod) a press with no target picks the
+  highlighted mob, else the nearest/weakest within `attackSeekRange()` (5 tiles; bow: its range +
+  2) and the character WALKS UP to it, then attacks on the ATK SPEED timer (autoAttackTick()).
+  Desktop too now (outdoors only with a fight weapon, so the axe/pickaxe still chop/break).
+  Presses during a swing / the cooldown are dropped (they used to start a swing at once — spamming
+  the phone button was a free attack-speed boost); a swing in the air starts the cooldown.
+  Measured: same number of swings with or without spamming.
+- **Bow range**: BOW_RANGE 6 tiles desktop (was 5), 5 tiles phone (was 3); outdoor F gate and the
+  auto-aim use it.
+- **Weapon SPD/CRIT** (js/gear.js WEAPON_BONUS / weaponBonusOf()): every sword and bow adds attack
+  speed and crit (wood sword +0.15/s +2% ... celestial +0.25/s +15%; bows +0.05..0.16/s,
+  +6..18% crit); unknown damage weapons get one from their damage. Shown in the tooltip (+ bow
+  range) and the profile's descriptions. index.html -> ?v=20261081a.

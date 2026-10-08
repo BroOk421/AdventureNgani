@@ -4108,8 +4108,8 @@ function startConstruction(type, col, row) {
     type,
     col,
     row,
-    startAt: Date.now(),
-    finishAt: Date.now() + itemDefs[type].buildSeconds * 1000,
+    startAt: playNow(),
+    finishAt: playNow() + itemDefs[type].buildSeconds * 1000,
   });
 }
 
@@ -4128,7 +4128,7 @@ function startConstruction(type, col, row) {
 // bar) until they step off it, rather than ever locking the player in.
 function updateConstructions() {
   if (pendingConstructions.size === 0) return;
-  const now = Date.now();
+  const now = playNow();
   pendingConstructions.forEach((info, key) => {
     if (now < info.finishAt) return;
     if (wouldObjectTrapPlayer(info.type, info.col, info.row)) return; // keep waiting — try again next frame

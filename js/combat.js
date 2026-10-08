@@ -82,7 +82,7 @@ function autoAimMob() {
   const st = zone && mineStates[mobZoneKey()];
   if (!st) return null;
   const w = player.equippedWeapon && itemDefs[player.equippedWeapon];
-  const range = w && w.weapon && w.weapon.ranged ? BOW_AUTO_RANGE : SWORD_AUTO_RANGE;
+  const range = w && w.weapon && w.weapon.ranged ? (typeof BOW_RANGE !== "undefined" ? BOW_RANGE : BOW_AUTO_RANGE) : SWORD_AUTO_RANGE;
   const fx = player.x, fy = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
   let best = null, bd = 1e9;
   for (const m of st.mobs) {
@@ -314,6 +314,59 @@ function pickMobileTarget(range) {
       if (best) { harvestRequested = false; player.autoTarget = best; player.selectedMob = best; }
     }
     return base.apply(this, arguments);
+  };
+}
+
+/* Per request ("kapag lumayo kapag click ng attack is dapat lumalapit yung character sa mobs na yun
+   lalakad tapos tyaka mag hit ... yung sa mobile button atk is na spam yung hit kaya nag spam din
+   parang naka atk speed"):
+   - F / the ATTACK button with a sword or bow (or bare hands) always goes through the target: if one
+     is being attacked it just keeps going (walks up, swings on its own ATK SPEED timer); if none,
+     the nearest / weakest mob in seek range is picked and the character WALKS UP to it first, then
+     hits. Desktop and phone alike (in mob zones; outdoors on the desktop only with a sword / bow /
+     bare hands, so the axe and pickaxe still chop and break).
+   - A press can never start a swing faster than ATK SPEED allows: presses during a swing or the
+     cooldown are dropped (they used to start a new swing straight away — spamming the button was a
+     free attack-speed boost). A swing in the air also starts the cooldown. */
+function isFightWeaponEquipped() {
+  const t = player.equippedWeapon;
+  if (!t) return true;
+  const d = itemDefs[t];
+  return !!(d && d.weapon && d.weapon.damage);
+}
+function attackSeekRange() {
+  const d = player.equippedWeapon && itemDefs[player.equippedWeapon];
+  const ranged = d && d.weapon && d.weapon.ranged;
+  return Math.max(ATTACK_SEEK_RANGE, ranged && typeof BOW_RANGE !== "undefined" ? BOW_RANGE + 2 * TILE : 0);
+}
+function attackIntervalNow() {
+  const iv = isSwordWeapon(player.equippedWeapon) ? SWORD_ATTACK_INTERVAL : 1;
+  return iv / Math.max(0.3, playerStats().spd);
+}
+{
+  const base = mineIndoorUpdate;
+  mineIndoorUpdate = function (dt) {
+    const zone = typeof currentMineRoom === "function" ? currentMineRoom() : null;
+    const st = zone && mineStates[mobZoneKey()];
+    const t = player.equippedWeapon;
+    if (harvestRequested && st && !player.skillAnim &&
+        !(typeof isRoomTool === "function" && isRoomTool(t)) && t !== "fishingRod" &&
+        (isMobileMode() || zone.kind !== "world" || isFightWeaponEquipped())) {
+      const tgt = player.autoTarget;
+      const alive = tgt && tgt.state !== "dead" && !tgt.gone && st.mobs.includes(tgt);
+      if (alive) harvestRequested = false;                       // already on it: walk up / swing on the timer
+      else {
+        const sel = player.selectedMob, fx = player.x, fy = player.y + (SPRITE_FEET_FRACTION - 0.5) * DRAW_SIZE;
+        const selOk = sel && sel.state !== "dead" && !sel.gone && st.mobs.includes(sel) && Math.hypot(sel.x - fx, sel.y - fy) <= attackSeekRange() + 2 * TILE;
+        const best = selOk ? sel : pickMobileTarget(attackSeekRange()); // a highlighted mob comes first
+        if (best) { harvestRequested = false; player.autoTarget = best; player.selectedMob = best; }
+        else if (player.mineSwing || player.action || attackCooldown > 0) harvestRequested = false; // no spam
+      }
+    }
+    const pressed = harvestRequested && !player.mineSwing;
+    const r = base.apply(this, arguments);
+    if (pressed && !harvestRequested && player.mineSwing) attackCooldown = Math.max(attackCooldown, attackIntervalNow());
+    return r;
   };
 }
 

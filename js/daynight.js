@@ -37,6 +37,43 @@
 // the clock keeps flowing exactly as if it never stopped — refreshing, or
 // even closing the browser and coming back later, picks up at the correct
 // time instead of resetting to sunrise.
+/* --- Play clock (per request: "kapag exit ... mag stop lang tapos kapag mag
+   game lang ulit tyaka mag continue") ------------------------------------
+   Every game timer (the day/night clock, weather by day/season, crops,
+   resource respawns, house builds, chest refills) used to run on the real
+   wall clock, so hours/days kept passing while the game was closed. They all
+   read playNow() now instead: real milliseconds that only count while the
+   game is actually being played. It stands still on the title screen, while
+   the app/tab is in the background, and between sessions (each save slot
+   stores its own playNow() value — "playClock" — and picks up exactly there). */
+let playClockOffset = 0;        // real ms that did NOT count as play time
+let playClockPausedAt = Date.now(); // starts paused (title screen) — start() in main.js resumes it
+let playClockWanted = false;    // true once the game has started (visibility changes only pause/resume after that)
+function playNow() { return (playClockPausedAt !== null ? playClockPausedAt : Date.now()) - playClockOffset; }
+function pausePlayClock() { if (playClockPausedAt === null) playClockPausedAt = Date.now(); }
+function resumePlayClock() {
+  if (playClockPausedAt === null) return;
+  playClockOffset += Date.now() - playClockPausedAt;
+  playClockPausedAt = null;
+}
+// Jump the play clock to a saved value (loading a slot) — keeps paused/running as it was.
+function setPlayClock(v) {
+  if (typeof v !== "number" || !isFinite(v)) return;
+  const n = Date.now();
+  playClockOffset = n - v;
+  if (playClockPausedAt !== null) playClockPausedAt = n;
+}
+function startPlayClock() { playClockWanted = true; if (!document.hidden) resumePlayClock(); }
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) pausePlayClock();
+  else if (playClockWanted) resumePlayClock();
+});
+window.addEventListener("pagehide", pausePlayClock);
+window.addEventListener("pageshow", () => { if (playClockWanted && !document.hidden) resumePlayClock(); });
+// Android app (Capacitor) going to the background / coming back
+document.addEventListener("pause", pausePlayClock, false);
+document.addEventListener("resume", () => { if (playClockWanted) resumePlayClock(); }, false);
+
 const DAYNIGHT_STORAGE_KEY = "rpg-prototype-daynight-epoch-v1";
 
 function loadOrInitDayNightEpoch() {
@@ -48,7 +85,7 @@ function loadOrInitDayNightEpoch() {
   }
   // First time ever: pick an epoch so "right now" lands at sunrise (06:00),
   // same as the old fixed starting point, then remember it.
-  const epoch = Date.now() - (SUNRISE_HOUR * 3600 * 1000) / TIME_SCALE;
+  const epoch = playNow() - (SUNRISE_HOUR * 3600 * 1000) / TIME_SCALE;
   try {
     localStorage.setItem(DAYNIGHT_STORAGE_KEY, String(epoch));
   } catch (e) {
@@ -63,7 +100,7 @@ let gameSeconds = SUNRISE_HOUR * 3600; // overwritten on the very first updateDa
 let gameDay = 1; // overwritten on the very first updateDayNight() call too — see getGameDay()
 
 function updateDayNight() {
-  const realElapsedSeconds = (Date.now() - dayNightEpoch) / 1000;
+  const realElapsedSeconds = (playNow() - dayNightEpoch) / 1000; // play time only — stops while the game is closed
   const gameElapsedSeconds = realElapsedSeconds * TIME_SCALE;
   // Proper positive modulo (realElapsedSeconds is always >= 0 in practice,
   // but this keeps it safe regardless).

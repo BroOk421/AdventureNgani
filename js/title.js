@@ -498,7 +498,7 @@ function titlePlay(slot, isNew) {
     titleFade.querySelector(".msg").textContent = "";
     const alreadyRunning = typeof saveGameReady !== "undefined" && saveGameReady; // an older main.js started it by itself
     if (fresh && typeof dayNightEpoch !== "undefined") { // a new game starts on a fresh morning
-      dayNightEpoch = Date.now() - (SUNRISE_HOUR * 3600 * 1000) / TIME_SCALE;
+      dayNightEpoch = playNow() - (SUNRISE_HOUR * 3600 * 1000) / TIME_SCALE;
       try { localStorage.setItem(DAYNIGHT_STORAGE_KEY, String(dayNightEpoch)); } catch (e) { /* ignore */ }
     }
     if (!alreadyRunning) { try { start(); } catch (e) { console.error("Game failed to start:", e); } }

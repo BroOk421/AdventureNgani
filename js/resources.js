@@ -276,7 +276,7 @@ function resolveHarvestHit(target) {
     const respawnType = def.resource.respawnAs || type;
     pendingRespawns.set(key, {
       type: respawnType,
-      respawnAt: Date.now() + def.resource.respawnMinutes * 60 * 1000,
+      respawnAt: playNow() + def.resource.respawnMinutes * 60 * 1000,
       world: typeof currentWorld !== "undefined" ? currentWorld : "main", // regrows in the world it was cut in
     });
   }
@@ -290,7 +290,7 @@ function resolveHarvestHit(target) {
 // while the tab is closed, instead of pausing.
 function updateResources() {
   if (pendingRespawns.size === 0) return;
-  const now = Date.now();
+  const now = playNow();
   const here = typeof currentWorld !== "undefined" ? currentWorld : "main";
   pendingRespawns.forEach((info, key) => {
     // Only in its own world (older entries had no world: the town). A tree

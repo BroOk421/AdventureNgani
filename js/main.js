@@ -104,6 +104,7 @@ function start() {
   setupWaiterClickHandler(); // stoves, serving customers, picking up tips (js/waiter.js) — capture phase, runs first
   renderGoldDisplays(); // shows the starting/restored gold total right away, not just after the first purchase
   updateStatsHUD(); // shows the starting/restored stat values right away too, same reasoning
+  if (typeof startPlayClock === "function") startPlayClock(); // game time only runs from here on (js/daynight.js)
   last = performance.now();
   requestAnimationFrame(loop);
   revealGameWhenSettled();

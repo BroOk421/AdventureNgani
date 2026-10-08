@@ -100,6 +100,12 @@ function itemStatLines(type, d) {
   const bonus = typeof upgradeBonus === "function" ? upgradeBonus(type, up.lvl || 0) : { atk: 0, def: 0, mres: 0 };
   const plus = (v, b) => v + (b ? ' <span class="up">(+' + b + ")</span>" : "");
   if (d.weapon && d.weapon.damage) out.push("Damage: " + plus(d.weapon.damage, bonus.atk) + (d.weapon.ranged ? " · malayo" : ""));
+  if (d.weapon && d.weapon.damage && typeof weaponBonusOf === "function") {
+    const wb = weaponBonusOf(type);
+    if (wb.spd) out.push("Attack speed: +" + Math.round(wb.spd * 100) + "%");
+    if (wb.crit) out.push("Crit: +" + Math.round(wb.crit * 100) + "%");
+    if (d.weapon.ranged && typeof BOW_RANGE !== "undefined") out.push("Range: " + Math.round(BOW_RANGE / TILE) + " tiles");
+  }
   const g = d.gear;
   if (g) {
     if (g.atk) out.push("ATK: " + plus(g.atk, bonus.atk));

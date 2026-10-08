@@ -630,7 +630,7 @@ function mineIndoorUpdate(dt) {
   if (harvestRequested && !(typeof isRoomTool === "function" && isRoomTool(player.equippedWeapon))) {
     // outdoors F still chops trees / breaks stones unless a mob is right there
     const wpn = player.equippedWeapon && itemDefs[player.equippedWeapon];
-    if (room.kind === "world" && !mobInFront(st, isMobileMode() ? (wpn && wpn.weapon && wpn.weapon.ranged ? 3 : 2) * TILE + 8 : (wpn && wpn.weapon && wpn.weapon.ranged ? 5 * TILE + 8 : 40))) return false; // phone: a mob within 2 tiles (bow 3); desktop as before — otherwise F still chops / breaks
+    if (room.kind === "world" && !mobInFront(st, wpn && wpn.weapon && wpn.weapon.ranged ? BOW_RANGE + 8 : (isMobileMode() ? 2 * TILE + 8 : 40))) return false; // phone: a mob within 2 tiles (bow 3); desktop as before — otherwise F still chops / breaks
     harvestRequested = false;
     startMineSwing();
     return true;
