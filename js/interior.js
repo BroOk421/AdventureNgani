@@ -1221,6 +1221,8 @@ function tryGrabOrPlaceIndoorItemInFront() {
     saveGame();
     return;
   }
+  // towns / mob maps (and their rooms): nothing can be picked up — js/inventory.js isGrabLockedHere()
+  if (typeof isGrabLockedHere === "function" && isGrabLockedHere()) { grabLockedToast(); return; }
 
   // Nothing in hand yet — look for something grabbable, same "most on
   // top first" priority the outdoor version uses (decorLayer before the

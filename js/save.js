@@ -637,6 +637,9 @@ function legacyItemCountsFromOldInventoryArray(oldInventory) {
   return counts;
 }
 
+// true while a new game is being built from DEFAULT_MAP_SAVE (js/freshStart.js keeps that map as it is)
+let loadingDefaultMap = false;
+
 function loadGame() {
   saveGameReady = true; // from here on, saving is safe — the old save is read synchronously right below
   let raw;
@@ -648,8 +651,9 @@ function loadGame() {
   }
   if (!raw) { // nothing saved yet: a new game starts on the default map (js/defaultMap.data.js)
     if (typeof DEFAULT_MAP_SAVE !== "undefined") {
-      try { applySaveData(JSON.parse(JSON.stringify(DEFAULT_MAP_SAVE))); saveGame(); } catch (e) { console.error("Default map failed to load:", e); }
+      try { loadingDefaultMap = true; applySaveData(JSON.parse(JSON.stringify(DEFAULT_MAP_SAVE))); saveGame(); } catch (e) { console.error("Default map failed to load:", e); }
     }
+    loadingDefaultMap = false;
     return;
   }
 

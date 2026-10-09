@@ -4422,6 +4422,24 @@ function findGrabbableHere(layer, here) {
   return type ? { type, col: here.col, row: here.row } : null;
 }
 
+// Per request: in the towns (the market town + the homes town) and every map with mobs (the far
+// worlds, the mine levels) — rooms included — placed objects can't be picked up (E) any more. Other
+// maps (the wild world with your House, the Greenwood) work as before. Dev mode (?dev=1) can still.
+const GRAB_LOCKED_WORLDS = ["main", "town2"];
+let grabLockToastAt = 0;
+function isGrabLockedHere() {
+  if (typeof isDevMode === "function" && isDevMode()) return false;
+  if (typeof currentWorld !== "undefined" && GRAB_LOCKED_WORLDS.includes(currentWorld)) return true;
+  if (typeof MOB_WORLDS !== "undefined" && typeof currentWorld !== "undefined" && MOB_WORLDS[currentWorld]) return true;
+  if (typeof currentMineRoom === "function" && currentMineRoom()) return true;
+  return false;
+}
+function grabLockedToast() {
+  if (performance.now() - grabLockToastAt < 2500 || typeof showToast !== "function") return;
+  grabLockToastAt = performance.now();
+  showToast("Things here can't be picked up");
+}
+
 function tryGrabOrPlaceInFront() {
   if (player.grabbedType) {
     const type = player.grabbedType;
@@ -4445,6 +4463,7 @@ function tryGrabOrPlaceInFront() {
     saveGame();
     return;
   }
+  if (isGrabLockedHere()) { grabLockedToast(); return; }
 
   // Nothing in hand yet — try to grab, checked in the same "most on top
   // first" priority as before (decorLayer, objectLayer, groundLayer,

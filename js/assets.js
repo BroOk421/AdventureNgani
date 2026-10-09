@@ -1291,7 +1291,7 @@ for (const id of ["lava1", "lava2", "lava3", "waterfall"]) { assets[id] = new Im
 for (const id of ["woodAxe", "woodPickaxe"]) { assets[id] = new Image(); assets[id].src = "assets/items/tools/" + id + ".png"; } // the starter axe / pickaxe (js/freshStart.js)
 for (const id of ["fishingRod", "fishTilapia", "fishBangus", "fishLapu", "fishKoi"]) { assets[id] = new Image(); assets[id].src = "assets/items/fish/" + id + ".png"; } // fishing (js/fishing.js)
 assets.dirtRakeAuto = new Image();
-assets.dirtRakeAuto.src = "assets/items/vegetables/dirtrake_auto.png";
+assets.dirtRakeAuto.src = "assets/items/vegetables/dirtrake_auto.png?v=2";
 assets.dirtWet.src = "assets/items/vegetables/dirtwet.png";
 assets.plantDrawer.src = "assets/items/vegetables/plantdrawer.png";
 assets.plotSocketOpen.src = "assets/items/vegetables/socketopen.png";

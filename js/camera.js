@@ -2421,6 +2421,22 @@ function roundRectPath(g, x, y, w, h, r) {
   g.closePath();
 }
 
+// Every ground tile box (placement grid, room tools, farm tools, building footprints — outdoors and in
+// rooms) is drawn with this: per request, a white border with 5px rounded corners (red = can't).
+const TILE_BOX_WHITE = "rgba(255,255,255,0.95)";
+const TILE_BOX_RED = "rgba(220,40,40,0.95)";
+const TILE_BOX_RADIUS_CSS = 5;
+function tileBoxRadius() { return TILE_BOX_RADIUS_CSS * (view.width / Math.max(1, window.innerWidth)); }
+function strokeTileBox(x, y, w, h, color, lineWidth, fillColor) {
+  const lw = lineWidth || 1;
+  const r = tileBoxRadius();
+  roundRectPath(ctx, x + lw / 2, y + lw / 2, w - lw, h - lw, r);
+  if (fillColor) { ctx.fillStyle = fillColor; ctx.fill(); }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw;
+  ctx.stroke();
+}
+
 // A soft SQUARE pool of light with its corners taken off, rather than a
 // disc — a lamp on a post throws light across the ground it stands on,
 // not a neat circle. Built by blurring two nested rounded squares onto
@@ -3339,16 +3355,14 @@ function drawPlacementRange(camX, camY) {
       // tile is, and shown the same way here.
       const isOwnTileAndCollides = itemDefs[holdingType].collides && col === p.col && row === p.row;
       const color = ((existingId === null || canReplaceGroundItem(existingId, holdingType)) && !isOwnTileAndCollides)
-        ? "rgba(255,255,255,0.55)"  // empty on this layer — valid to place
-        : "rgba(220,40,40,0.9)";    // occupied, or would trap the player — blocked
+        ? TILE_BOX_WHITE  // empty on this layer — valid to place
+        : TILE_BOX_RED;   // occupied, or would trap the player — blocked
 
       // +0.5 aligns the stroke to the pixel grid so a 1px lineWidth renders
       // as a genuinely crisp 1px line instead of a blurry ~2px line (a
       // stroke centered on a whole-number coordinate straddles two rows/
       // columns of pixels and gets anti-aliased into a soft double line).
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(screenX + 0.5, screenY + 0.5, size - 1, size - 1);
+      strokeTileBox(screenX, screenY, size, size, color, 1);
     }
   }
 }
@@ -3525,12 +3539,10 @@ function drawInteriorPlacementRange(room, camX, camY) {
       // up there, so for those this stays white.
       const onWall = isInteriorPlacementBlocked(room, holdingType, col, row);
       const color = (!occupied && !isOwnTileBlocked && !onWall)
-        ? "rgba(255,255,255,0.55)"
-        : "rgba(220,40,40,0.9)";
+        ? TILE_BOX_WHITE
+        : TILE_BOX_RED;
 
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(screenX + 0.5, screenY + 0.5, size - 1, size - 1);
+      strokeTileBox(screenX, screenY, size, size, color, 1);
     }
   }
 }
@@ -3548,13 +3560,11 @@ function drawRoomToolHighlight(room, camX, camY) {
   const size = TILE * zoom;
   const maxCol = Math.ceil(room.width / TILE) - 1;
   const maxRow = Math.ceil(room.height / TILE) - 1;
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "rgba(255,255,255,0.55)";
   for (let row = p.row - PLACEMENT_RANGE; row <= p.row + PLACEMENT_RANGE; row++) {
     for (let col = p.col - PLACEMENT_RANGE; col <= p.col + PLACEMENT_RANGE; col++) {
       if (col < 0 || row < 0 || col > maxCol || row > maxRow) continue;
       const sx = Math.round((col * TILE - camX) * zoom), sy = Math.round((row * TILE - camY) * zoom);
-      ctx.strokeRect(sx + 0.5, sy + 0.5, size - 1, size - 1);
+      strokeTileBox(sx, sy, size, size, TILE_BOX_WHITE, 1);
     }
   }
   // The strip the next swing would change: aimed by the mouse when it's in
@@ -3568,11 +3578,7 @@ function drawRoomToolHighlight(room, camX, camY) {
     const ok = plan.ok && t.ok;
     if (!ok && plan.ok) continue; // a skipped tile of a good strip: leave it unmarked
     const sx = Math.round((t.col * TILE - camX) * zoom), sy = Math.round((t.row * TILE - camY) * zoom);
-    ctx.fillStyle = ok ? "rgba(255,255,255,0.22)" : "rgba(220,40,40,0.25)";
-    ctx.fillRect(sx, sy, size, size);
-    ctx.strokeStyle = ok ? "rgba(255,255,255,0.95)" : "rgba(220,40,40,0.95)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(sx + 1, sy + 1, size - 2, size - 2);
+    strokeTileBox(sx, sy, size, size, ok ? TILE_BOX_WHITE : TILE_BOX_RED, 2, ok ? "rgba(255,255,255,0.22)" : "rgba(220,40,40,0.25)");
   }
   ctx.lineWidth = 1;
 }
@@ -3592,16 +3598,14 @@ function drawHouseFootprintPreview(camX, camY, type) {
   const { col, row } = screenToTile(lastMouseClientX, lastMouseClientY);
   const tiles = getMultiTileFootprintTiles(type, col, row);
   const valid = canPlaceHouseFootprint(type, col, row);
-  const color = valid ? "rgba(255,255,255,0.55)" : "rgba(220,40,40,0.9)";
+  const color = valid ? TILE_BOX_WHITE : TILE_BOX_RED;
   const size = TILE * zoom;
 
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
   tiles.forEach((t) => {
     if (t.col < 0 || t.row < 0 || t.col >= COLS || t.row >= ROWS) return;
     const screenX = Math.round((t.col * TILE - camX) * zoom);
     const screenY = Math.round((t.row * TILE - camY) * zoom);
-    ctx.strokeRect(screenX + 0.5, screenY + 0.5, size - 1, size - 1);
+    strokeTileBox(screenX, screenY, size, size, color, 1);
   });
 
   const r = getMultiTileFootprintRect(type, col, row);
@@ -3609,8 +3613,7 @@ function drawHouseFootprintPreview(camX, camY, type) {
   const ry = Math.round((r.topRow * TILE - camY) * zoom);
   const rw = (r.rightCol - r.leftCol + 1) * size;
   const rh = (r.bottomRow - r.topRow + 1) * size;
-  ctx.lineWidth = 2;
-  ctx.strokeRect(rx + 1, ry + 1, rw - 2, rh - 2);
+  strokeTileBox(rx, ry, rw, rh, color, 2);
 }
 
 // Draws every in-progress house build (js/inventory.js's
@@ -4249,8 +4252,8 @@ function render() {
   drawSnowGroundFill(); // while it snows, the grass fill shows as snow (js/snowground.js)
 
   drawDirtLayer();       // 1 — bare earth, the bottom of the stack
-  if (typeof drawFarmSoil === "function") drawFarmSoil(); // wet tilled soil (js/farm.js)
   drawFlatGroundItems(); // 2 — grass / water / port tiles
+  if (typeof drawRakeOverGround === "function") drawRakeOverGround(); // tilled soil's rim over the grass next to it (js/farm.js)
   drawGroundOverlay();   // 2 over — mushrooms, flowers, leaves, lit-window glow: on the ground, not instead of it
   drawStairsLayer();     // Dirt Stairs — over the mountain wall they're on, under the characters
   drawTreeGroundShadows(); // soft shadows under the trees, daytime only (assets/shadows/)

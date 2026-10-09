@@ -85,7 +85,8 @@ function applyFreshStart() {
   player.treasure = { zones: {} };
   player.autoTarget = null; player.selectedMob = null;
   // the wild world
-  if (typeof worldStore !== "undefined") {
+  // (a new game on the default map — js/defaultMap.data.js — keeps that map exactly as it was made)
+  if (typeof worldStore !== "undefined" && !(typeof loadingDefaultMap !== "undefined" && loadingDefaultMap)) {
     if (worldStore.wild) cleanWildWorld(worldStore.wild);
     else if (typeof WILD_WORLD_DEFAULT !== "undefined") worldStore.wild = cleanWildWorld({ placedItems: WILD_WORLD_DEFAULT.placedItems.slice(), groundFill: WILD_WORLD_DEFAULT.groundFill });
     if (typeof currentWorld !== "undefined" && currentWorld === "wild") { // already in it: clear the live layers too

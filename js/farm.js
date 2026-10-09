@@ -914,7 +914,19 @@ function wetRakeArt() {
   wetRakeCanvas = cv;
   return cv;
 }
-// Wet soil: the Dirt Rake drawn darker on top of itself (js/camera.js, right after the dirt layer).
+// The tilled soil's lumpy rim reaches 4px past its tile, onto the NEIGHBOUR's
+// cell — but grass (layer 2) is drawn after layer 1 and covered it, so every
+// side next to grass came out straight. The pieces are drawn again here, over
+// layer 2 (js/camera.js, right after drawFlatGroundItems()), dry then wet.
+function drawRakeOverGround() {
+  if (player.scene !== "outside") return;
+  const sheet = assets.dirtRakeAuto;
+  if (!sheet || !sheet.complete || !sheet.naturalWidth) return;
+  ctx.imageSmoothingEnabled = false;
+  forEachTileInView(dirtLayer, (type, col, row) => { if (type === "dirtRake") drawRakePiece(sheet, col, row); });
+  drawFarmSoil();
+}
+// Wet soil: the Dirt Rake drawn darker on top of itself.
 function drawFarmSoil() {
   if (player.scene !== "outside") return;
   const now = farmNow();
@@ -1023,9 +1035,7 @@ function farmDrawables() {
 function strokeTile(c, r, strong) {
   const s = TILE * zoom;
   const x = Math.round((c * TILE - camX) * zoom), y = Math.round((r * TILE - camY) * zoom);
-  ctx.strokeStyle = strong ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.55)";
-  ctx.lineWidth = strong ? 2 : 1;
-  ctx.strokeRect(x + (strong ? 1 : 0.5), y + (strong ? 1 : 0.5), s - (strong ? 2 : 1), s - (strong ? 2 : 1));
+  strokeTileBox(x, y, s, s, TILE_BOX_WHITE, strong ? 2 : 1);
 }
 // The white borders: only the tiles that can be used right now, in reach.
 function drawFarmHighlights() {
@@ -1037,6 +1047,21 @@ function drawFarmHighlights() {
   const mouse = screenToTile(lastMouseClientX, lastMouseClientY);
   const mouseIn = inFarmRange(mouse.col, mouse.row);
   ctx.save();
+  // Axe / Pickaxe: the same white box on every tree / stone in reach that it can break (the first
+  // one — what F hits — drawn thicker), so every tool shows its ground box the same way.
+  if (empty && (tool === "woodAxe" || tool === "woodPickaxe")) {
+    const want = tool === "woodAxe" ? "slice" : "crush";
+    let first = true;
+    for (let r = p.row - HARVEST_RANGE; r <= p.row + HARVEST_RANGE; r++) {
+      for (let c = p.col - HARVEST_RANGE; c <= p.col + HARVEST_RANGE; c++) {
+        const type = getLayerItemId(objectLayer, c, r);
+        const res = type && itemDefs[type] && itemDefs[type].resource;
+        if (!res || res.breakAnim !== want || isProtectedTownTree(type)) continue;
+        strokeTile(c, r, first);
+        first = false;
+      }
+    }
+  }
   for (let r = p.row - FARM_RANGE; r <= p.row + FARM_RANGE; r++) {
     for (let c = p.col - FARM_RANGE; c <= p.col + FARM_RANGE; c++) {
       let ok = false;
@@ -1054,10 +1079,7 @@ function drawFarmHighlights() {
     for (const t of farmDragTiles()) {
       const sz = TILE * zoom, x = Math.round((t.col * TILE - camX) * zoom), y = Math.round((t.row * TILE - camY) * zoom);
       const ok = farmDragTileOk(farmDrag.kind, t.col, t.row);
-      ctx.fillStyle = ok ? "rgba(255,255,255,0.22)" : "rgba(220,40,40,0.25)";
-      ctx.fillRect(x, y, sz, sz);
-      ctx.strokeStyle = ok ? "rgba(255,255,255,0.95)" : "rgba(220,40,40,0.95)"; ctx.lineWidth = 2;
-      ctx.strokeRect(x + 1, y + 1, sz - 2, sz - 2);
+      strokeTileBox(x, y, sz, sz, ok ? TILE_BOX_WHITE : TILE_BOX_RED, 2, ok ? "rgba(255,255,255,0.22)" : "rgba(220,40,40,0.25)");
     }
   }
   // the axe: the 3 tiles one swing would harvest, round the crop under the cursor

@@ -7021,3 +7021,44 @@ so it all but vanished. drawCharacterGlow() now adds it x CANDLE_NIGHT_BOOST
   speed and crit (wood sword +0.15/s +2% ... celestial +0.25/s +15%; bows +0.05..0.16/s,
   +6..18% crit); unknown damage weapons get one from their damage. Shown in the tooltip (+ bow
   range) and the profile's descriptions. index.html -> ?v=20261081a.
+
+## Rounded white tile boxes; no picking up in towns / mob maps; new default map
+
+- js/camera.js strokeTileBox() (TILE_BOX_WHITE / TILE_BOX_RED, 5 CSS px radius via roundRectPath()):
+  every ground tile box — the placement grid outdoors and in rooms, the house footprint preview, the
+  Room Pickaxe / Hammer highlight, the farm boxes (hoe, watering can, seeds, axe-harvest, drags) —
+  is white with rounded corners (red = can't). js/farm.js drawFarmHighlights() also boxes every
+  tree (Axe) / breakable stone (Pickaxe) in reach, the one F hits thicker.
+- js/inventory.js isGrabLockedHere(): E can't pick up placed objects in the towns (main, town2),
+  the mob worlds (MOB_WORLDS) or a mine level — rooms included (checked in
+  tryGrabOrPlaceInFront() and tryGrabOrPlaceIndoorItemInFront(), toast "Things here can't be
+  picked up"). Putting down something already in hand still works. Dev mode ignores it.
+  GRAB_LOCKED_WORLDS holds the town ids.
+- js/defaultMap.data.js rebuilt from rpg-save-20261009-0906.json by the new
+  tools/build_default_map.py (map keys only — placed items, ground, worlds, rooms, tilled soil
+  without crops, start spot, map-edit flags incl. roomCandles; no items/gold/level/quests).
+  js/save.js sets loadingDefaultMap while applying it, and js/freshStart.js then skips its
+  wild-world clean-up so the map stays exactly as made; the fresh-start progress wipe still runs.
+  Existing saves are untouched. index.html -> ?v=20261082a.
+
+## Tilled soil: lumpy rim on every open side
+
+- tools/build_dirtrake_auto.py rebuilds assets/items/vegetables/dirtrake_auto.png
+  (16 pieces, N1|E2|S4|W8). The old pieces were cut from the lopsided clod, so
+  only the top/left edges were lumpy — right/bottom came out nearly straight.
+  Now every OPEN side gets the same two-lump bulge (PROFILE, up to 3px past the
+  tile), every open-open corner is rounded (CORNER_R 5), closed sides stay
+  straight and seamless, so straight joins only happen inside a patch. Soil
+  texture = the old closed piece's 16x16 fill; down-facing rim pixels darkest,
+  side-facing one step darker. Loaded as dirtrake_auto.png?v=2.
+  index.html -> ?v=20261083a.
+
+## Tilled soil's rim drawn over the grass
+
+- The rounded rim (entry above) still showed as straight sides in game: the
+  rim reaches 4px past its tile onto the NEIGHBOUR's cell, and layer 2 (grass)
+  is drawn after layer 1 (dirtLayer), so the grass next to it covered it. The
+  art was fine. js/farm.js drawRakeOverGround() draws every dirtRake piece in
+  view again (dry, then the wet overlay via drawFarmSoil()) right after
+  drawFlatGroundItems() in js/camera.js render(); the old separate
+  drawFarmSoil() call before layer 2 is gone. index.html -> ?v=20261084a.
